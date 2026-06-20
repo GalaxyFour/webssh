@@ -111,19 +111,19 @@ Web SSH Terminal is a self-hosted web application that provides secure SSH acces
 ### Docker (Recommended)
 
 ```bash
-# Generate a secure secret key
-export SECRET_KEY=$(openssl rand -hex 32)
-
-# Run with Docker
+# Run with Docker — SECRET_KEY is auto-generated and persisted to the volume
 docker run -d \
   --name webssh \
   -p 5000:5000 \
-  -e SECRET_KEY=$SECRET_KEY \
   -e CORS_ORIGINS=http://localhost:5000 \
   -v webssh_data:/app/data \
   --restart unless-stopped \
   ghcr.io/bifrost0x/webssh:latest
 ```
+
+> **Note:** Mounting a volume on `/app/data` keeps your users, keys, and the
+> generated `SECRET_KEY` across updates. Set `SECRET_KEY` explicitly only for
+> multi-replica deployments.
 
 Open http://localhost:5000 and create your first account.
 
@@ -133,11 +133,7 @@ Open http://localhost:5000 and create your first account.
 # Download docker-compose.yml
 curl -O https://raw.githubusercontent.com/bifrost0x/webssh/main/docker-compose.yml
 
-# Generate and insert your secret key
-SECRET=$(openssl rand -hex 32)
-sed -i "s/<YOUR-SECRET-KEY>/$SECRET/" docker-compose.yml
-
-# Start the service
+# Start the service — SECRET_KEY is auto-generated and persisted to the volume
 docker compose up -d
 ```
 
@@ -182,7 +178,7 @@ docker build -t webssh:local .
 #### Core
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRET_KEY` | **Yes** | - | Session encryption key. Generate with `openssl rand -hex 32` |
+| `SECRET_KEY` | No | auto | Session encryption key. Auto-generated and persisted to `DATA_DIR/secret_key` on first run (Docker). Set explicitly for multi-replica setups or non-Docker production: `openssl rand -hex 32` |
 | `DEBUG` | No | `False` | Enable debug mode (development only) |
 | `DATA_DIR` | No | `/app/data` | Persistent data directory |
 

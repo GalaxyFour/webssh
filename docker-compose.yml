@@ -4,7 +4,7 @@
 # No .env file needed - edit values directly below
 #
 # BEFORE RUNNING:
-# 1. Replace <YOUR-SECRET-KEY> with output of: openssl rand -hex 32
+# 1. SECRET_KEY is optional — auto-generated & persisted on first run.
 # 2. Set CORS_ORIGINS to your domain (e.g. https://ssh.example.com)
 #    For homelab without TLS: http://your-server-ip:5000
 #    For wildcard (insecure): CORS_ORIGINS=* and ALLOW_CORS_WILDCARD=true
@@ -18,8 +18,11 @@ services:
     ports:
       - "5000:5000"
     environment:
-      # === REQUIRED: Generate with: openssl rand -hex 32 ===
-      - SECRET_KEY=<YOUR-SECRET-KEY>
+      # === SECRET_KEY: OPTIONAL ===
+      # Left unset, a strong key is auto-generated on first run and persisted to
+      # the data volume below (/app/data/secret_key). Set it explicitly only if
+      # you run multiple replicas or want to pin a fixed key:
+      #   - SECRET_KEY=<paste output of: openssl rand -hex 32>
 
       # === CORS: Wildcard default for homelab use ===
       # For production: replace * with your domain (e.g. https://ssh.example.com)

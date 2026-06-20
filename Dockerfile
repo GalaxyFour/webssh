@@ -29,6 +29,11 @@ RUN chown -R appuser:appuser /app && \
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# Persist the data dir (SQLite DB, encrypted keys, auto-generated SECRET_KEY).
+# Auto-creates an anonymous volume on `docker run` so state survives restarts;
+# override with a named/bind volume (see docker-compose.yml) for real durability.
+VOLUME /app/data
+
 USER appuser
 
 EXPOSE 5000
