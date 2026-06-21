@@ -109,6 +109,9 @@
                         </svg>
                     </button>
                 </div>
+                <button class="btn btn-secondary broadcast-toggle" id="broadcastToggleBtn" type="button" aria-pressed="false" title="Broadcast to all sessions" data-i18n-title="broadcast.toggle">
+                    <span aria-hidden="true">📡</span> <span data-i18n="broadcast.label">Broadcast</span>
+                </button>
                 <div class="mobile-input-bar" id="mobileInputBar">
                     <input type="text" id="mobileInput" data-i18n-placeholder="terminal.mobileInputPlaceholder" placeholder="Type or paste here..."
                            maxlength="4096" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -117,6 +120,20 @@
                     </button>
                 </div>
             </div>
+        </div>
+        <div class="broadcast-bar hidden" id="broadcastBar">
+            <span class="broadcast-bar-label">
+                <span class="broadcast-bar-icon" aria-hidden="true">📡</span>
+                <span data-i18n="broadcast.barLabel">Broadcast to</span>
+                <strong id="broadcastCount">0</strong>
+                <span data-i18n="broadcast.sessions">sessions</span>
+            </span>
+            <input type="text" id="broadcastInput" class="broadcast-input"
+                   data-i18n-placeholder="broadcast.placeholder"
+                   placeholder="Type a command — sent to all open sessions on Enter"
+                   maxlength="4096" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <button class="btn btn-primary" id="broadcastSendBtn" type="button"><span data-i18n="broadcast.send">Send to all</span></button>
+            <button class="btn btn-secondary broadcast-close" id="broadcastCloseBtn" type="button" aria-label="Close broadcast">&times;</button>
         </div>
         <div class="workspace" id="workspace">
             <div class="terminal-area">
@@ -629,6 +646,7 @@
 
     <script src="{{ url_for('static', filename='js/terminal-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/session-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/broadcast-input.js') }}"></script>
     <script src="{{ url_for('static', filename='js/profile-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/command-library.js') }}"></script>
     <script src="{{ url_for('static', filename='js/file-transfer.js') }}"></script>

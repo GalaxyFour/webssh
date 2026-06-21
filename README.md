@@ -35,6 +35,7 @@ Web SSH Terminal is a self-hosted web application that provides secure SSH acces
 ## Features
 
 ### Terminal
+- **Broadcast Input** - Send a command to all open SSH sessions simultaneously (cluster-SSH style)
 - **Multi-Session Support** - Up to 10 concurrent SSH sessions with tabs
 - **Split Panes** - 2x2 grid layout for monitoring multiple servers
 - **Session Persistence** - Sessions survive page refreshes
