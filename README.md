@@ -427,6 +427,12 @@ commands above. Dependabot keeps `package.json` up to date.
 
 ### Project Structure
 
+> Vollständiger Abhängigkeitsgraphdes Tools
+<a href="https://bifrost0x.github.io/webssh/">
+  <img src="https://img.shields.io/badge/Interaktive%20Code--Map-%E2%86%97%20live-blueviolet?style=for-the-badge" alt="Interaktive Code-Map">
+</a>
+
+
 ```
 webssh/
 ├── app/                    # Flask application (15 modules)
