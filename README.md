@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome">
+  <a href="https://bifrost0x.github.io/webssh/"><img src="https://img.shields.io/badge/code%20graph-live-blueviolet" alt="Code Graph"></a>
 </p>
 
 ---
