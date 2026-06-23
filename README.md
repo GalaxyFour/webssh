@@ -43,11 +43,11 @@ Web SSH Terminal is a self-hosted web application that provides secure SSH acces
 
 - **Broadcast Input** - Send a command to all open SSH sessions simultaneously (cluster-SSH style)
 - **Multi-Session Support** - Up to 10 concurrent SSH sessions with tabs
-- **Split Panes** - 2x2 grid layout for monitoring multiple servers
+- **Split Panes** - 1, 2, or 4-pane layouts for monitoring multiple servers
 - **Session Persistence** - Sessions survive page refreshes
 - **Copy/Paste** - Full clipboard support
-- **Keyboard Shortcuts** - Vim-style navigation supported
-- **Terminal Search** - Regex or plain-text in-terminal search (Ctrl+F) with match counter
+- **Keyboard Shortcuts** - Ctrl+K command palette, Ctrl+F search, Ctrl+1–9 tab switching
+- **Terminal Search** - Regex or plain-text in-terminal search (Ctrl+F)
 - **Save Transcript** - Download the session output as a text file
 - **Recent Connections** - Quick reconnect from your connection history
 - **Session Notes** - Per-session notes, auto-saved as you type
