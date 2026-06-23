@@ -73,53 +73,39 @@
             </div>
         </div>
 
-        <div class="session-tabs" id="sessionTabs"></div>
+        <div class="session-tabs-row">
+            <div class="session-tabs" id="sessionTabs"></div>
+            <div class="tab-row-actions">
+                <div class="split-controls" aria-label="Split layout">
+                    <button class="split-btn active" data-layout="1" title="Single pane" aria-label="Single pane">1</button>
+                    <button class="split-btn" data-layout="2" title="Split pane" aria-label="Split pane">2</button>
+                    <button class="split-btn" data-layout="4" title="Quad pane" aria-label="Quad pane">4</button>
+                </div>
+                <div class="tab-row-divider"></div>
+                <button class="tab-row-icon-btn" id="broadcastToggleBtn" type="button" aria-pressed="false" title="Broadcast to all sessions" data-i18n-title="broadcast.toggle">
+                    <span aria-hidden="true">📡</span>
+                </button>
+                <button class="tab-row-icon-btn" id="saveTranscriptBtn" title="Save Transcript" aria-label="Save transcript">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"></path><rect x="8" y="4" width="8" height="5"></rect><rect x="8" y="15" width="8" height="4" rx="1"></rect></svg>
+                </button>
+                <div class="tab-row-divider"></div>
+                <button class="btn-new-tab" id="newTabBtn" title="New Connection" aria-label="New Connection">+</button>
+            </div>
+        </div>
     </header>
 
     <main class="main-content">
+        <!-- session-meta kept hidden for JS references; visible session-bar only on mobile -->
+        <div aria-hidden="true" style="display:none">
+            <div id="sessionMeta"><div id="sessionMetaTitle"></div><div id="sessionMetaNotes"></div></div>
+        </div>
         <div class="session-bar hidden" id="sessionBar">
-            <div class="session-meta" id="sessionMeta" aria-live="polite">
-                <div class="session-meta-title" id="sessionMetaTitle"></div>
-                <div class="session-meta-notes empty" id="sessionMetaNotes">No notes yet</div>
-            </div>
-            <div class="session-actions">
-                <div class="split-controls" aria-label="Split layout">
-                    <button class="btn btn-secondary split-btn active" data-layout="1" title="Single" aria-label="Single pane layout">1</button>
-                    <button class="btn btn-secondary split-btn" data-layout="2" title="Split" aria-label="Split pane layout">2</button>
-                    <button class="btn btn-secondary split-btn" data-layout="4" title="Quad" aria-label="Quad pane layout">4</button>
-                </div>
-                <div class="session-toolbar" id="sessionToolbar" aria-label="Session actions">
-                    <button class="btn btn-secondary toolbar-btn" id="copySelectionBtn" title="Copy Selection" aria-label="Copy selection">
-                        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-                            <rect x="4" y="4" width="11" height="11" rx="2"></rect>
-                        </svg>
-                    </button>
-                    <button class="btn btn-secondary toolbar-btn" id="pasteClipboardBtn" title="Paste Clipboard" aria-label="Paste clipboard">
-                        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M9 4h6a2 2 0 0 1 2 2v1h-2V6H9v1H7V6a2 2 0 0 1 2-2z"></path>
-                            <rect x="6" y="7" width="12" height="13" rx="2"></rect>
-                            <path d="M9 12h6M9 16h6"></path>
-                        </svg>
-                    </button>
-                    <button class="btn btn-secondary toolbar-btn" id="saveTranscriptBtn" title="Save Transcript" aria-label="Save transcript">
-                        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M5 4h10l4 4v12H5z"></path>
-                            <rect x="8" y="4" width="8" height="5"></rect>
-                            <rect x="8" y="15" width="8" height="4" rx="1"></rect>
-                        </svg>
-                    </button>
-                </div>
-                <button class="btn btn-secondary broadcast-toggle" id="broadcastToggleBtn" type="button" aria-pressed="false" title="Broadcast to all sessions" data-i18n-title="broadcast.toggle">
-                    <span aria-hidden="true">📡</span> <span data-i18n="broadcast.label">Broadcast</span>
+            <div class="mobile-input-bar" id="mobileInputBar">
+                <input type="text" id="mobileInput" data-i18n-placeholder="terminal.mobileInputPlaceholder" placeholder="Type or paste here..."
+                       maxlength="4096" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                <button class="btn btn-primary mobile-send-btn" id="mobileSendBtn" aria-label="Send">
+                    <span class="material-icons">send</span>
                 </button>
-                <div class="mobile-input-bar" id="mobileInputBar">
-                    <input type="text" id="mobileInput" data-i18n-placeholder="terminal.mobileInputPlaceholder" placeholder="Type or paste here..."
-                           maxlength="4096" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                    <button class="btn btn-primary mobile-send-btn" id="mobileSendBtn" aria-label="Send">
-                        <span class="material-icons">send</span>
-                    </button>
-                </div>
             </div>
         </div>
         <div class="broadcast-bar hidden" id="broadcastBar">
@@ -180,7 +166,7 @@
         </div>
     </main>
 
-    <div class="modal" id="connectionModal" role="dialog" aria-modal="true" aria-labelledby="connectionModalTitle">
+    <div class="modal panel-left" id="connectionModal" role="dialog" aria-modal="true" aria-labelledby="connectionModalTitle">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="connectionModalTitle" data-i18n="connection.newSSHConnection">New SSH Connection</h2>
@@ -294,7 +280,7 @@
         </div>
     </div>
 
-    <div class="modal" id="keyManagementModal" role="dialog" aria-modal="true" aria-labelledby="keyManagementTitle">
+    <div class="modal panel-right" id="keyManagementModal" role="dialog" aria-modal="true" aria-labelledby="keyManagementTitle">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="keyManagementTitle" data-i18n="keys.manageSSHKeys">Manage SSH Keys</h2>
@@ -326,7 +312,7 @@
         </div>
     </div>
 
-    <div class="modal" id="jumpHostManagementModal" role="dialog" aria-modal="true" aria-labelledby="jumpHostManagementTitle">
+    <div class="modal panel-left" id="jumpHostManagementModal" role="dialog" aria-modal="true" aria-labelledby="jumpHostManagementTitle">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="jumpHostManagementTitle" data-i18n="jumphosts.manage">Manage Jump Hosts</h2>
@@ -441,7 +427,7 @@
 
     <div class="notification-container" id="notificationContainer"></div>
 
-    <div class="modal" id="commandLibraryModal" role="dialog" aria-modal="true" aria-labelledby="commandLibraryTitle">
+    <div class="modal panel-right" id="commandLibraryModal" role="dialog" aria-modal="true" aria-labelledby="commandLibraryTitle">
         <div class="modal-content modal-large">
             <div class="modal-header">
                 <h2 id="commandLibraryTitle" data-i18n="commands.library">Command Library</h2>
@@ -643,7 +629,7 @@
         </div>
     </div>
 
-    <div class="modal" id="filePreviewModal" role="dialog" aria-modal="true" aria-labelledby="filePreviewTitle">
+    <div class="modal panel-right" id="filePreviewModal" role="dialog" aria-modal="true" aria-labelledby="filePreviewTitle">
         <div class="modal-content modal-xlarge">
             <div class="modal-header">
                 <div class="preview-header-info">

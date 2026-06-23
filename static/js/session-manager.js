@@ -115,7 +115,7 @@ const SessionManager = {
 
         const tabLabel = document.createElement('span');
         tabLabel.className = 'tab-label';
-        tabLabel.textContent = this.getDisplayLabel(sessionId, username, host);
+        this.renderTabLabelContent(tabLabel, sessionId);
 
         const tabEdit = document.createElement('span');
         tabEdit.className = 'tab-edit';
@@ -322,6 +322,27 @@ const SessionManager = {
         return `${username}@${host}`;
     },
 
+    renderTabLabelContent(labelEl, sessionId) {
+        const session = this.sessions[sessionId];
+        labelEl.innerHTML = '';
+        if (!session) return;
+        if (session.displayName) {
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'tab-display-name';
+            nameSpan.textContent = session.displayName;
+            labelEl.appendChild(nameSpan);
+        } else {
+            const hostSpan = document.createElement('span');
+            hostSpan.className = 'tab-host-name';
+            hostSpan.textContent = session.host;
+            const userSpan = document.createElement('span');
+            userSpan.className = 'tab-user-name';
+            userSpan.textContent = session.username;
+            labelEl.appendChild(hostSpan);
+            labelEl.appendChild(userSpan);
+        }
+    },
+
     updateSessionLabel(sessionId) {
         const session = this.sessions[sessionId];
         if (!session) {
@@ -333,7 +354,7 @@ const SessionManager = {
         }
         const label = tab.querySelector('.tab-label');
         if (label) {
-            label.textContent = this.getDisplayLabel(sessionId, session.username, session.host);
+            this.renderTabLabelContent(label, sessionId);
         }
     },
 
@@ -348,27 +369,23 @@ const SessionManager = {
         input.value = currentName;
         input.placeholder = `${session.username}@${session.host}`;
 
-        const originalText = labelElement.textContent;
-        labelElement.textContent = '';
+        labelElement.innerHTML = '';
         labelElement.appendChild(input);
         input.focus();
         input.select();
 
         const finishRename = (save) => {
             const newName = input.value.trim();
-            labelElement.removeChild(input);
+            input.remove();
 
             if (save && newName && newName !== `${session.username}@${session.host}`) {
                 session.displayName = newName;
-                labelElement.textContent = newName;
                 this.saveSessionDisplayName(sessionId, newName);
             } else if (save && !newName) {
                 session.displayName = null;
-                labelElement.textContent = `${session.username}@${session.host}`;
                 this.saveSessionDisplayName(sessionId, null);
-            } else {
-                labelElement.textContent = originalText;
             }
+            this.renderTabLabelContent(labelElement, sessionId);
             this.updateSessionMeta(sessionId);
         };
 

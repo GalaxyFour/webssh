@@ -1,6 +1,15 @@
 (function() {
     'use strict';
 
+    window.addEventListener('unhandledrejection', (e) => {
+        console.error('[WebSSH] Unhandled promise rejection:', e.reason);
+    });
+
+    window.addEventListener('error', (e) => {
+        if (e.filename && e.filename.includes('socket.io')) return;
+        console.error('[WebSSH] Uncaught error:', e.message, e.filename, e.lineno);
+    });
+
     const APP_ROOT = document.querySelector('meta[name="app-root"]')?.content || '';
     window.APP_ROOT = APP_ROOT;
     window.socket = io({ path: APP_ROOT + '/socket.io' });
@@ -26,12 +35,44 @@
         }, timeout);
     };
 
+    window.PanelManager = {
+        slots: { left: null, right: null },
+
+        open(panelEl) {
+            if (!panelEl) return;
+            const slot = panelEl.classList.contains('panel-left') ? 'left'
+                       : panelEl.classList.contains('panel-right') ? 'right' : null;
+            if (slot && this.slots[slot] && this.slots[slot] !== panelEl) {
+                this.close(this.slots[slot]);
+            }
+            if (slot) this.slots[slot] = panelEl;
+            panelEl.classList.add('show');
+            panelEl.removeAttribute('aria-hidden');
+        },
+
+        close(panelEl) {
+            if (!panelEl) return;
+            panelEl.classList.remove('show');
+            panelEl.setAttribute('aria-hidden', 'true');
+            const slot = Object.keys(this.slots).find(k => this.slots[k] === panelEl);
+            if (slot) this.slots[slot] = null;
+        },
+
+        closeAll() {
+            Object.values(this.slots).forEach(p => { if (p) this.close(p); });
+        }
+    };
+
     window.ModalManager = {
         activeModal: null,
         focusableSelector: 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
 
         open(modal) {
             if (!modal) return;
+            if (modal.classList.contains('panel-left') || modal.classList.contains('panel-right')) {
+                window.PanelManager.open(modal);
+                return;
+            }
             modal.classList.add('show');
             modal.setAttribute('aria-hidden', 'false');
             this.activeModal = modal;
@@ -44,6 +85,10 @@
 
         close(modal) {
             if (!modal) return;
+            if (modal.classList.contains('panel-left') || modal.classList.contains('panel-right')) {
+                window.PanelManager.close(modal);
+                return;
+            }
             modal.classList.remove('show');
             modal.setAttribute('aria-hidden', 'true');
             if (this.activeModal === modal) {
@@ -1737,6 +1782,13 @@
         document.getElementById('newConnectionBtn').addEventListener('click', () => {
             openConnectionModalForPane(getDefaultPaneIndex());
         });
+
+        const newTabBtn = document.getElementById('newTabBtn');
+        if (newTabBtn) {
+            newTabBtn.addEventListener('click', () => {
+                document.getElementById('newConnectionBtn').click();
+            });
+        }
 
         document.getElementById('closeConnectionModal').addEventListener('click', () => {
             window.ModalManager.close(document.getElementById('connectionModal'));

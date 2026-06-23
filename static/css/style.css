@@ -8,19 +8,19 @@
 
 :root {
 
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #1c2128;
-    --bg-hover: #21262d;
-    --bg-modal: rgba(22, 27, 34, 0.95);
-    --bg-gradient: linear-gradient(135deg, #0d1117 0%, #1a1f2e 100%);
+    --bg-primary: #09090b;
+    --bg-secondary: #111113;
+    --bg-tertiary: #18181b;
+    --bg-hover: #27272a;
+    --bg-modal: rgba(17, 17, 19, 0.97);
+    --bg-gradient: linear-gradient(135deg, #09090b 0%, #141418 100%);
 
     --text-primary: #e6edf3;
     --text-secondary: #8b949e;
     --text-muted: #6e7681;
 
-    --border-color: #30363d;
-    --border-hover: #3d444d;
+    --border-color: rgba(255,255,255,0.08);
+    --border-hover: rgba(255,255,255,0.14);
 
     --accent-primary: #58a6ff;
     --accent-primary-glow: rgba(88, 166, 255, 0.4);
@@ -680,7 +680,7 @@ body[data-theme="obsidian"] {
     -webkit-text-fill-color: transparent;
     background-clip: text;
     letter-spacing: -0.5px;
-    text-shadow: 0 0 30px var(--accent-primary-glow);
+    text-shadow: none;
 }
 
 .header-buttons {
@@ -727,14 +727,14 @@ body[data-theme="obsidian"] {
 .session-tab {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 7px 12px;
+    gap: 8px;
+    padding: 5px 10px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: 8px 8px 0 0;
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s ease;
     border-left: 3px solid transparent;
     position: relative;
 }
@@ -746,21 +746,20 @@ body[data-theme="obsidian"] {
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+    background: rgba(255,255,255,0.9);
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.2s ease;
 }
 
 .session-tab:hover {
     background: var(--bg-hover);
     border-color: var(--border-hover);
-    transform: translateY(-2px);
 }
 
 .session-tab.active {
     background: var(--bg-primary);
     border-bottom-color: var(--bg-primary);
-    box-shadow: 0 0 20px var(--accent-primary-glow);
+    box-shadow: none;
 }
 
 .session-tab.disconnected {
@@ -803,11 +802,44 @@ body[data-theme="obsidian"] {
 }
 
 .tab-label {
-    font-size: 13px;
-    font-weight: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
     user-select: none;
-    color: var(--text-primary);
     cursor: default;
+    min-width: 0;
+}
+
+.tab-host-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.tab-user-name {
+    font-size: 10px;
+    color: var(--text-secondary);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.tab-display-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
 }
 
 .tab-jump-badge {
@@ -871,12 +903,160 @@ body[data-theme="obsidian"] {
     padding: 4px;
     border-radius: 4px;
     transition: all 0.2s ease;
-    user-select: none; 
+    user-select: none;
+    opacity: 0.6;
+    flex-shrink: 0;
 }
 
 .tab-close:hover {
     color: var(--error-color);
     background: rgba(248, 81, 73, 0.1);
+    opacity: 1;
+}
+
+.session-tabs-row {
+    display: flex;
+    align-items: flex-end;
+    min-width: 0;
+    overflow: hidden;
+    flex: 1;
+    gap: 0;
+}
+
+.tab-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    padding: 0 6px 2px 10px;
+    border-left: 1px solid var(--border-color);
+    margin-left: 4px;
+}
+
+.tab-row-actions .split-controls {
+    display: flex;
+    gap: 2px;
+}
+
+.tab-row-actions .split-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1;
+    min-width: 28px;
+    text-align: center;
+}
+
+.tab-row-actions .split-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.tab-row-actions .split-btn.active {
+    background: var(--bg-active);
+    color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.tab-row-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border-color);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+
+.tab-row-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.tab-row-icon-btn svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.tab-row-icon-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.tab-row-icon-btn.active {
+    color: var(--accent-primary);
+    background: var(--bg-active);
+    border-color: var(--accent-primary);
+}
+
+.btn-new-tab {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 17px;
+    line-height: 1;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.btn-new-tab:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+    color: var(--accent-primary);
+}
+
+/* Session-bar: desktop shows only mobile-input (hidden on desktop since it's mobile-only) */
+@media (min-width: 768px) {
+    .session-bar {
+        display: none !important;
+    }
+}
+
+/* On mobile: tab-row-actions wraps below tabs */
+@media (max-width: 767px) {
+    .session-tabs-row {
+        flex-wrap: wrap;
+        overflow: visible;
+    }
+    .session-tabs {
+        flex: 1;
+        min-width: 0;
+    }
+    .tab-row-actions {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+        margin-left: 0;
+        padding: 6px 4px 4px;
+        justify-content: flex-start;
+        gap: 6px;
+    }
 }
 
 .main-content {
@@ -1726,8 +1906,67 @@ body.broadcast-active .terminal-wrapper:not(.unassigned) {
     max-width: 650px;
     max-height: 90vh;
     overflow-y: auto;
-    box-shadow: var(--shadow-lg), 0 0 40px var(--accent-primary-glow);
+    box-shadow: var(--shadow-lg);
     animation: modalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Panel system ── */
+/* Left panels (Connection, Jump Hosts) */
+.panel-left {
+    justify-content: flex-start;
+    animation: none;
+}
+.panel-left .modal-content {
+    width: 400px;
+    max-width: min(90vw, 420px);
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0 12px 12px 0;
+    overflow-y: auto;
+    box-shadow: 4px 0 32px rgba(0,0,0,0.6);
+    transform: translateX(-110%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: none;
+}
+.panel-left.show .modal-content {
+    transform: translateX(0);
+}
+
+/* Right panels (Commands, Keys, File Editor) */
+.panel-right {
+    justify-content: flex-end;
+    animation: none;
+}
+.panel-right .modal-content {
+    width: 580px;
+    max-width: min(90vw, 620px);
+    height: 100%;
+    max-height: 100%;
+    border-radius: 12px 0 0 12px;
+    overflow-y: auto;
+    box-shadow: -4px 0 32px rgba(0,0,0,0.6);
+    transform: translateX(110%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: none;
+}
+.panel-right.show .modal-content {
+    transform: translateX(0);
+}
+
+/* Mobile: panels go full-width */
+@media (max-width: 767px) {
+    .panel-left .modal-content,
+    .panel-right .modal-content {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 0;
+    }
+    .panel-left .modal-content {
+        transform: translateX(-100%);
+    }
+    .panel-right .modal-content {
+        transform: translateX(100%);
+    }
 }
 
 .modal-small {
