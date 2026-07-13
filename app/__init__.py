@@ -6,7 +6,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import config
 import os
 from .models import db
-from .auth import login_manager, init_auth, authenticate_user, register_user, check_rate_limit
+from .auth import (login_manager, init_auth, authenticate_user, register_user,
+                   check_rate_limit, password_exceeds_bcrypt_limit)
 from .audit_logger import (log_rate_limit_exceeded, log_info, log_warning, log_error,
                               log_login_attempt, log_logout, log_registration, log_password_change)
 from .user_settings import get_user_settings
@@ -239,7 +240,11 @@ def create_app():
     @app.route('/logout', methods=['POST'])
     @login_required
     def logout():
+        from . import user_lifecycle
+
+        user_id = current_user.id
         log_logout(current_user.username, get_client_ip())
+        user_lifecycle.revoke_user_access(user_id, socketio)
         logout_user()
         return redirect(url_for('login'))
 
@@ -272,9 +277,9 @@ def create_app():
                     f'New password must be at least {config.MIN_PASSWORD_LENGTH} characters',
                     'error'
                 )
-            elif len(new_password) > config.MAX_PASSWORD_LENGTH:
+            elif password_exceeds_bcrypt_limit(new_password):
                 flash(
-                    f'New password must not exceed {config.MAX_PASSWORD_LENGTH} characters',
+                    f'New password must not exceed {config.MAX_PASSWORD_LENGTH} bytes when encoded as UTF-8',
                     'error'
                 )
             elif current_user.check_password(new_password):
@@ -340,7 +345,9 @@ def create_app():
     @login_required
     @admin_required
     def admin_user_action(user_id, action):
-        target = User.query.get(user_id)
+        from . import user_lifecycle
+
+        target = db.session.get(User, user_id)
         if not target:
             return jsonify({'error': 'User not found'}), 404
         is_self = (target.id == current_user.id)
@@ -348,10 +355,12 @@ def create_app():
         def _is_last_admin():
             return target.is_admin and User.query.filter_by(is_admin=True).count() <= 1
 
+        revoke_after_commit = False
         if action == 'lock':
             if is_self:
                 return jsonify({'error': 'You cannot lock your own account'}), 400
             target.is_locked = True
+            revoke_after_commit = True
         elif action == 'unlock':
             target.is_locked = False
         elif action == 'promote':
@@ -368,14 +377,28 @@ def create_app():
             if _is_last_admin():
                 return jsonify({'error': 'Cannot delete the last administrator'}), 400
             username = target.username
-            db.session.delete(target)
+            target.is_locked = True
             db.session.commit()
+            try:
+                user_lifecycle.delete_user_account(target, socketio)
+            except Exception as exc:
+                log_error(
+                    "Admin user deletion failed",
+                    admin=current_user.username,
+                    user=username,
+                    error=str(exc),
+                )
+                return jsonify({
+                    'error': 'User deletion failed; the account remains locked'
+                }), 500
             log_warning("Admin deleted user", admin=current_user.username, user=username)
             return jsonify({'ok': True})
         else:
             return jsonify({'error': 'Unknown action'}), 400
 
         db.session.commit()
+        if revoke_after_commit:
+            user_lifecycle.revoke_user_access(target.id, socketio)
         log_info("Admin user action", admin=current_user.username,
                  user=target.username, action=action)
         return jsonify({'user': _user_to_dict(target)})

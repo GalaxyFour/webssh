@@ -1,4 +1,5 @@
 import bcrypt
+import config
 from flask import request
 from flask_login import LoginManager
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,11 @@ class RateLimiter:
 
 _rate_limiter = RateLimiter()
 
+
+def password_exceeds_bcrypt_limit(password):
+    """Return whether a password exceeds bcrypt's UTF-8 byte limit."""
+    return len((password or '').encode('utf-8')) > config.MAX_PASSWORD_LENGTH
+
 def parse_rate_limit(limit_str, default_limit=5, default_window=60):
     """Parse rate limit strings like '5 per minute'."""
     if not limit_str or not isinstance(limit_str, str):
@@ -96,7 +102,10 @@ def check_socket_rate_limit(user_id, endpoint, limit_str):
 @login_manager.user_loader
 def load_user(user_id):
     """Load user by ID for Flask-Login."""
-    return User.query.get(int(user_id))
+    user = db.session.get(User, int(user_id))
+    if user is None or user.is_locked:
+        return None
+    return user
 
 def init_auth(app):
     """Initialize authentication system."""
@@ -122,8 +131,8 @@ def register_user(username, password):
     if not password or len(password) < 8:
         return None, "Password must be at least 8 characters"
 
-    if len(password) > 72:
-        return None, "Password must not exceed 72 characters"
+    if password_exceeds_bcrypt_limit(password):
+        return None, f"Password must not exceed {config.MAX_PASSWORD_LENGTH} bytes when encoded as UTF-8"
 
     user = User(username=username)
     user.set_password(password)
@@ -211,6 +220,9 @@ def get_user_from_socket(socket_sid):
     """
     socket_session = SocketSession.query.filter_by(socket_sid=socket_sid).first()
     if socket_session:
+        user = socket_session.user
+        if user is None or user.is_locked:
+            return None
         import time as _time
         now = datetime.now(timezone.utc)
         last = socket_session.last_activity
@@ -225,7 +237,7 @@ def get_user_from_socket(socket_sid):
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-        return socket_session.user
+        return user
     return None
 
 def cleanup_inactive_socket_sessions(timeout_minutes=30):

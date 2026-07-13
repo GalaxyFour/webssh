@@ -18,6 +18,26 @@ import socket
 import ipaddress
 import config
 
+
+class DownloadSizeLimitExceeded(Exception):
+    """Raised before a download writes more than its configured byte cap."""
+
+
+def _copy_file_with_limit(source, destination, max_bytes):
+    """Copy a binary stream while enforcing a hard maximum byte count."""
+    copied = 0
+    while True:
+        chunk = source.read(65536)
+        if not chunk:
+            return copied
+        next_size = copied + len(chunk)
+        if next_size > max_bytes:
+            raise DownloadSizeLimitExceeded(
+                f'download exceeds configured limit of {max_bytes} bytes'
+            )
+        destination.write(chunk)
+        copied = next_size
+
 def _is_valid_host(host_str):
     """Validate host is a valid hostname or IP address."""
     try:
@@ -124,15 +144,15 @@ def handle_connect():
         log_warning(f"Unauthenticated connection attempt", sid=request.sid)
         emit('connected', {'status': 'unauthenticated'})
         disconnect()
-        return
+        return False
 
     from .models import User
-    user = User.query.get(int(user_id))
-    if not user:
+    user = db.session.get(User, int(user_id))
+    if not user or user.is_locked:
         log_warning(f"User not found during connect", user_id=user_id, sid=request.sid)
         emit('connected', {'status': 'unauthenticated'})
         disconnect()
-        return
+        return False
 
     socket_sid = request.sid
     user_agent = request.headers.get('User-Agent', '')
@@ -1119,16 +1139,25 @@ def handle_download_folder_binary(data, current_user=None):
                     log_debug(f"Remote ZIP created: {remote_zip_path}")
 
                     zip_path = None
+                    remote_completed = False
                     try:
+                        remote_zip_stat = sftp.stat(remote_zip_path)
+                        remote_zip_size = getattr(remote_zip_stat, 'st_size', None)
+                        if (remote_zip_size is not None and
+                                remote_zip_size > config.MAX_ZIP_DOWNLOAD_SIZE):
+                            raise DownloadSizeLimitExceeded(
+                                'remote ZIP exceeds configured size limit'
+                            )
+
                         with tempfile.NamedTemporaryFile(suffix='.zip', delete=False, mode='wb') as tmp_zip:
                             zip_path = tmp_zip.name
                             os.chmod(zip_path, 0o600)
                             with sftp.file(remote_zip_path, 'rb') as remote_file:
-                                while True:
-                                    chunk = remote_file.read(65536)
-                                    if not chunk:
-                                        break
-                                    tmp_zip.write(chunk)
+                                _copy_file_with_limit(
+                                    remote_file,
+                                    tmp_zip,
+                                    config.MAX_ZIP_DOWNLOAD_SIZE,
+                                )
 
                         with open(zip_path, 'rb') as f:
                             zip_data = f.read()
@@ -1142,6 +1171,18 @@ def handle_download_folder_binary(data, current_user=None):
                         })
 
                         log_info(f"Folder download (remote): {folder_name}.zip", user=current_user.username)
+                        remote_completed = True
+                    except DownloadSizeLimitExceeded:
+                        remote_completed = True
+                        log_warning(
+                            "Remote ZIP download rejected by size limit",
+                            user=current_user.username,
+                            path=safe_path,
+                            max_size=config.MAX_ZIP_DOWNLOAD_SIZE,
+                        )
+                        emit('error', {
+                            'error': 'ZIP archive exceeds the maximum allowed download size'
+                        })
                     finally:
                         if zip_path and os.path.exists(zip_path):
                             try:
@@ -1154,11 +1195,12 @@ def handle_download_folder_binary(data, current_user=None):
                         except Exception as remote_cleanup_err:
                             log_warning(f"Failed to cleanup remote ZIP", path=remote_zip_path, error=str(remote_cleanup_err))
 
-                        if source_type == 'pool':
+                        if remote_completed and source_type == 'pool':
                             sftp.close()
 
-                    _sftp_lock.release()
-                    return
+                    if remote_completed:
+                        _sftp_lock.release()
+                        return
                 else:
                     log_debug(f"Remote zip command failed, falling back to SFTP method")
 

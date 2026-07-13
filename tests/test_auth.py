@@ -137,6 +137,28 @@ class TestUserRegistration:
             assert user is not None
             assert error is None
 
+    def test_register_password_exactly_72_utf8_bytes_allowed(self, app):
+        password = ('a' * 70) + '\u00e9'
+        assert len(password) == 71
+        assert len(password.encode('utf-8')) == 72
+
+        with app.app_context():
+            from app.auth import register_user
+            user, error = register_user('utf8boundary', password)
+            assert user is not None
+            assert error is None
+
+    def test_register_password_over_72_utf8_bytes_rejected(self, app):
+        password = ('a' * 70) + '\u00e9X'
+        assert len(password) == 72
+        assert len(password.encode('utf-8')) == 73
+
+        with app.app_context():
+            from app.auth import register_user
+            user, error = register_user('utf8toolong', password)
+            assert user is None
+            assert '72 bytes' in error
+
     def test_register_username_with_underscore_allowed(self, app):
         with app.app_context():
             from app.auth import register_user
@@ -191,6 +213,35 @@ class TestAuthentication:
             user, error = authenticate_user('nonexistent', None)
             assert user is None
             assert 'Invalid' in error
+
+
+class TestPasswordChange:
+    """Password changes must enforce bcrypt's byte-based input boundary."""
+
+    def test_change_password_rejects_more_than_72_utf8_bytes(self, app, client):
+        with app.app_context():
+            from app.auth import register_user
+            register_user('changeuser', 'current-password')
+
+        login_response = client.post('/login', data={
+            'username': 'changeuser',
+            'password': 'current-password',
+        })
+        assert login_response.status_code == 302
+
+        new_password = ('a' * 70) + '\u00e9X'
+        response = client.post('/change-password', data={
+            'current_password': 'current-password',
+            'new_password': new_password,
+            'confirm_password': new_password,
+        }, follow_redirects=True)
+
+        assert response.status_code == 200
+        assert b'72 bytes' in response.data
+        with app.app_context():
+            from app.models import User
+            user = User.query.filter_by(username='changeuser').one()
+            assert user.check_password('current-password')
 
 
 class TestSSRFGuard:
