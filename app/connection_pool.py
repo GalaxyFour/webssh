@@ -18,6 +18,7 @@ import paramiko
 from datetime import datetime, timedelta
 import config
 from .ssh_manager import PersistentHostKeyPolicy
+from .ssh_key_loader import load_private_key as _load_private_key
 from .audit_logger import log_info, log_warning, log_error, log_debug
 
 class TemporaryConnectionPool:
@@ -80,24 +81,7 @@ class TemporaryConnectionPool:
             }
 
             if key_content:
-                import io
-                key_file = io.StringIO(key_content)
-                try:
-                    pkey = paramiko.RSAKey.from_private_key(key_file)
-                except paramiko.ssh_exception.SSHException:
-                    key_file.seek(0)
-                    try:
-                        pkey = paramiko.Ed25519Key.from_private_key(key_file)
-                    except paramiko.ssh_exception.SSHException:
-                        key_file.seek(0)
-                        try:
-                            pkey = paramiko.ECDSAKey.from_private_key(key_file)
-                        except paramiko.ssh_exception.SSHException:
-                            key_file.seek(0)
-                            pkey = paramiko.DSSKey.from_private_key(key_file)
-                connect_kwargs['pkey'] = pkey
-                if password:
-                    pass
+                connect_kwargs['pkey'] = _load_private_key(key_content)
             elif key_path:
                 connect_kwargs['key_filename'] = key_path
                 if password:

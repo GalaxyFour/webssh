@@ -120,7 +120,7 @@ Web SSH Terminal is a self-hosted web application that provides secure SSH acces
 - **Jump Hosts / ProxyJump** - Reach targets through a bastion; save jump hosts once, pick them per connection, with a clear "via &lt;bastion&gt;" indicator on the session
 - **Command Library** - Store frequently used commands
 - **OS-Aware Command Library** - Filter commands by detected OS (Linux / macOS / BSD / Windows)
-- **SSH Key Management** - Import keys (RSA, Ed25519, ECDSA, DSS), encrypted at rest
+- **SSH Key Management** - Import RSA, Ed25519, and ECDSA keys, encrypted at rest
 - **Notepad** - Persistent scratchpad for notes, commands, and snippets
 - **Mobile-Friendly** - Responsive layout for phones and tablets
 
@@ -411,6 +411,37 @@ Web SSH Terminal includes 10 themes:
 - **Upload Limits**: bounded sizes for file uploads, editor saves, notepad, and SSH key uploads to prevent resource exhaustion
 - **Folder Download Limits**: `MAX_ZIP_DOWNLOAD_SIZE` is enforced both when a ZIP is created on the remote host and while it is streamed to the Web SSH Terminal server; the SFTP fallback enforces the same configured cap
 
+### Paramiko 5 SSH Compatibility
+
+Web SSH Terminal uses Paramiko 5 and supports imported RSA, Ed25519, and
+ECDSA private keys. Modern RSA keys remain supported when the server negotiates
+RSA/SHA-2 signatures. Passphrase-encrypted imported private keys are not
+currently supported.
+
+Paramiko 5 no longer supports DSA/DSS, RSA signatures using SHA-1
+(`ssh-rsa` as a signature algorithm), SHA-1 key exchange, GSSAPI, or
+group-exchange parameters below 2048 bits. Required SSH servers must offer
+modern algorithms; Web SSH Terminal does not re-enable the removed algorithms.
+Existing DSA/DSS key files are not deleted or rewritten automatically and must
+be replaced before upgrading.
+
+Before deploying the upgrade, run the read-only compatibility check against a
+copy of `DATA_DIR`, using the same `SECRET_KEY` that encrypted the stored
+keys:
+
+```bash
+SECRET_KEY='the-current-deployment-secret' \
+python scripts/check_paramiko5_readiness.py \
+  --data-dir /absolute/path/to/copied-data
+```
+
+Exit code `0` means every discovered key is compatible. Exit code `2`
+means rollout is blocked by an unsupported, encrypted, unreadable, or unsafe
+key entry. Never point the check at the active writable data volume; it is
+designed for a read-only snapshot and never migrates plaintext legacy keys.
+Its report omits key content, configured key names, filenames, paths, and the
+`SECRET_KEY`.
+
 ### Hosting & Data Protection
 
 Web SSH Terminal is the SSH/SFTP client: the browser connects to this server,
@@ -591,7 +622,7 @@ commands above. Dependabot keeps `package.json` up to date.
 
 ```
 webssh/
-├── app/                    # Flask application (19 modules)
+├── app/                    # Flask application (20 modules)
 │   ├── __init__.py        # App factory, routes, security headers
 │   ├── auth.py            # Authentication + rate limiting
 │   ├── models.py          # SQLAlchemy models
@@ -601,6 +632,7 @@ webssh/
 │   ├── connection_pool.py # SSH connection pooling
 │   ├── key_manager.py     # SSH key storage
 │   ├── key_encryption.py  # SSH key encryption at rest
+│   ├── ssh_key_loader.py  # Shared Paramiko private-key validation
 │   ├── profile_manager.py # Connection profiles
 │   ├── jump_host_manager.py # Jump host (bastion) storage
 │   ├── command_manager.py # Command library
@@ -617,6 +649,7 @@ webssh/
 │   └── vendor/            # Vendored browser libs (see Frontend Assets)
 ├── templates/             # Jinja2 templates (5 files)
 ├── config.py              # Central configuration
+├── scripts/               # Vendor and readiness utilities
 ├── start.py               # Entry point
 ├── Dockerfile             # Container definition
 └── docker-compose.yml     # Compose file

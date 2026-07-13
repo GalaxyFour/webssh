@@ -1,47 +1,160 @@
-"""Tests for SSH key type detection."""
+"""Tests for SSH private-key validation and encrypted storage."""
+
+from pathlib import Path
 
 import pytest
 
 
-class TestDetectKeyType:
-    """Tests for key type detection from content."""
+def create_user(app, username='key-user'):
+    from app.models import User, db
 
-    def test_rsa_pem_key(self):
-        from app.key_manager import detect_key_type
-        content = '-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----'
-        assert detect_key_type(content) == 'RSA'
+    with app.app_context():
+        user = User(username=username, password_hash='not-used-in-this-test')
+        db.session.add(user)
+        db.session.commit()
+        return user.id
 
-    def test_dsa_key(self):
-        from app.key_manager import detect_key_type
-        content = '-----BEGIN DSA PRIVATE KEY-----\nMIIB...\n-----END DSA PRIVATE KEY-----'
-        assert detect_key_type(content) == 'DSA'
 
-    def test_ecdsa_key(self):
-        from app.key_manager import detect_key_type
-        content = '-----BEGIN EC PRIVATE KEY-----\nMHQ...\n-----END EC PRIVATE KEY-----'
-        assert detect_key_type(content) == 'ECDSA'
+@pytest.mark.parametrize(
+    ('fixture_name', 'expected'),
+    [
+        ('rsa_private_key_pem', 'RSA'),
+        ('ed25519_private_key_pem', 'Ed25519'),
+        ('ecdsa_private_key_pem', 'ECDSA'),
+    ],
+)
+def test_detects_real_supported_key_types(
+        request, fixture_name, expected):
+    from app.key_manager import detect_key_type
 
-    def test_generic_pkcs8_key(self):
-        from app.key_manager import detect_key_type
-        content = '-----BEGIN PRIVATE KEY-----\nMC4...\n-----END PRIVATE KEY-----'
-        assert detect_key_type(content) == 'Ed25519/Generic'
+    key_content = request.getfixturevalue(fixture_name)
+    assert detect_key_type(key_content) == expected
 
-    def test_openssh_format_detected_as_rsa(self):
-        from app.key_manager import detect_key_type
-        # Current implementation groups the OpenSSH container with RSA
-        # (header-based detection, no key-material parsing).
-        content = '-----BEGIN OPENSSH PRIVATE KEY-----\ninvalid-data\n-----END OPENSSH PRIVATE KEY-----'
-        assert detect_key_type(content) == 'RSA'
 
-    def test_invalid_key_format(self):
-        from app.key_manager import detect_key_type
-        assert detect_key_type('not a key at all') is None
+def test_dsa_is_not_reported_as_supported(dsa_private_key_pem):
+    from app.key_manager import detect_key_type
 
-    def test_empty_content(self):
-        from app.key_manager import detect_key_type
-        assert detect_key_type('') is None
+    assert detect_key_type(dsa_private_key_pem) is None
 
-    def test_whitespace_handling(self):
-        from app.key_manager import detect_key_type
-        content = '  \n  -----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----  \n  '
-        assert detect_key_type(content) == 'RSA'
+
+@pytest.mark.parametrize(
+    'content',
+    [
+        'not a key at all',
+        '',
+        '   ',
+        (
+            '-----BEGIN RSA PRIVATE KEY-----\n'
+            'invalid\n'
+            '-----END RSA PRIVATE KEY-----'
+        ),
+        (
+            '-----BEGIN OPENSSH PRIVATE KEY-----\n'
+            'invalid\n'
+            '-----END OPENSSH PRIVATE KEY-----'
+        ),
+    ],
+)
+def test_malformed_or_empty_content_is_not_detected(content):
+    from app.key_manager import detect_key_type
+
+    assert detect_key_type(content) is None
+
+
+@pytest.mark.parametrize(
+    ('fixture_name', 'expected_type'),
+    [
+        ('rsa_private_key_pem', 'RSA'),
+        ('ed25519_private_key_pem', 'Ed25519'),
+        ('ecdsa_private_key_pem', 'ECDSA'),
+    ],
+)
+def test_save_key_validates_encrypts_and_records_supported_key(
+        app, request, fixture_name, expected_type):
+    from app import key_encryption, key_manager
+
+    user_id = create_user(app, username=f'user-{expected_type.lower()}')
+    key_content = request.getfixturevalue(fixture_name)
+
+    with app.app_context():
+        key_meta, error = key_manager.save_key(
+            user_id,
+            f'{expected_type} test key',
+            key_content,
+        )
+
+        assert error is None
+        assert key_meta['key_type'] == expected_type
+        key_path = Path(key_manager.get_key_path(user_id, key_meta['id']))
+        raw = key_path.read_bytes()
+        assert key_encryption.is_encrypted(raw) is True
+        assert key_content.encode('utf-8') not in raw
+        loaded_content, load_error = key_manager.read_key_content(
+            user_id,
+            key_meta['id'],
+        )
+        assert load_error is None
+        assert loaded_content == key_content
+
+
+@pytest.mark.parametrize(
+    ('fixture_name', 'expected_error'),
+    [
+        (
+            'dsa_private_key_pem',
+            'DSA private keys are not supported; use Ed25519, ECDSA, or RSA',
+        ),
+        (
+            'encrypted_rsa_private_key_pem',
+            'Passphrase-encrypted private keys are not supported',
+        ),
+    ],
+)
+def test_save_key_rejects_unsupported_key_without_writing(
+        app, request, fixture_name, expected_error):
+    from app import key_manager
+
+    user_id = create_user(app, username=f'rejected-{fixture_name}')
+    key_content = request.getfixturevalue(fixture_name)
+
+    with app.app_context():
+        keys_dir = key_manager.get_user_keys_dir(user_id)
+        before = set(keys_dir.iterdir())
+
+        key_meta, error = key_manager.save_key(
+            user_id,
+            'rejected key',
+            key_content,
+        )
+
+        assert key_meta is None
+        assert error == expected_error
+        assert set(keys_dir.iterdir()) == before
+        assert key_manager.load_keys(user_id) == []
+
+
+def test_save_key_rejects_malformed_pem_without_writing(app):
+    from app import key_manager
+
+    user_id = create_user(app, username='malformed-key-user')
+    key_content = (
+        '-----BEGIN RSA PRIVATE KEY-----\n'
+        'private-material-marker\n'
+        '-----END RSA PRIVATE KEY-----'
+    )
+
+    with app.app_context():
+        keys_dir = key_manager.get_user_keys_dir(user_id)
+        before = set(keys_dir.iterdir())
+
+        key_meta, error = key_manager.save_key(
+            user_id,
+            'malformed key',
+            key_content,
+        )
+
+        assert key_meta is None
+        assert error == 'Unsupported or invalid private key format'
+        assert 'private-material-marker' not in error
+        assert set(keys_dir.iterdir()) == before
+        assert key_manager.load_keys(user_id) == []

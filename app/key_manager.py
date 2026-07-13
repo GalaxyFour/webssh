@@ -1,11 +1,13 @@
 import json
 import uuid
 import os
+import paramiko
 from datetime import datetime
 from pathlib import Path
 import config
 from .audit_logger import log_info, log_warning, log_error, log_debug
 from . import key_encryption
+from .ssh_key_loader import identify_private_key, UnsupportedPrivateKeyError
 from .storage_utils import storage_lock, atomic_write_json
 
 def get_user_keys_dir(user_id):
@@ -65,8 +67,13 @@ def save_key(user_id, name, key_content):
         key_id = str(uuid.uuid4())
         filename = f"{key_id}.pem"
         key_path = keys_dir / filename
-        key_type = detect_key_type(key_content)
-        if not key_type:
+        try:
+            key_type = identify_private_key(key_content)
+        except paramiko.PasswordRequiredException:
+            return None, "Passphrase-encrypted private keys are not supported"
+        except UnsupportedPrivateKeyError as exc:
+            return None, str(exc)
+        except paramiko.SSHException:
             return None, "Invalid key format"
 
         if not key_encryption.write_key_content(str(user_id), str(key_path), key_content):
@@ -167,16 +174,8 @@ def delete_key(user_id, key_id):
         return False
 
 def detect_key_type(key_content):
-    """Detect SSH key type from content."""
-    content = key_content.strip()
-
-    if 'BEGIN RSA PRIVATE KEY' in content or 'BEGIN OPENSSH PRIVATE KEY' in content:
-        return 'RSA'
-    elif 'BEGIN DSA PRIVATE KEY' in content:
-        return 'DSA'
-    elif 'BEGIN EC PRIVATE KEY' in content:
-        return 'ECDSA'
-    elif 'BEGIN PRIVATE KEY' in content:
-        return 'Ed25519/Generic'
-    else:
+    """Return a supported key type, or None for invalid/unsupported content."""
+    try:
+        return identify_private_key(key_content)
+    except (paramiko.SSHException, TypeError, ValueError):
         return None

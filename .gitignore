@@ -72,3 +72,6 @@ plans/
 graphify-out/
 AGENTS.md
 .codex/hooks.json
+
+# Disposable Paramiko/OpenSSH integration-test secrets
+tests/integration/paramiko5/runtime/

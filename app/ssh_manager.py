@@ -6,6 +6,7 @@ from threading import Lock, Thread
 import config
 from pathlib import Path
 from .audit_logger import log_info, log_warning, log_error, log_debug
+from .ssh_key_loader import load_private_key as _load_private_key
 
 sessions = {}
 sessions_lock = Lock()
@@ -34,18 +35,6 @@ class PersistentHostKeyPolicy(paramiko.MissingHostKeyPolicy):
         os.chmod(str(self.known_hosts_path), 0o600)
 
         log_info(f"Host key stored", path=str(self.known_hosts_path))
-
-def _load_private_key(key_content):
-    """Parse a decrypted PEM private key into a paramiko PKey (RSA/Ed25519/ECDSA/DSS)."""
-    import io
-    key_file = io.StringIO(key_content)
-    for key_cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
-        try:
-            return key_cls.from_private_key(key_file)
-        except paramiko.ssh_exception.SSHException:
-            key_file.seek(0)
-    raise paramiko.ssh_exception.SSHException("Unsupported or invalid private key format")
-
 
 def create_ssh_connection(host, port, username, password=None, key_path=None, key_content=None,
                           socketio_instance=None, app=None, user_id=None,

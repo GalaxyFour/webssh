@@ -1,6 +1,8 @@
 import os
 import tempfile
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-unit-tests-only')
 os.environ['DEBUG'] = 'True'
@@ -46,3 +48,67 @@ def db_session(app):
     from app.models import db
     with app.app_context():
         yield db.session
+
+
+def _serialize_private_key(private_key, private_format,
+                           encryption=serialization.NoEncryption()):
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=private_format,
+        encryption_algorithm=encryption,
+    ).decode('utf-8')
+
+
+@pytest.fixture
+def rsa_private_key_pem():
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return _serialize_private_key(
+        key,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+    )
+
+
+@pytest.fixture
+def rsa_openssh_private_key_pem():
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return _serialize_private_key(key, serialization.PrivateFormat.OpenSSH)
+
+
+@pytest.fixture
+def ed25519_private_key_pem():
+    key = ed25519.Ed25519PrivateKey.generate()
+    return _serialize_private_key(key, serialization.PrivateFormat.OpenSSH)
+
+
+@pytest.fixture
+def ecdsa_private_key_pem():
+    key = ec.generate_private_key(ec.SECP256R1())
+    return _serialize_private_key(
+        key,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+    )
+
+
+@pytest.fixture
+def ecdsa_openssh_private_key_pem():
+    key = ec.generate_private_key(ec.SECP256R1())
+    return _serialize_private_key(key, serialization.PrivateFormat.OpenSSH)
+
+
+@pytest.fixture
+def dsa_private_key_pem():
+    key = dsa.generate_private_key(key_size=1024)
+    return _serialize_private_key(
+        key,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+    )
+
+
+@pytest.fixture
+def encrypted_rsa_private_key_pem():
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return _serialize_private_key(
+        key,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.BestAvailableEncryption(b'test-passphrase'),
+    )
