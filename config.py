@@ -118,3 +118,11 @@ BLOCK_INTERNAL_SSH = os.environ.get('BLOCK_INTERNAL_SSH', 'false').lower() == 't
 
 MAX_DOWNLOAD_SIZE = int(os.environ.get('MAX_DOWNLOAD_SIZE', str(MAX_UPLOAD_SIZE)))
 MAX_ZIP_DOWNLOAD_SIZE = int(os.environ.get('MAX_ZIP_DOWNLOAD_SIZE', str(500 * 1024 * 1024)))
+
+# Persistent sessions via tmux on the remote host.
+# When enabled, SSH sessions are wrapped in a tmux session on the remote host.
+# This means commands keep running even if the webssh server restarts.
+# Reconnecting to the same host/user will reattach to the existing tmux session.
+TMUX_ENABLED = os.environ.get('TMUX_ENABLED', 'false').lower() == 'true'
+TMUX_SESSION_PREFIX = os.environ.get('TMUX_SESSION_PREFIX', 'webssh')
+TMUX_DEFAULT = os.environ.get('TMUX_DEFAULT', 'false').lower() == 'true'

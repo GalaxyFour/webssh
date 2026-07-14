@@ -11,6 +11,9 @@ const SessionManager = {
             window.socket.on('ssh_session_restored', (data) => {
                 this.restoreSession(data);
             });
+            window.socket.on('persistent_session_available', (data) => {
+                this.showPersistentSessionTab(data);
+            });
         }
         this.ensureTerminalGrid();
         this.setSplitLayout(1);
@@ -36,7 +39,8 @@ const SessionManager = {
             host: data.host,
             port: data.port,
             username: data.username,
-            via_jump: data.via_jump
+            via_jump: data.via_jump,
+            display_name: data.display_name
         };
 
         const restoredId = this.createSession(sessionData);
@@ -45,6 +49,13 @@ const SessionManager = {
         const emptyIndex = this.getFirstEmptyPaneIndex();
         const targetPane = emptyIndex !== -1 ? emptyIndex : this.activePaneIndex;
         this.assignSessionToPane(restoredId, targetPane);
+
+        // Write buffered output to the restored terminal
+        if (data.buffered_output) {
+            setTimeout(() => {
+                TerminalManager.writeOutput(sessionId, data.buffered_output);
+            }, 200);
+        }
 
         console.log(`[RESTORE] Session ${sessionId} fully restored - waiting for output`);
 
@@ -58,8 +69,63 @@ const SessionManager = {
 
     },
 
+    showPersistentSessionTab(data) {
+        const { session_id, host, port, username, key_id, tmux_session_name, display_name } = data;
+
+        if (this.sessions[session_id]) {
+            return;
+        }
+
+        const terminalId = `terminal-${session_id}`;
+        const terminalContainer = document.createElement('div');
+        terminalContainer.id = terminalId;
+        terminalContainer.className = 'terminal-wrapper unassigned';
+        document.getElementById('terminalsContainer').appendChild(terminalContainer);
+
+        document.getElementById('noSessions').classList.add('hidden');
+        const sessionBar = document.getElementById('sessionBar');
+        if (sessionBar) {
+            sessionBar.classList.remove('hidden');
+        }
+
+        this.sessions[session_id] = {
+            id: session_id,
+            host,
+            port,
+            username,
+            connected: false,
+            terminalId,
+            os: 'all',
+            displayName: display_name || null,
+            viaJump: null,
+            useTmux: true,
+            tmuxSessionName: tmux_session_name,
+            isPersistentCandidate: true,
+            keyId: key_id
+        };
+
+        // Save display name to localStorage by host:port:user key
+        if (display_name) {
+            try {
+                const stored = JSON.parse(localStorage.getItem('sessionDisplayNames') || '{}');
+                const hostKey = `${host}:${port}:${username}`;
+                stored[hostKey] = display_name;
+                localStorage.setItem('sessionDisplayNames', JSON.stringify(stored));
+            } catch (e) {}
+        }
+
+        this.createSessionTab(session_id, host, username);
+        this.updateSessionStatus(session_id, 'disconnected');
+
+        const emptyIndex = this.getFirstEmptyPaneIndex();
+        const targetPane = emptyIndex !== -1 ? emptyIndex : this.activePaneIndex;
+        this.assignSessionToPane(session_id, targetPane);
+
+        console.log(`[PERSISTENT] Showing persistent tmux session tab: ${host}:${port} (${session_id})`);
+    },
+
     createSession(sessionData) {
-        const { session_id, host, port, username } = sessionData;
+        const { session_id, host, port, username, display_name } = sessionData;
 
         const terminalId = `terminal-${session_id}`;
         const terminalContainer = document.createElement('div');
@@ -71,10 +137,16 @@ const SessionManager = {
         TerminalManager.attachTerminal(session_id, terminalId);
         TerminalManager.setupInputHandler(session_id, (data) => {
             if (window.socket) {
-                window.socket.emit('ssh_input', {
-                    session_id: session_id,
-                    data: data
-                });
+                // Filter out Device Attributes responses that xterm.js may echo back
+                data = data.replace(/\x1b\[[?>]?[0-9;]*c/g, '');
+                // Also filter bare DA patterns like "0;276;0c"
+                data = data.replace(/[0-9]+;[0-9;]*c/g, '');
+                if (data) {
+                    window.socket.emit('ssh_input', {
+                        session_id: session_id,
+                        data: data
+                    });
+                }
             }
         });
 
@@ -84,7 +156,14 @@ const SessionManager = {
             sessionBar.classList.remove('hidden');
         }
 
-        const storedName = this.getStoredDisplayName(session_id);
+        const fallbackKey = `${host}:${port}:${username}`;
+        const fallbackName = this.pendingDisplayNames ? this.pendingDisplayNames[fallbackKey] : null;
+        const storedName = display_name || this.pendingDisplayName || fallbackName || this.getStoredDisplayName(session_id, host, port, username);
+        console.log(`[CREATE] createSession: display_name="${display_name}", pendingDisplayName="${this.pendingDisplayName}", fallbackName="${fallbackName}", storedName="${storedName}"`);
+        this.pendingDisplayName = null;
+        if (this.pendingDisplayNames) {
+            delete this.pendingDisplayNames[fallbackKey];
+        }
         this.sessions[session_id] = {
             id: session_id,
             host,
@@ -94,7 +173,9 @@ const SessionManager = {
             terminalId,
             os: 'all',
             displayName: storedName || null,
-            viaJump: sessionData.via_jump || null
+            viaJump: sessionData.via_jump || null,
+            useTmux: sessionData.use_tmux || false,
+            tmuxSessionName: sessionData.tmux_session_name || null
         };
 
         this.createSessionTab(session_id, host, username);
@@ -138,6 +219,13 @@ const SessionManager = {
             jumpBadge.textContent = '🛰️';
             jumpBadge.title = 'via ' + sess.viaJump;
             tab.appendChild(jumpBadge);
+        }
+        if (sess && sess.useTmux) {
+            const tmuxBadge = document.createElement('span');
+            tmuxBadge.className = 'tab-tmux-badge';
+            tmuxBadge.textContent = '📌';
+            tmuxBadge.title = 'Persistent tmux session' + (sess.tmuxSessionName ? ': ' + sess.tmuxSessionName : '');
+            tab.appendChild(tmuxBadge);
         }
         tab.appendChild(tabEdit);
         tab.appendChild(tabClose);
@@ -196,6 +284,14 @@ const SessionManager = {
 
         if (window.socket) {
             window.socket.emit('ssh_disconnect', { session_id: sessionId });
+        }
+
+        this.removeSessionUI(sessionId);
+    },
+
+    removeSessionUI(sessionId) {
+        if (!this.sessions[sessionId]) {
+            return;
         }
 
         const terminalContainer = document.getElementById(this.sessions[sessionId].terminalId);
@@ -409,6 +505,8 @@ const SessionManager = {
     },
 
     saveSessionDisplayName(sessionId, displayName) {
+        const session = this.sessions[sessionId];
+        // Save to localStorage by session ID
         try {
             const stored = JSON.parse(localStorage.getItem('sessionDisplayNames') || '{}');
             if (displayName) {
@@ -416,16 +514,39 @@ const SessionManager = {
             } else {
                 delete stored[sessionId];
             }
+            // Also save by host:port:user key so it survives session ID changes
+            if (session) {
+                const hostKey = `${session.host}:${session.port}:${session.username}`;
+                if (displayName) {
+                    stored[hostKey] = displayName;
+                } else {
+                    delete stored[hostKey];
+                }
+            }
             localStorage.setItem('sessionDisplayNames', JSON.stringify(stored));
         } catch (e) {
             console.error('Failed to save session display name:', e);
         }
+        // Save to server DB
+        if (window.socket) {
+            window.socket.emit('save_session_name', {
+                session_id: sessionId,
+                display_name: displayName
+            });
+        }
     },
 
-    getStoredDisplayName(sessionId) {
+    getStoredDisplayName(sessionId, host, port, username) {
         try {
             const stored = JSON.parse(localStorage.getItem('sessionDisplayNames') || '{}');
-            return stored[sessionId] || null;
+            // Check by session ID first
+            if (stored[sessionId]) return stored[sessionId];
+            // Check by host:port:user key (persists across session ID changes)
+            if (host && port && username) {
+                const hostKey = `${host}:${port}:${username}`;
+                if (stored[hostKey]) return stored[hostKey];
+            }
+            return null;
         } catch (e) {
             return null;
         }
@@ -706,11 +827,14 @@ const SessionManager = {
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.className = 'session-overlay';
+            const isPersistent = session.isPersistentCandidate;
+            const tmuxName = session.tmuxSessionName || '';
             overlay.innerHTML = `
                 <div class="session-overlay-card">
-                    <h3>Session disconnected</h3>
-                    <p>Reconnect to resume your work.</p>
-                    <button class="btn btn-primary" data-session-id="${sessionId}">Retry</button>
+                    <h3>${isPersistent ? 'Persistent session' : 'Session disconnected'}</h3>
+                    <p>${isPersistent ? 'tmux session running on remote host. Reconnect to resume.' : 'Reconnect to resume your work.'}</p>
+                    ${tmuxName ? `<p style="font-size:12px;opacity:0.7;">tmux: ${tmuxName}</p>` : ''}
+                    <button class="btn btn-primary" data-session-id="${sessionId}">${isPersistent ? 'Reconnect' : 'Retry'}</button>
                 </div>
             `;
             container.appendChild(overlay);
@@ -742,6 +866,26 @@ const SessionManager = {
         if (!session) {
             return;
         }
+
+        // For persistent tmux sessions with a key_id, reconnect directly
+        // without opening the connection modal.
+        if (session.isPersistentCandidate && session.keyId && session.useTmux) {
+            this.directReconnect(sessionId);
+            return;
+        }
+
+        // For persistent candidate sessions (password auth), save display name
+        // and remove the old tab before opening the modal.
+        if (session.isPersistentCandidate) {
+            this.pendingDisplayName = session.displayName;
+            this.pendingDisplayNames = this.pendingDisplayNames || {};
+            if (session.displayName) {
+                this.pendingDisplayNames[`${session.host}:${session.port}:${session.username}`] = session.displayName;
+            }
+            this.pendingReconnectTmux = session.useTmux ? session.tmuxSessionName : null;
+            this.removeSessionUI(sessionId);
+        }
+
         const hostInput = document.getElementById('hostInput');
         const portInput = document.getElementById('portInput');
         const userInput = document.getElementById('usernameInput');
@@ -754,6 +898,39 @@ const SessionManager = {
         if (userInput) {
             userInput.value = session.username;
         }
+
+        // If persistent session with key_id, auto-select the key
+        if (session.keyId) {
+            const keyRadio = document.querySelector('input[name="authType"][value="key"]');
+            if (keyRadio) {
+                keyRadio.checked = true;
+                keyRadio.dispatchEvent(new Event('change'));
+            }
+            setTimeout(() => {
+                const keySelect = document.getElementById('keySelect');
+                if (keySelect) {
+                    for (let opt of keySelect.options) {
+                        if (opt.value === session.keyId) {
+                            opt.selected = true;
+                            break;
+                        }
+                    }
+                }
+            }, 200);
+        }
+
+        // Pre-check tmux checkbox for persistent sessions
+        if (session.useTmux) {
+            const tmuxCheck = document.getElementById('useTmuxCheck');
+            if (tmuxCheck) {
+                tmuxCheck.checked = true;
+            }
+            // Store the tmux session name for reconnection
+            this.pendingReconnectTmux = session.tmuxSessionName || null;
+        } else {
+            this.pendingReconnectTmux = null;
+        }
+
         const modal = document.getElementById('connectionModal');
         if (window.ModalManager && modal) {
             window.ModalManager.open(modal);
@@ -761,6 +938,53 @@ const SessionManager = {
             modal.classList.add('show');
         }
     },
+
+    directReconnect(sessionId) {
+        const session = this.sessions[sessionId];
+        if (!session || !session.isPersistentCandidate) {
+            return;
+        }
+
+        const host = session.host;
+        const port = session.port;
+        const username = session.username;
+        const keyId = session.keyId;
+        const tmuxSessionName = session.tmuxSessionName;
+        const displayName = session.displayName;
+
+        console.log(`[RECONNECT] directReconnect: displayName="${displayName}", host=${host}, tmux=${tmuxSessionName}`);
+
+        // Store display name BEFORE removing UI so it survives the reconnect
+        this.pendingDisplayName = displayName;
+        // Also store by host:port:user as a fallback key
+        if (displayName) {
+            this.pendingDisplayNames = this.pendingDisplayNames || {};
+            this.pendingDisplayNames[`${host}:${port}:${username}`] = displayName;
+        }
+
+        // Remove the persistent candidate UI without notifying server
+        this.removeSessionUI(sessionId);
+
+        // Emit reconnect directly
+        if (window.socket) {
+            const connectionData = {
+                host: host,
+                port: parseInt(port),
+                username: username,
+                client_request_id: `reconnect_${Date.now().toString(36)}`,
+                key_id: keyId,
+                use_tmux: true,
+                reconnect_tmux_name: tmuxSessionName,
+                display_name: displayName
+            };
+            window.socket.emit('ssh_connect', connectionData);
+            window.showNotification(`Reconnecting to ${username}@${host}...`, 'info');
+        }
+    },
+
+    pendingDisplayName: null,
+
+    pendingReconnectTmux: null,
 
     getActiveSession() {
         return this.activeSessionId;

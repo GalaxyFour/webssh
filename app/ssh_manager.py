@@ -39,7 +39,8 @@ class PersistentHostKeyPolicy(paramiko.MissingHostKeyPolicy):
 def create_ssh_connection(host, port, username, password=None, key_path=None, key_content=None,
                           socketio_instance=None, app=None, user_id=None,
                           proxy_jump_host=None, proxy_jump_port=None, proxy_jump_username=None,
-                          proxy_jump_password=None, proxy_jump_key_content=None):
+                          proxy_jump_password=None, proxy_jump_key_content=None,
+                          use_tmux=False, reconnect_tmux_name=None):
     """
     Create a new SSH connection and return session ID.
 
@@ -130,12 +131,33 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         if transport:
             transport.set_keepalive(30)
 
-        channel = client.invoke_shell(
-            term='xterm-256color',
-            width=80,
-            height=24
-        )
-        channel.settimeout(0.1)
+        tmux_session_name = None
+        if use_tmux:
+            # Each new connection gets a unique tmux session name.
+            # For reconnections, use reconnect_tmux_name to attach to existing.
+            if reconnect_tmux_name:
+                tmux_session_name = reconnect_tmux_name
+                tmux_cmd = f'tmux new-session -A -s {tmux_session_name}'
+            else:
+                unique_suffix = uuid.uuid4().hex[:8]
+                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{username}_{host}_{port}_{unique_suffix}".replace('.', '_').replace('-', '_')
+                tmux_cmd = f'tmux new-session -s {tmux_session_name}'
+
+            log_info(f"Using tmux persistent session", tmux_session=tmux_session_name, host=f"{host}:{port}")
+
+            # Use exec_command with PTY to run tmux directly.
+            # This replaces the shell with tmux, attaching to existing or creating new.
+            channel = transport.open_session()
+            channel.get_pty('xterm-256color', 80, 24)
+            channel.exec_command(tmux_cmd)
+            channel.settimeout(0.1)
+        else:
+            channel = client.invoke_shell(
+                term='xterm-256color',
+                width=80,
+                height=24
+            )
+            channel.settimeout(0.1)
 
         session_id = str(uuid.uuid4())
 
@@ -152,7 +174,12 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                 'connected': True,
                 'last_activity': time.time(),
                 'bastion_client': bastion_client,
-                'proxy_jump_host': proxy_jump_host
+                'proxy_jump_host': proxy_jump_host,
+                'use_tmux': use_tmux,
+                'tmux_session_name': tmux_session_name,
+                'output_buffer': [],
+                'output_buffer_size': 0,
+                'output_buffer_max': 512000  # 512KB max buffer
             }
             connection_stored = True
 
@@ -225,6 +252,11 @@ def read_ssh_output(session_id, socketio_instance, app):
                 log_error(f"No DB session found for output reader", session_id=session_id)
                 return
 
+            # Buffer for partial DA responses that span across recv() boundaries.
+            # DA patterns like "0;276;0c" may be split across chunks, so we hold
+            # back trailing digits/semicolons and prepend them to the next chunk.
+            da_partial = ''
+
             while True:
                 with sessions_lock:
                     if session_id not in sessions:
@@ -237,7 +269,26 @@ def read_ssh_output(session_id, socketio_instance, app):
                 try:
                     data = channel.recv(32768)
                     if data:
+                        import re as _re
                         decoded_data = data.decode('utf-8', errors='replace')
+                        # Prepend any partial DA response from previous chunk
+                        decoded_data = da_partial + decoded_data
+                        da_partial = ''
+                        # Filter Device Attributes responses from output
+                        decoded_data = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', decoded_data)
+                        decoded_data = _re.sub(r'[0-9]+;[0-9;]*c', '', decoded_data)
+                        # Hold back trailing digits/semicolons that look like
+                        # the start of a bare DA response (e.g. "0;276;" before
+                        # the "0c" arrives in the next chunk).
+                        _tail = _re.search(r'([0-9]+;[0-9;]*)$', decoded_data)
+                        if _tail:
+                            da_partial = _tail.group(1)
+                            decoded_data = decoded_data[:-len(da_partial)]
+                        if not decoded_data:
+                            # Nothing to emit yet; wait for more data
+                            if channel.closed or channel.exit_status_ready():
+                                break
+                            continue
                         socketio_instance.emit('ssh_output', {
                             'session_id': session_id,
                             'data': decoded_data
@@ -247,6 +298,14 @@ def read_ssh_output(session_id, socketio_instance, app):
                         with sessions_lock:
                             if session_id in sessions:
                                 sessions[session_id]['last_activity'] = now
+                                buf = sessions[session_id].get('output_buffer')
+                                if buf is not None:
+                                    buf.append(decoded_data)
+                                    sessions[session_id]['output_buffer_size'] += len(decoded_data)
+                                    # Trim buffer if over max
+                                    while sessions[session_id]['output_buffer_size'] > sessions[session_id].get('output_buffer_max', 512000) and len(buf) > 1:
+                                        removed = buf.pop(0)
+                                        sessions[session_id]['output_buffer_size'] -= len(removed)
 
                         if now - last_db_update >= 10.0:
                             last_db_update = now
@@ -290,6 +349,23 @@ def read_ssh_output(session_id, socketio_instance, app):
 def send_ssh_input(session_id, data):
     """Send user input to SSH channel."""
     try:
+        import re as _re
+        # Filter Device Attributes responses that xterm.js may echo back as input.
+        # These arrive as ESC[?...c, ESC[>...c, ESC[...c, or bare patterns like
+        # "0;276;0c", "1c" and cause "command not found" errors.
+        if isinstance(data, str):
+            # Debug: log non-printable input to identify DA response patterns
+            if any(ord(c) < 32 and c not in '\r\n\t' for c in data):
+                log_debug(f"SSH input with control chars", session_id=session_id,
+                         hex=data.encode('utf-8').hex(), repr=repr(data))
+            data = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', data)
+            # Strip bare DA patterns: digits/semicolons ending with c
+            data = _re.sub(r'[0-9]+;[0-9;]*c', '', data)
+            # Strip bare DA fragments like "1c" that have no semicolons
+            data = _re.sub(r'(?<![a-zA-Z/])[0-9]+c(?![a-zA-Z/])', '', data)
+        if not data:
+            return True, None
+
         with sessions_lock:
             if session_id not in sessions:
                 return False, "Session not found"
@@ -374,9 +450,25 @@ def get_session(session_id):
                 'port': session['port'],
                 'username': session['username'],
                 'connected': session['connected'],
-                'via_jump': session.get('proxy_jump_host')
+                'via_jump': session.get('proxy_jump_host'),
+                'use_tmux': session.get('use_tmux', False),
+                'tmux_session_name': session.get('tmux_session_name')
             }
     return None
+
+def get_output_buffer(session_id):
+    """Get buffered output for a session (for replay on reconnect)."""
+    import re as _re
+    with sessions_lock:
+        if session_id in sessions:
+            buf = sessions[session_id].get('output_buffer')
+            if buf:
+                output = ''.join(buf)
+                # Filter Device Attributes responses
+                output = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', output)
+                output = _re.sub(r'[0-9]+;[0-9;]*c', '', output)
+                return output
+    return ''
 
 def cleanup_idle_sessions():
     """Clean up sessions that have been idle too long."""
