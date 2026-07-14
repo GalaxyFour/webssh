@@ -1900,6 +1900,21 @@
                 connectionData.proxy_jump = proxyJump;
             }
 
+            const useTmuxCheck = document.getElementById('useTmuxCheck');
+            if (useTmuxCheck && useTmuxCheck.checked) {
+                connectionData.use_tmux = true;
+                // Include tmux session name for reconnection to persistent sessions
+                if (SessionManager.pendingReconnectTmux) {
+                    connectionData.reconnect_tmux_name = SessionManager.pendingReconnectTmux;
+                    SessionManager.pendingReconnectTmux = null;
+                }
+                // Include display name for reconnecting persistent sessions
+                if (SessionManager.pendingDisplayName) {
+                    connectionData.display_name = SessionManager.pendingDisplayName;
+                    SessionManager.pendingDisplayName = null;
+                }
+            }
+
             const connectBtn = document.getElementById('connectBtn');
             const originalText = connectBtn.textContent;
             connectSeconds = 0;
@@ -1908,6 +1923,16 @@
                 connectSeconds++;
                 connectBtn.textContent = `Connecting... ${connectSeconds}s`;
             }, 1000);
+
+            // Clean up any persistent candidate tab for the same host/port/user
+            // Use removeSessionUI to avoid emitting ssh_disconnect which would
+            // delete the DB record and lose the session display name.
+            Object.keys(SessionManager.sessions).forEach(sid => {
+                const s = SessionManager.sessions[sid];
+                if (s && s.isPersistentCandidate && s.host === host && s.port === parseInt(port) && s.username === username) {
+                    SessionManager.removeSessionUI(sid);
+                }
+            });
 
             socket.emit('ssh_connect', connectionData);
             setConnectLoading(true);
@@ -2029,6 +2054,24 @@
         if (changePasswordBtn) {
             changePasswordBtn.addEventListener('click', () => {
                 window.location.href = APP_ROOT + '/change-password';
+            });
+        }
+
+        // Scrollback lines setting
+        const scrollbackInput = document.getElementById('scrollbackInput');
+        if (scrollbackInput) {
+            const savedScrollback = localStorage.getItem('terminalScrollback') || '150';
+            scrollbackInput.value = savedScrollback;
+            scrollbackInput.addEventListener('change', () => {
+                let val = parseInt(scrollbackInput.value, 10);
+                if (isNaN(val) || val < 50) val = 50;
+                if (val > 10000) val = 10000;
+                scrollbackInput.value = val;
+                localStorage.setItem('terminalScrollback', String(val));
+                // Update all existing terminals
+                Object.keys(TerminalManager.terminals).forEach(key => {
+                    TerminalManager.terminals[key].options.scrollback = val;
+                });
             });
         }
 

@@ -192,6 +192,10 @@ def handle_disconnect():
 
 def restore_user_sessions(user_id):
     """Restore active SSH sessions when user reconnects."""
+    # Clean up old disconnected non-persistent sessions
+    SSHSession.query.filter_by(user_id=user_id, connected=False, is_persistent=False).delete()
+    db.session.commit()
+
     db_sessions = SSHSession.query.filter_by(user_id=user_id, connected=True).all()
 
     room = f'user_{user_id}'
@@ -202,18 +206,41 @@ def restore_user_sessions(user_id):
         session = ssh_manager.get_session(session_id)
 
         if session and session.get('connected'):
+            buffered_output = ssh_manager.get_output_buffer(session_id)
             emit('ssh_session_restored', {
                 'session_id': session_id,
                 'host': db_session.host,
                 'port': db_session.port,
                 'username': db_session.username,
-                'via_jump': session.get('via_jump')
+                'via_jump': session.get('via_jump'),
+                'use_tmux': session.get('use_tmux', False),
+                'tmux_session_name': session.get('tmux_session_name'),
+                'display_name': db_session.display_name,
+                'buffered_output': buffered_output
             }, room=room)
             log_info(f"Restored SSH session {session_id}", user_id=user_id, room=room)
         else:
             db_session.connected = False
             db.session.commit()
             log_debug(f"SSH session {session_id} no longer active, marked disconnected")
+
+    # Restore disconnected persistent tmux sessions as reconnect candidates
+    if config.TMUX_ENABLED:
+        persistent_sessions = SSHSession.query.filter_by(
+            user_id=user_id, is_persistent=True, connected=False
+        ).all()
+        for db_session in persistent_sessions:
+            emit('persistent_session_available', {
+                'session_id': db_session.session_id,
+                'host': db_session.host,
+                'port': db_session.port,
+                'username': db_session.username,
+                'key_id': db_session.key_id,
+                'tmux_session_name': db_session.tmux_session_name,
+                'display_name': db_session.display_name
+            }, room=room)
+            log_info(f"Persistent tmux session available for reconnect",
+                     host=db_session.host, tmux_session=db_session.tmux_session_name)
 
 @socketio.on('ssh_connect')
 @socket_login_required
@@ -279,6 +306,9 @@ def handle_ssh_connect(data, current_user=None):
                     emit_error(f'Jump host SSH key error: {bastion_key_error}')
                     return
 
+        use_tmux = bool(data.get('use_tmux')) and config.TMUX_ENABLED
+        reconnect_tmux_name = data.get('reconnect_tmux_name') if use_tmux else None
+
         session_id, error = ssh_manager.create_ssh_connection(
             host=host,
             port=int(port),
@@ -292,7 +322,9 @@ def handle_ssh_connect(data, current_user=None):
             proxy_jump_port=bastion_port,
             proxy_jump_username=bastion_username,
             proxy_jump_password=bastion_password,
-            proxy_jump_key_content=bastion_key_content
+            proxy_jump_key_content=bastion_key_content,
+            use_tmux=use_tmux,
+            reconnect_tmux_name=reconnect_tmux_name
         )
 
         if password:
@@ -303,13 +335,32 @@ def handle_ssh_connect(data, current_user=None):
         if error:
             emit_error(error)
         else:
+            display_name = data.get('display_name') if use_tmux else None
             try:
+                # Clean up the specific old disconnected persistent session when
+                # reconnecting to avoid ghost tabs on refresh.
+                if use_tmux and reconnect_tmux_name:
+                    old_session = SSHSession.query.filter_by(
+                        user_id=current_user.id, host=host, port=port,
+                        is_persistent=True, connected=False,
+                        tmux_session_name=reconnect_tmux_name
+                    ).first()
+                    if old_session:
+                        db.session.delete(old_session)
+                        log_info(f"Cleaned up old persistent session",
+                                user=current_user.username, host=host,
+                                tmux_session=reconnect_tmux_name)
+
                 ssh_session = SSHSession(
                     session_id=session_id,
                     user_id=current_user.id,
                     host=host,
                     port=port,
-                    username=username
+                    username=username,
+                    is_persistent=use_tmux,
+                    key_id=key_id if use_tmux else None,
+                    tmux_session_name=ssh_manager.get_session(session_id).get('tmux_session_name') if use_tmux else None,
+                    display_name=display_name if use_tmux else None
                 )
                 db.session.add(ssh_session)
                 db.session.commit()
@@ -324,7 +375,9 @@ def handle_ssh_connect(data, current_user=None):
                 'port': port,
                 'username': username,
                 'client_request_id': client_request_id,
-                'via_jump': bastion_host
+                'via_jump': bastion_host,
+                'use_tmux': use_tmux,
+                'display_name': display_name
             })
             log_ssh_connection(current_user.username, host, port, True, request.remote_addr)
 
@@ -420,7 +473,10 @@ def handle_ssh_disconnect(data, current_user=None):
         port = ssh_session.port if ssh_session else 0
         if ssh_session:
             try:
-                ssh_session.connected = False
+                if ssh_session.is_persistent:
+                    db.session.delete(ssh_session)
+                else:
+                    ssh_session.connected = False
                 db.session.commit()
             except Exception as db_err:
                 db.session.rollback()
@@ -774,7 +830,9 @@ def handle_get_sessions(current_user=None):
                     'session_id': db_session.session_id,
                     'host': db_session.host,
                     'port': db_session.port,
-                    'username': db_session.username
+                    'username': db_session.username,
+                    'use_tmux': session.get('use_tmux', False),
+                    'tmux_session_name': session.get('tmux_session_name')
                 })
 
         emit('sessions_list', {'sessions': sessions})
@@ -937,6 +995,25 @@ def handle_delete_command(data, current_user=None):
 def handle_detect_os(data, current_user=None):
     """OS detection disabled to avoid terminal noise."""
     emit('error', {'error': 'OS detection is disabled'})
+
+@socketio.on('save_session_name')
+@socket_login_required
+def handle_save_session_name(data, current_user=None):
+    """Save session display name to database."""
+    try:
+        session_id = data.get('session_id')
+        display_name = data.get('display_name')
+        if not session_id:
+            return
+        ssh_session = SSHSession.query.filter_by(
+            session_id=session_id, user_id=current_user.id
+        ).first()
+        if ssh_session:
+            ssh_session.display_name = display_name if display_name else None
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_error("Failed to save session name", error=str(e))
 
 def verify_session_ownership(session_id, user_id):
     """

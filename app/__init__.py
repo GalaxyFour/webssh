@@ -43,7 +43,12 @@ def create_app():
 
     @app.context_processor
     def inject_url_prefix():
-        return {'url_prefix': url_prefix, 'registration_enabled': is_registration_enabled()}
+        return {
+            'url_prefix': url_prefix,
+            'registration_enabled': is_registration_enabled(),
+            'tmux_enabled': config.TMUX_ENABLED,
+            'tmux_default': config.TMUX_DEFAULT
+        }
 
     trusted_proxies = int(os.environ.get('TRUSTED_PROXIES', '0'))
     if trusted_proxies > 0:
@@ -76,8 +81,9 @@ def create_app():
 
     with app.app_context():
         db.create_all()
-        from .models import ensure_user_columns
+        from .models import ensure_user_columns, ensure_ssh_session_columns
         ensure_user_columns()
+        ensure_ssh_session_columns()
         from .auth import sync_admin_users
         sync_admin_users()
     cors_origins = config.CORS_ORIGINS
