@@ -103,7 +103,10 @@ class TestUserAccessRevocation:
             })
             closed_ssh = []
 
-            def fake_close_session(session_id):
+            def fake_close_session(session_id, kill_tmux=False):
+                # Revocation must kill the remote tmux session so a revoked
+                # user does not keep a live shell on the target host.
+                assert kill_tmux is True
                 closed_ssh.append(session_id)
                 ssh_manager.sessions.pop(session_id, None)
                 return True
