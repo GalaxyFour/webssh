@@ -157,11 +157,10 @@ const TerminalManager = {
             return;
         }
 
-        // Filter out Device Attributes responses that appear as visible text.
-        // Matches ESC[?...c, ESC[>...c, ESC[...c, and bare patterns like "0;276;0c"
+        // Filter out Device Attributes responses (ESC[c sequences only).
+        // Bare-pattern regexes were removed because they corrupt legitimate
+        // output like "padding:0;color:red" or "cat file".
         data = data.replace(/\x1b\[[?>]?[0-9;]*c/g, '');
-        // Remove any remaining bare DA patterns (digits/semicolons ending with c)
-        data = data.replace(/[0-9]+;[0-9;]*c/g, '');
 
         if (this.terminalReady[terminalKey]) {
             this.writeToTerminalWithScroll(terminal, data);

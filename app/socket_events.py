@@ -307,7 +307,23 @@ def handle_ssh_connect(data, current_user=None):
                     return
 
         use_tmux = bool(data.get('use_tmux')) and config.TMUX_ENABLED
-        reconnect_tmux_name = data.get('reconnect_tmux_name') if use_tmux else None
+        reconnect_tmux_name = None
+        if use_tmux:
+            raw_name = data.get('reconnect_tmux_name')
+            if raw_name:
+                import re as _re
+                # Whitelist: alphanumeric, underscores, max 190 chars
+                if not _re.match(r'^[A-Za-z0-9_]{1,190}$', raw_name):
+                    emit_error('Invalid tmux session name')
+                    return
+                # Verify the name maps to an SSHSession owned by this user
+                existing = SSHSession.query.filter_by(
+                    user_id=current_user.id,
+                    tmux_session_name=raw_name,
+                    is_persistent=True
+                ).first()
+                if existing:
+                    reconnect_tmux_name = raw_name
 
         session_id, error = ssh_manager.create_ssh_connection(
             host=host,
@@ -336,6 +352,8 @@ def handle_ssh_connect(data, current_user=None):
             emit_error(error)
         else:
             display_name = data.get('display_name') if use_tmux else None
+            if display_name:
+                display_name = display_name.strip()[:128] or None
             try:
                 # Clean up the specific old disconnected persistent session when
                 # reconnecting to avoid ghost tabs on refresh.
@@ -1005,6 +1023,8 @@ def handle_save_session_name(data, current_user=None):
     try:
         session_id = data.get('session_id')
         display_name = data.get('display_name')
+        if display_name:
+            display_name = display_name.strip()[:128] or None
         if not session_id:
             return
         ssh_session = SSHSession.query.filter_by(

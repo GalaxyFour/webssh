@@ -137,10 +137,9 @@ const SessionManager = {
         TerminalManager.attachTerminal(session_id, terminalId);
         TerminalManager.setupInputHandler(session_id, (data) => {
             if (window.socket) {
-                // Filter out Device Attributes responses that xterm.js may echo back
+                // Filter out Device Attributes responses (ESC[c sequences only).
+                // Bare-pattern regexes were removed because they corrupt legitimate input.
                 data = data.replace(/\x1b\[[?>]?[0-9;]*c/g, '');
-                // Also filter bare DA patterns like "0;276;0c"
-                data = data.replace(/[0-9]+;[0-9;]*c/g, '');
                 if (data) {
                     window.socket.emit('ssh_input', {
                         session_id: session_id,
@@ -925,20 +924,37 @@ const SessionManager = {
             overlay = document.createElement('div');
             overlay.className = 'session-overlay';
             const isPersistent = session.isPersistentCandidate;
+
+            const card = document.createElement('div');
+            card.className = 'session-overlay-card';
+
+            const heading = document.createElement('h3');
+            heading.textContent = isPersistent ? 'Persistent session' : 'Session disconnected';
+            card.appendChild(heading);
+
+            const desc = document.createElement('p');
+            desc.textContent = isPersistent ? 'tmux session running on remote host. Reconnect to resume.' : 'Reconnect to resume your work.';
+            card.appendChild(desc);
+
             const tmuxName = session.tmuxSessionName || '';
-            overlay.innerHTML = `
-                <div class="session-overlay-card">
-                    <h3>${isPersistent ? 'Persistent session' : 'Session disconnected'}</h3>
-                    <p>${isPersistent ? 'tmux session running on remote host. Reconnect to resume.' : 'Reconnect to resume your work.'}</p>
-                    ${tmuxName ? `<p style="font-size:12px;opacity:0.7;">tmux: ${tmuxName}</p>` : ''}
-                    <button class="btn btn-primary" data-session-id="${sessionId}">${isPersistent ? 'Reconnect' : 'Retry'}</button>
-                </div>
-            `;
-            container.appendChild(overlay);
-            const button = overlay.querySelector('button');
+            if (tmuxName) {
+                const tmuxInfo = document.createElement('p');
+                tmuxInfo.style.cssText = 'font-size:12px;opacity:0.7;';
+                tmuxInfo.textContent = 'tmux: ' + tmuxName;
+                card.appendChild(tmuxInfo);
+            }
+
+            const button = document.createElement('button');
+            button.className = 'btn btn-primary';
+            button.dataset.sessionId = sessionId;
+            button.textContent = isPersistent ? 'Reconnect' : 'Retry';
             button.addEventListener('click', () => {
                 this.prefillConnectionForm(sessionId);
             });
+            card.appendChild(button);
+
+            overlay.appendChild(card);
+            container.appendChild(overlay);
         }
         overlay.classList.remove('hidden');
     },
