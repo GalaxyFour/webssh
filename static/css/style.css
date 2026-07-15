@@ -954,6 +954,29 @@ body[data-theme="obsidian"] {
     opacity: 1;
 }
 
+.tab-reconnect {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    user-select: none;
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+.session-tab:hover .tab-reconnect {
+    opacity: 1;
+}
+
+.tab-reconnect:hover {
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
+    opacity: 1;
+}
+
 .session-tabs-row {
     display: flex;
     align-items: flex-end;

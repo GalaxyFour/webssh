@@ -175,7 +175,8 @@ const SessionManager = {
             displayName: storedName || null,
             viaJump: sessionData.via_jump || null,
             useTmux: sessionData.use_tmux || false,
-            tmuxSessionName: sessionData.tmux_session_name || null
+            tmuxSessionName: sessionData.tmux_session_name || null,
+            keyId: sessionData.key_id || null
         };
 
         this.createSessionTab(session_id, host, username);
@@ -227,7 +228,14 @@ const SessionManager = {
             tmuxBadge.title = 'Persistent tmux session' + (sess.tmuxSessionName ? ': ' + sess.tmuxSessionName : '');
             tab.appendChild(tmuxBadge);
         }
+        const tabReconnect = document.createElement('span');
+        tabReconnect.className = 'tab-reconnect';
+        tabReconnect.innerHTML = '⟳';
+        tabReconnect.setAttribute('aria-label', 'Reconnect session');
+        tabReconnect.setAttribute('title', 'Reconnect');
+
         tab.appendChild(tabEdit);
+        tab.appendChild(tabReconnect);
         tab.appendChild(tabClose);
 
         tab.addEventListener('click', () => {
@@ -242,6 +250,11 @@ const SessionManager = {
         tabEdit.addEventListener('click', (e) => {
             e.stopPropagation();
             this.startRenameSession(sessionId, tabLabel);
+        });
+
+        tabReconnect.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.requestReconnect(sessionId);
         });
 
         tabClose.addEventListener('click', (e) => {
@@ -338,6 +351,90 @@ const SessionManager = {
         const label = this.getDisplayLabel(sessionId, session.username, session.host);
         if (confirm(`Close session "${label}"?`)) {
             this.closeSession(sessionId);
+        }
+    },
+
+    requestReconnect(sessionId) {
+        const session = this.sessions[sessionId];
+        if (!session) {
+            return;
+        }
+
+        const label = this.getDisplayLabel(sessionId, session.username, session.host);
+
+        // Persistent candidate (disconnected tmux session) — reconnect directly
+        if (session.isPersistentCandidate) {
+            this.directReconnect(sessionId);
+            return;
+        }
+
+        // Active session — disconnect first, then reconnect
+        if (session.connected) {
+            if (!confirm(`Reconnect session "${label}"?`)) {
+                return;
+            }
+
+            const host = session.host;
+            const port = session.port;
+            const username = session.username;
+            const displayName = session.displayName;
+            const useTmux = session.useTmux;
+            const tmuxSessionName = session.tmuxSessionName;
+            const keyId = session.keyId;
+
+            // Store display name for reconnect
+            this.pendingDisplayName = displayName;
+            this.pendingDisplayNames = this.pendingDisplayNames || {};
+            if (displayName) {
+                this.pendingDisplayNames[`${host}:${port}:${username}`] = displayName;
+            }
+
+            // Disconnect the current session (sends ssh_disconnect to server)
+            this.closeSession(sessionId);
+
+            // If we have a key_id, reconnect directly. Otherwise, open the
+            // pre-filled connection modal.
+            if (keyId) {
+                setTimeout(() => {
+                    if (window.socket) {
+                        const connectionData = {
+                            host: host,
+                            port: parseInt(port),
+                            username: username,
+                            client_request_id: `reconnect_${Date.now().toString(36)}`,
+                            key_id: keyId,
+                            use_tmux: useTmux,
+                            reconnect_tmux_name: useTmux ? tmuxSessionName : null,
+                            display_name: displayName
+                        };
+                        window.socket.emit('ssh_connect', connectionData);
+                        window.showNotification(`Reconnecting to ${label}...`, 'info');
+                    }
+                }, 500);
+            } else {
+                // No key_id — open pre-filled connection modal
+                setTimeout(() => {
+                    const hostInput = document.getElementById('hostInput');
+                    const portInput = document.getElementById('portInput');
+                    const userInput = document.getElementById('usernameInput');
+                    if (hostInput) hostInput.value = host;
+                    if (portInput) portInput.value = port;
+                    if (userInput) userInput.value = username;
+
+                    if (useTmux) {
+                        const tmuxCheck = document.getElementById('useTmuxCheck');
+                        if (tmuxCheck) tmuxCheck.checked = true;
+                        this.pendingReconnectTmux = tmuxSessionName || null;
+                    }
+
+                    const modal = document.getElementById('connectionModal');
+                    if (window.ModalManager && modal) {
+                        window.ModalManager.open(modal);
+                    } else if (modal) {
+                        modal.classList.add('show');
+                    }
+                }, 300);
+            }
         }
     },
 
