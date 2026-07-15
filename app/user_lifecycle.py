@@ -56,7 +56,7 @@ def revoke_user_access(user_id, socketio_instance=None):
 
     for session_id in ssh_session_ids:
         try:
-            if ssh_manager.close_session(session_id):
+            if ssh_manager.close_session(session_id, kill_tmux=True):
                 result['ssh_sessions'] += 1
             else:
                 result['errors'].append(f'ssh:{session_id}:close failed')

@@ -503,7 +503,7 @@ def handle_ssh_disconnect(data, current_user=None):
                 log_error(f"Failed to update SSH session in database",
                           error=str(db_err), session_id=session_id)
 
-        success = ssh_manager.close_session(session_id)
+        success = ssh_manager.close_session(session_id, kill_tmux=True)
         if success:
             room = f'user_{current_user.id}'
             socketio.emit('ssh_disconnected', {
