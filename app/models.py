@@ -107,6 +107,33 @@ class SSHSession(db.Model):
     connected = db.Column(db.Boolean, default=True, index=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_activity = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    # Persistent tmux session support
+    is_persistent = db.Column(db.Boolean, default=False, index=True)
+    key_id = db.Column(db.String(64), nullable=True)
+    tmux_session_name = db.Column(db.String(256), nullable=True)
+    display_name = db.Column(db.String(128), nullable=True)
 
     def __repr__(self):
         return f'<SSHSession id={self.session_id[:8]}... {self.username}@{self.host}:{self.port}>'
+
+
+def ensure_ssh_session_columns():
+    """Additive schema migration for persistent tmux columns on ssh_sessions."""
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    if 'ssh_sessions' not in inspector.get_table_names():
+        return
+    existing = {c['name'] for c in inspector.get_columns('ssh_sessions')}
+    additions = []
+    if 'is_persistent' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN is_persistent BOOLEAN NOT NULL DEFAULT 0")
+    if 'key_id' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN key_id VARCHAR(64)")
+    if 'tmux_session_name' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN tmux_session_name VARCHAR(256)")
+    if 'display_name' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN display_name VARCHAR(128)")
+    for stmt in additions:
+        db.session.execute(text(stmt))
+    if additions:
+        db.session.commit()

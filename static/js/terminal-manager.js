@@ -58,12 +58,13 @@ const TerminalManager = {
         const key = terminalKey || sessionId;
         const monoFont = this.getMonoFont();
         const theme = this.buildTheme();
+        const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '150', 10);
         const terminal = new Terminal({
             cursorBlink: true,
             fontSize: this.getResponsiveFontSize(),
             fontFamily: monoFont || 'monospace',
             theme: theme,
-            scrollback: 50000,
+            scrollback: scrollbackLines,
             scrollOnOutput: true,
             scrollOnUserInput: true,
             tabStopWidth: 4,
@@ -116,22 +117,20 @@ const TerminalManager = {
 
         terminal.open(container);
 
+        // Add custom scrollbar on the right side of the terminal
+        this.setupScrollbar(container, terminal, key);
+
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 this.fitTerminal(sessionId);
 
                 setTimeout(() => {
                     terminal.clear();
+                    // Discard any output buffered before the terminal was ready
+                    // to prevent stale output from previous sessions appearing
+                    this.pendingOutput[key] = [];
 
                     this.terminalReady[key] = true;
-
-                    if (this.pendingOutput[key] && this.pendingOutput[key].length > 0) {
-                        console.log(`Flushing ${this.pendingOutput[key].length} pending outputs for ${sessionId}`);
-                        this.pendingOutput[key].forEach(data => {
-                            this.writeToTerminalWithScroll(terminal, data);
-                        });
-                        this.pendingOutput[key] = [];
-                    }
                 }, 50);
             });
         });
@@ -157,6 +156,11 @@ const TerminalManager = {
         if (!terminal) {
             return;
         }
+
+        // Filter out Device Attributes responses (ESC[c sequences only).
+        // Bare-pattern regexes were removed because they corrupt legitimate
+        // output like "padding:0;color:red" or "cat file".
+        data = data.replace(/\x1b\[[?>]?[0-9;]*c/g, '');
 
         if (this.terminalReady[terminalKey]) {
             this.writeToTerminalWithScroll(terminal, data);
@@ -293,6 +297,95 @@ const TerminalManager = {
         delete this.sessionTerminals[sessionId];
         delete this.transcripts[sessionId];
         delete this.transcriptSizes[sessionId];
+    },
+
+    setupScrollbar(container, terminal, terminalKey) {
+        // Create custom scrollbar overlay on the right side
+        const scrollbar = document.createElement('div');
+        scrollbar.className = 'terminal-scrollbar';
+        scrollbar.innerHTML = '<div class="terminal-scrollbar-thumb"></div>';
+        container.style.position = 'relative';
+        container.appendChild(scrollbar);
+
+        const thumb = scrollbar.querySelector('.terminal-scrollbar-thumb');
+        let isDragging = false;
+        let startY = 0;
+        let startScroll = 0;
+
+        const updateScrollbar = () => {
+            const buffer = terminal.buffer.active;
+            const totalLines = buffer.length;
+            const viewportHeight = terminal.rows;
+            const scrollPos = buffer.viewportY;
+            const maxScroll = totalLines - viewportHeight;
+
+            if (maxScroll <= 0) {
+                scrollbar.style.display = 'none';
+                return;
+            }
+            scrollbar.style.display = 'block';
+
+            const trackHeight = scrollbar.clientHeight;
+            const thumbHeight = Math.max(30, (viewportHeight / totalLines) * trackHeight);
+            const thumbTop = (scrollPos / maxScroll) * (trackHeight - thumbHeight);
+
+            thumb.style.height = `${thumbHeight}px`;
+            thumb.style.top = `${thumbTop}px`;
+        };
+
+        // Update scrollbar on terminal output and scroll
+        terminal.onScroll(() => updateScrollbar());
+        terminal.onResize(() => updateScrollbar());
+
+        // Also update periodically for output-driven changes
+        const intervalId = setInterval(() => {
+            if (!this.terminals[terminalKey]) {
+                clearInterval(intervalId);
+                return;
+            }
+            updateScrollbar();
+        }, 500);
+
+        // Drag to scroll
+        thumb.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startY = e.clientY;
+            startScroll = terminal.buffer.active.viewportY;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const buffer = terminal.buffer.active;
+            const totalLines = buffer.length;
+            const maxScroll = totalLines - terminal.rows;
+            const trackHeight = scrollbar.clientHeight;
+            const thumbHeight = Math.max(30, (terminal.rows / totalLines) * trackHeight);
+            const deltaY = e.clientY - startY;
+            const scrollDelta = (deltaY / (trackHeight - thumbHeight)) * maxScroll;
+            const newScroll = Math.max(0, Math.min(maxScroll, Math.round(startScroll + scrollDelta)));
+            const currentScroll = buffer.viewportY;
+            terminal.scrollLines(newScroll - currentScroll);
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Click on track to scroll
+        scrollbar.addEventListener('click', (e) => {
+            if (e.target === thumb) return;
+            const rect = scrollbar.getBoundingClientRect();
+            const clickY = e.clientY - rect.top;
+            const trackHeight = rect.height;
+            const buffer = terminal.buffer.active;
+            const maxScroll = buffer.length - terminal.rows;
+            const targetScroll = Math.round((clickY / trackHeight) * maxScroll);
+            const currentScroll = buffer.viewportY;
+            terminal.scrollLines(targetScroll - currentScroll);
+        });
+
+        updateScrollbar();
     },
 
     destroyTerminalKey(terminalKey, sessionId) {

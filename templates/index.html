@@ -62,6 +62,15 @@
                         </button>
                         <div class="lang-dropdown-header account-submenu" id="langDropdownHeader"></div>
 
+                        <div class="account-item" style="display:flex;align-items:center;gap:8px;padding:6px 12px;">
+                            <span class="account-item-icon" aria-hidden="true">📜</span>
+                            <span class="account-expander-label">Scrollback</span>
+                            <input type="number" id="scrollbackInput" min="50" max="10000" step="50"
+                                   style="width:70px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;text-align:right;"
+                                   title="Terminal scrollback lines">
+                            <span style="font-size:11px;opacity:0.6;">lines</span>
+                        </div>
+
                         <div class="account-divider" role="separator"></div>
 
                         {% if current_user.is_admin %}<a id="adminPanelBtn" class="account-item account-action" href="{{ url_for('admin_page') }}"><span class="account-item-icon" aria-hidden="true">⚙️</span> <span data-i18n="admin.title">Admin</span></a>{% endif %}
@@ -261,6 +270,16 @@
                             <span data-i18n="connection.saveAsProfile">Save as profile</span>
                         </label>
                     </div>
+
+                    {% if tmux_enabled %}
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="useTmuxCheck" {% if tmux_default %}checked{% endif %}>
+                            <span>Persistent session (tmux)</span>
+                        </label>
+                        <div class="field-hint">Keeps terminal alive on the remote host even when you close the browser or server restarts. Reattaches to existing tmux session automatically.</div>
+                    </div>
+                    {% endif %}
 
                     <div class="form-group hidden" id="profileNameGroup">
                         <label for="profileNameInput" data-i18n="connection.profileName">Profile Name</label>
@@ -701,16 +720,16 @@
     <script src="{{ url_for('static', filename='js/binary-transfer-client.js') }}"></script>
     <script src="{{ url_for('static', filename='js/drag-drop-manager.js') }}"></script>
 
-    <script src="{{ url_for('static', filename='js/terminal-manager.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/session-manager.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/broadcast-input.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/profile-manager.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/jump-host-manager.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/command-library.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/file-transfer.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/browser-filesystem.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/sftp-file-manager.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/terminal-manager.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/session-manager.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/broadcast-input.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/profile-manager.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/jump-host-manager.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/command-library.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/file-transfer.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/browser-filesystem.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/sftp-file-manager.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=2"></script>
     <script>
         const flashedMessages = {{ get_flashed_messages(with_categories=true) | tojson }};
         flashedMessages.forEach(([category, message]) => {

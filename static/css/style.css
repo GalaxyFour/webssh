@@ -849,6 +849,46 @@ body[data-theme="obsidian"] {
     cursor: help;
 }
 
+.tab-tmux-badge {
+    font-size: 11px;
+    margin-left: 2px;
+    opacity: 0.85;
+    cursor: help;
+}
+
+.terminal-scrollbar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    background: rgba(0,0,0,0.15);
+    border-radius: 6px;
+    z-index: 10;
+    cursor: pointer;
+}
+
+.terminal-scrollbar-thumb {
+    position: absolute;
+    top: 0;
+    left: 1px;
+    width: 10px;
+    min-height: 30px;
+    background: rgba(255,255,255,0.35);
+    border-radius: 5px;
+    cursor: grab;
+    transition: background 0.15s;
+}
+
+.terminal-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.55);
+}
+
+.terminal-scrollbar-thumb:active {
+    cursor: grabbing;
+    background: rgba(255,255,255,0.7);
+}
+
 .tab-label:hover {
     cursor: text;
 }
@@ -911,6 +951,29 @@ body[data-theme="obsidian"] {
 .tab-close:hover {
     color: var(--error-color);
     background: rgba(248, 81, 73, 0.1);
+    opacity: 1;
+}
+
+.tab-reconnect {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    user-select: none;
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+
+.session-tab:hover .tab-reconnect {
+    opacity: 1;
+}
+
+.tab-reconnect:hover {
+    color: var(--accent-primary);
+    background: var(--accent-primary-glow);
     opacity: 1;
 }
 
