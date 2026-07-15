@@ -135,12 +135,15 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         if use_tmux:
             # Each new connection gets a unique tmux session name.
             # For reconnections, use reconnect_tmux_name to attach to existing.
+            # Sanitize host for tmux session name: replace dots, colons (IPv6),
+            # and hyphens with underscores.
+            safe_host = host.replace('.', '_').replace(':', '_').replace('-', '_')
             if reconnect_tmux_name:
                 tmux_session_name = reconnect_tmux_name
                 tmux_cmd = f'tmux new-session -A -s {tmux_session_name}'
             else:
                 unique_suffix = uuid.uuid4().hex[:8]
-                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{username}_{host}_{port}_{unique_suffix}".replace('.', '_').replace('-', '_')
+                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{username}_{safe_host}_{port}_{unique_suffix}"
                 tmux_cmd = f'tmux new-session -s {tmux_session_name}'
 
             log_info(f"Using tmux persistent session", tmux_session=tmux_session_name, host=f"{host}:{port}")
@@ -151,6 +154,28 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
             channel.get_pty('xterm-256color', 80, 24)
             channel.exec_command(tmux_cmd)
             channel.settimeout(0.1)
+
+            # Check if tmux command succeeded. If the remote host doesn't have
+            # tmux installed, exec_command fails silently. Read the channel briefly
+            # to detect early exit (command not found).
+            import select
+            _r, _, _ = select.select([channel], [], [], 0.5)
+            if _r:
+                _early = channel.recv(4096).decode('utf-8', errors='replace')
+                if 'command not found' in _early or 'No such file' in _early:
+                    log_warning(f"tmux not found on target host, falling back to regular shell",
+                               host=f"{host}:{port}", tmux_session=tmux_session_name)
+                    channel.close()
+                    tmux_session_name = None
+                    channel = client.invoke_shell(
+                        term='xterm-256color',
+                        width=80,
+                        height=24
+                    )
+                    channel.settimeout(0.1)
+                    # Send the early output to the new channel so the user sees the error
+                    if _early:
+                        use_tmux = False
         else:
             channel = client.invoke_shell(
                 term='xterm-256color',
@@ -252,11 +277,6 @@ def read_ssh_output(session_id, socketio_instance, app):
                 log_error(f"No DB session found for output reader", session_id=session_id)
                 return
 
-            # Buffer for partial DA responses that span across recv() boundaries.
-            # DA patterns like "0;276;0c" may be split across chunks, so we hold
-            # back trailing digits/semicolons and prepend them to the next chunk.
-            da_partial = ''
-
             while True:
                 with sessions_lock:
                     if session_id not in sessions:
@@ -271,23 +291,12 @@ def read_ssh_output(session_id, socketio_instance, app):
                     if data:
                         import re as _re
                         decoded_data = data.decode('utf-8', errors='replace')
-                        # Prepend any partial DA response from previous chunk
-                        decoded_data = da_partial + decoded_data
-                        da_partial = ''
-                        # Filter Device Attributes responses from output
+                        # Filter Device Attributes responses (ESC[c sequences only).
+                        # Bare-pattern regexes were removed because they corrupt
+                        # legitimate output like "padding:0;color:red".
                         decoded_data = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', decoded_data)
-                        decoded_data = _re.sub(r'[0-9]+;[0-9;]*c', '', decoded_data)
-                        # Hold back trailing digits/semicolons that look like
-                        # the start of a bare DA response (e.g. "0;276;" before
-                        # the "0c" arrives in the next chunk).
-                        _tail = _re.search(r'([0-9]+;[0-9;]*)$', decoded_data)
-                        if _tail:
-                            da_partial = _tail.group(1)
-                            decoded_data = decoded_data[:-len(da_partial)]
                         if not decoded_data:
-                            # Nothing to emit yet; wait for more data
-                            if channel.closed or channel.exit_status_ready():
-                                break
+                            # Nothing to emit; skip
                             continue
                         socketio_instance.emit('ssh_output', {
                             'session_id': session_id,
@@ -350,19 +359,11 @@ def send_ssh_input(session_id, data):
     """Send user input to SSH channel."""
     try:
         import re as _re
-        # Filter Device Attributes responses that xterm.js may echo back as input.
-        # These arrive as ESC[?...c, ESC[>...c, ESC[...c, or bare patterns like
-        # "0;276;0c", "1c" and cause "command not found" errors.
+        # Filter Device Attributes responses (ESC[c sequences only) that
+        # xterm.js may echo back as input. Bare-pattern regexes were removed
+        # because they corrupt legitimate input like "100c" or "cat file".
         if isinstance(data, str):
-            # Debug: log non-printable input to identify DA response patterns
-            if any(ord(c) < 32 and c not in '\r\n\t' for c in data):
-                log_debug(f"SSH input with control chars", session_id=session_id,
-                         hex=data.encode('utf-8').hex(), repr=repr(data))
             data = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', data)
-            # Strip bare DA patterns: digits/semicolons ending with c
-            data = _re.sub(r'[0-9]+;[0-9;]*c', '', data)
-            # Strip bare DA fragments like "1c" that have no semicolons
-            data = _re.sub(r'(?<![a-zA-Z/])[0-9]+c(?![a-zA-Z/])', '', data)
         if not data:
             return True, None
 
@@ -414,6 +415,23 @@ def close_session(session_id):
             session = sessions[session_id]
             session['connected'] = False
 
+            # Kill tmux session on remote host if this was a persistent session.
+            # This prevents orphaned tmux sessions from accumulating.
+            if session.get('use_tmux') and session.get('tmux_session_name') and session['client']:
+                try:
+                    transport = session['client'].get_transport()
+                    if transport and transport.is_active():
+                        kill_channel = transport.open_session()
+                        kill_channel.exec_command(f'tmux kill-session -t {session["tmux_session_name"]}')
+                        kill_channel.settimeout(2.0)
+                        try:
+                            kill_channel.recv(1)
+                        except Exception:
+                            pass
+                        kill_channel.close()
+                except Exception as e:
+                    log_debug(f"Error killing tmux session", session_id=session_id, error=str(e))
+
             if session['channel']:
                 try:
                     session['channel'].close()
@@ -464,9 +482,8 @@ def get_output_buffer(session_id):
             buf = sessions[session_id].get('output_buffer')
             if buf:
                 output = ''.join(buf)
-                # Filter Device Attributes responses
+                # Filter Device Attributes responses (ESC[c sequences only)
                 output = _re.sub(r'\x1b\[[?>]?[0-9;]*c', '', output)
-                output = _re.sub(r'[0-9]+;[0-9;]*c', '', output)
                 return output
     return ''
 
