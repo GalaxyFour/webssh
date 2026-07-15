@@ -135,47 +135,51 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         if use_tmux:
             # Each new connection gets a unique tmux session name.
             # For reconnections, use reconnect_tmux_name to attach to existing.
-            # Sanitize host for tmux session name: replace dots, colons (IPv6),
-            # and hyphens with underscores.
+            # Sanitize host and username for tmux session name: replace dots,
+            # colons (IPv6), and hyphens with underscores (tmux rejects them).
             safe_host = host.replace('.', '_').replace(':', '_').replace('-', '_')
+            safe_user = username.replace('.', '_').replace('-', '_')
             if reconnect_tmux_name:
                 tmux_session_name = reconnect_tmux_name
                 tmux_cmd = f'tmux new-session -A -s {tmux_session_name}'
             else:
                 unique_suffix = uuid.uuid4().hex[:8]
-                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{username}_{safe_host}_{port}_{unique_suffix}"
+                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{safe_user}_{safe_host}_{port}_{unique_suffix}"
                 tmux_cmd = f'tmux new-session -s {tmux_session_name}'
 
             log_info(f"Using tmux persistent session", tmux_session=tmux_session_name, host=f"{host}:{port}")
 
-            # Use exec_command with PTY to run tmux directly.
-            # This replaces the shell with tmux, attaching to existing or creating new.
-            channel = transport.open_session()
-            channel.get_pty('xterm-256color', 80, 24)
-            channel.exec_command(tmux_cmd)
-            channel.settimeout(0.1)
+            # Probe for tmux on a separate exec channel before opening the
+            # real session. This avoids locale-dependent error string matching
+            # and avoids swallowing tmux's initial screen draw.
+            probe_channel = transport.open_session()
+            probe_channel.exec_command('command -v tmux')
+            probe_channel.settimeout(3.0)
+            try:
+                probe_channel.recv(1)
+            except Exception:
+                pass
+            tmux_available = probe_channel.recv_exit_status() == 0
+            probe_channel.close()
 
-            # Check if tmux command succeeded. If the remote host doesn't have
-            # tmux installed, exec_command fails silently. Read the channel briefly
-            # to detect early exit (command not found).
-            import select
-            _r, _, _ = select.select([channel], [], [], 0.5)
-            if _r:
-                _early = channel.recv(4096).decode('utf-8', errors='replace')
-                if 'command not found' in _early or 'No such file' in _early:
-                    log_warning(f"tmux not found on target host, falling back to regular shell",
-                               host=f"{host}:{port}", tmux_session=tmux_session_name)
-                    channel.close()
-                    tmux_session_name = None
-                    channel = client.invoke_shell(
-                        term='xterm-256color',
-                        width=80,
-                        height=24
-                    )
-                    channel.settimeout(0.1)
-                    # Send the early output to the new channel so the user sees the error
-                    if _early:
-                        use_tmux = False
+            if not tmux_available:
+                log_warning(f"tmux not found on target host, falling back to regular shell",
+                           host=f"{host}:{port}")
+                tmux_session_name = None
+                use_tmux = False
+                channel = client.invoke_shell(
+                    term='xterm-256color',
+                    width=80,
+                    height=24
+                )
+                channel.settimeout(0.1)
+            else:
+                # Use exec_command with PTY to run tmux directly.
+                # This replaces the shell with tmux, attaching to existing or creating new.
+                channel = transport.open_session()
+                channel.get_pty('xterm-256color', 80, 24)
+                channel.exec_command(tmux_cmd)
+                channel.settimeout(0.1)
         else:
             channel = client.invoke_shell(
                 term='xterm-256color',
@@ -402,8 +406,14 @@ def resize_terminal(session_id, rows, cols):
     except Exception as e:
         return False, str(e)
 
-def close_session(session_id):
-    """Close SSH session and clean up resources."""
+def close_session(session_id, kill_tmux=False):
+    """Close SSH session and clean up resources.
+
+    kill_tmux: If True and the session uses tmux, kill the remote tmux session.
+               Default False — idle timeout and server restart detach only,
+               leaving tmux running so the session shows up as a reconnect
+               candidate. Pass True only from explicit user disconnect.
+    """
     try:
         from .sftp_handler import close_sftp_cache
         close_sftp_cache(session_id)
@@ -415,9 +425,10 @@ def close_session(session_id):
             session = sessions[session_id]
             session['connected'] = False
 
-            # Kill tmux session on remote host if this was a persistent session.
-            # This prevents orphaned tmux sessions from accumulating.
-            if session.get('use_tmux') and session.get('tmux_session_name') and session['client']:
+            # Kill tmux session on remote host only on explicit disconnect.
+            # Idle timeout and server restart leave tmux running so the
+            # session survives and appears as a reconnect candidate.
+            if kill_tmux and session.get('use_tmux') and session.get('tmux_session_name') and session['client']:
                 try:
                     transport = session['client'].get_transport()
                     if transport and transport.is_active():
