@@ -101,13 +101,14 @@ class TestUserAccessRevocation:
                 'target-ssh': {'user_id': target.id},
                 'other-ssh': {'user_id': other.id},
             })
-            closed_ssh = []
+            close_calls = []
 
             def fake_close_session(session_id, kill_tmux=False):
-                # Revocation must kill the remote tmux session so a revoked
-                # user does not keep a live shell on the target host.
-                assert kill_tmux is True
-                closed_ssh.append(session_id)
+                # No asserts in here: revoke_user_access wraps close_session in
+                # try/except, so a failing assert would be swallowed and surface
+                # as a confusing "close failed" error instead. Record the call
+                # and assert after revoke_user_access() returns.
+                close_calls.append((session_id, kill_tmux))
                 ssh_manager.sessions.pop(session_id, None)
                 return True
 
@@ -127,7 +128,9 @@ class TestUserAccessRevocation:
 
             result = revoke_user_access(target.id, fake_socketio)
 
-            assert closed_ssh == ['target-ssh']
+            # Revocation must kill the remote tmux session so a revoked user
+            # does not keep a live shell on the target host.
+            assert close_calls == [('target-ssh', True)]
             assert 'other-ssh' in ssh_manager.sessions
             assert closed_pool == [str(target.id)]
             assert fake_socketio.server.disconnected == [('target-sid', '/')]
