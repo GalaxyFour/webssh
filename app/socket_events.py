@@ -377,6 +377,8 @@ def handle_ssh_connect(data, current_user=None):
                 'client_request_id': client_request_id,
                 'via_jump': bastion_host,
                 'use_tmux': use_tmux,
+                'key_id': key_id if use_tmux else None,
+                'tmux_session_name': ssh_manager.get_session(session_id).get('tmux_session_name') if use_tmux else None,
                 'display_name': display_name
             })
             log_ssh_connection(current_user.username, host, port, True, request.remote_addr)
