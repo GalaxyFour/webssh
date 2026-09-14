@@ -271,6 +271,9 @@ def main():
             'REGISTRATION_ENABLED': 'True',
             'RATELIMIT_STORAGE_URL': 'memory://',
             'RATELIMIT_LOGIN_LIMIT': '100 per minute',
+            # Browser cases share seeded accounts and open them in bursts.
+            # Budget enforcement is exercised by the socket contract tests.
+            'SSH_KEY_LIST_RATELIMIT': '100 per minute',
             'CORS_ORIGINS': (
                 'http://127.0.0.1:'
                 + os.environ.get('WEBSSH_E2E_PORT', '4173')
