@@ -75,6 +75,51 @@ async function openWorkspaceWithSources(page) {
     });
 }
 
+for (const kind of ['sftp', 'smb']) {
+    test(`${kind} filenames preserve text, checkbox attributes and sorted selection`, async ({ page }) => {
+        await openWorkspaceWithSources(page);
+        // Ordinary punctuation and entity-like text, without executable markup.
+        const filename = 'Über "quotes" and \'apostrophes\' & <notes> &quot;.txt';
+        await page.evaluate(({ kind, filename }) => {
+            const manager = window.sftpFileManager;
+            manager.closeSourceLauncher();
+            const sourceId = kind === 'sftp'
+                ? 'sftp-session:workspace-source'
+                : `smb-quick:${'a'.repeat(32)}`;
+            Object.assign(manager.panes.left, manager.createEmptyPaneState(), {
+                source: {
+                    sourceId, kind, label: 'Punctuation files',
+                    capabilities: ['list', 'read'], security: {}, access: {},
+                },
+                path: '/',
+                files: [
+                    { name: filename, is_dir: false, size: 12 },
+                    { name: 'Folder', is_dir: true, size: 0 },
+                    { name: 'alpha.txt', is_dir: false, size: 1 },
+                ],
+            });
+            manager.renderPane('left');
+        }, { kind, filename });
+
+        const rows = page.locator('#fmLeftList .fm-file-item');
+        await expect(rows).toHaveCount(3);
+        await expect(rows.first().locator('.fm-file-name')).toHaveText('Folder');
+        const row = page.locator('#fmLeftList .fm-file-item[data-index="0"]');
+        await expect(row.locator('.fm-file-name')).toHaveText(filename);
+        const checkbox = row.getByRole('checkbox');
+        await expect(checkbox).toHaveAttribute('aria-label', `Select: ${filename}`);
+        expect(await checkbox.evaluate(element => element.getAttributeNames().sort())).toEqual([
+            'aria-checked', 'aria-label', 'class', 'role', 'type',
+        ]);
+        await checkbox.click();
+        await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+        expect(await page.evaluate(() => [...window.sftpFileManager.panes.left.selected])).toEqual([0]);
+        await checkbox.click();
+        await expect(checkbox).toHaveAttribute('aria-checked', 'false');
+        await assertNoExternalRequests(page);
+    });
+}
+
 test('source-first workspace preserves panes and exposes only functional SFTP actions', async ({ page }) => {
     await openWorkspaceWithSources(page);
 

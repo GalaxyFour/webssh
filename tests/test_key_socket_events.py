@@ -21,7 +21,10 @@ def create_socket_user(app, username):
         return user.id, sid
 
 
-def call_socket_handler(app, monkeypatch, handler, sid, payload):
+_NO_PAYLOAD = object()
+
+
+def call_socket_handler(app, monkeypatch, handler, sid, payload=_NO_PAYLOAD):
     import app.socket_events as socket_events
 
     emitted = []
@@ -32,7 +35,9 @@ def call_socket_handler(app, monkeypatch, handler, sid, payload):
     )
     with app.test_request_context('/socket.io'):
         request.sid = sid
-        acknowledgement = handler(payload)
+        acknowledgement = (
+            handler() if payload is _NO_PAYLOAD else handler(payload)
+        )
     return acknowledgement, emitted
 
 
@@ -371,3 +376,158 @@ def test_key_replace_audit_sanitizes_values(monkeypatch):
     assert messages[0].startswith('KEY_REPLACE_FAILED | ')
     assert '\n' not in messages[0]
     assert '\r' not in messages[0]
+
+
+@pytest.mark.parametrize('operation', ('rename', 'replace', 'delete'))
+def test_key_mutation_reserves_refresh_before_changing_storage(
+    app, monkeypatch, rsa_private_key_pem, operation,
+):
+    from app import key_manager
+    import app.socket_events as socket_events
+
+    user_id, sid = create_socket_user(app, 'summary_limited')
+    monkeypatch.setattr(socket_events.config, 'RATELIMIT_SSH_KEY_LIST', '1 per minute')
+    with app.app_context():
+        key, error = key_manager.save_key(user_id, 'Original', rsa_private_key_pem)
+        assert error is None
+        before = key_manager.get_user_keys_file(user_id).read_bytes()
+
+    calls = []
+    original_loader = key_manager.load_key_summaries
+
+    def summaries(user_id):
+        calls.append(user_id)
+        return original_loader(user_id)
+
+    monkeypatch.setattr(key_manager, 'load_key_summaries', summaries)
+    _, emitted = call_socket_handler(
+        app, monkeypatch, socket_events.handle_list_keys, sid,
+    )
+    assert emitted[0][0] == 'keys_list'
+    assert emitted[0][1]['keys'][0]['usable'] is True
+
+    denied, emitted = call_socket_handler(
+        app, monkeypatch, getattr(socket_events, f'handle_{operation}_key'), sid,
+        {'key_id': key['id'], 'name': 'Changed', 'key_content': rsa_private_key_pem},
+    )
+    assert denied['success'] is False
+    assert emitted == [('error', {'error': denied['error']})]
+    assert calls == [user_id]
+    with app.app_context():
+        assert key_manager.get_user_keys_file(user_id).read_bytes() == before
+        content, error = key_manager.read_key_content(user_id, key['id'])
+        assert error is None
+        assert content == rsa_private_key_pem
+
+
+@pytest.mark.parametrize('operation', ('rename', 'replace', 'delete'))
+def test_key_mutation_last_admission_still_delivers_fresh_list(
+    app, monkeypatch, rsa_private_key_pem, operation,
+):
+    from app import key_manager
+    import app.socket_events as socket_events
+
+    user_id, sid = create_socket_user(app, 'summary_last_slot')
+    monkeypatch.setattr(socket_events.config, 'RATELIMIT_SSH_KEY_LIST', '1 per minute')
+    with app.app_context():
+        key, error = key_manager.save_key(user_id, 'Original', rsa_private_key_pem)
+        assert error is None
+
+    _, emitted = call_socket_handler(
+        app, monkeypatch, getattr(socket_events, f'handle_{operation}_key'), sid,
+        {'key_id': key['id'], 'name': 'Changed', 'key_content': rsa_private_key_pem},
+    )
+    expected_event = {'rename': 'key_renamed', 'replace': 'key_replaced', 'delete': 'key_deleted'}[operation]
+    assert [event for event, _ in emitted] == [expected_event, 'keys_list']
+    listed = emitted[-1][1]['keys']
+    if operation == 'delete':
+        assert listed == []
+    else:
+        assert listed[0]['id'] == key['id']
+        assert listed[0]['usable'] is True
+        assert listed[0]['name'] == ('Changed' if operation == 'rename' else 'Original')
+    denied, emitted = call_socket_handler(
+        app, monkeypatch, socket_events.handle_list_keys, sid,
+    )
+    assert denied['success'] is False
+    assert [event for event, _ in emitted] == ['error']
+
+
+def test_key_summary_budget_is_shared_between_sockets_but_not_users(app, monkeypatch):
+    from app.auth import register_socket_session
+    from app.models import db
+    import app.socket_events as socket_events
+
+    user_id, sid = create_socket_user(app, 'summary_owner')
+    other_id, other_sid = create_socket_user(app, 'summary_other')
+    with app.app_context():
+        register_socket_session(user_id, 'summary-second-socket')
+        db.session.commit()
+    monkeypatch.setattr(socket_events.config, 'RATELIMIT_SSH_KEY_LIST', '1 per minute')
+    calls = []
+
+    def summaries(user_id):
+        calls.append(user_id)
+        return []
+
+    monkeypatch.setattr(socket_events.key_manager, 'load_key_summaries', summaries)
+    call_socket_handler(app, monkeypatch, socket_events.handle_list_keys, sid)
+    denied, emitted = call_socket_handler(
+        app, monkeypatch, socket_events.handle_list_keys, 'summary-second-socket',
+    )
+    assert denied['success'] is False
+    assert [event for event, _ in emitted] == ['error']
+    _, emitted = call_socket_handler(app, monkeypatch, socket_events.handle_list_keys, other_sid)
+    assert emitted == [('keys_list', {'keys': []})]
+    assert calls == [user_id, other_id]
+
+
+def test_key_listing_preserves_storage_error_acknowledgement(app, monkeypatch):
+    from app import key_manager
+    import app.socket_events as socket_events
+
+    user_id, sid = create_socket_user(app, 'summary_corrupt')
+    with app.app_context():
+        path = key_manager.get_user_keys_file(user_id)
+        path.write_text('{broken', encoding='utf-8')
+        before = path.read_bytes()
+    acknowledgement, emitted = call_socket_handler(
+        app, monkeypatch, socket_events.handle_list_keys, sid,
+    )
+    assert acknowledgement['success'] is False
+    assert acknowledgement['code'] == 'storage_error'
+    assert emitted == [('error', acknowledgement)]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('operation', ('rename', 'replace', 'delete'))
+def test_key_refresh_read_failure_does_not_reverse_successful_mutation(
+    app, monkeypatch, rsa_private_key_pem, operation,
+):
+    from app import key_manager
+    import app.socket_events as socket_events
+
+    user_id, sid = create_socket_user(app, 'summary_read_failure')
+    with app.app_context():
+        key, error = key_manager.save_key(user_id, 'Original', rsa_private_key_pem)
+        assert error is None
+
+    def failed_read(_user_id):
+        raise OSError('read failed')
+
+    monkeypatch.setattr(key_manager, 'load_key_summaries', failed_read)
+    acknowledgement, emitted = call_socket_handler(
+        app, monkeypatch, getattr(socket_events, f'handle_{operation}_key'), sid,
+        {'key_id': key['id'], 'name': 'Changed', 'key_content': rsa_private_key_pem},
+    )
+    if operation != 'delete':
+        assert acknowledgement['success'] is True
+    expected_event = {'rename': 'key_renamed', 'replace': 'key_replaced', 'delete': 'key_deleted'}[operation]
+    assert [event for event, _ in emitted] == [expected_event, 'error']
+    assert emitted[-1][1] == {'error': 'Failed to load keys'}
+    with app.app_context():
+        keys = key_manager.load_keys(user_id)
+        if operation == 'delete':
+            assert keys == []
+        else:
+            assert keys[0]['name'] == ('Changed' if operation == 'rename' else 'Original')

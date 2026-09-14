@@ -251,8 +251,13 @@ def test_share_root_is_validated_before_descriptor_is_published():
     assert pool.get_source(descriptor.source_id, '1') is not None
 
 
-@pytest.mark.parametrize('code', ('SHARE_UNAVAILABLE', 'PERMISSION_DENIED'))
-def test_share_root_failure_closes_session_releases_quota_and_is_not_published(code):
+@pytest.mark.parametrize('code', (
+    'SHARE_UNAVAILABLE', 'PERMISSION_DENIED', 'OPERATION_FAILED',
+))
+@pytest.mark.parametrize('failed_lane', (1, 2))
+def test_share_root_failure_closes_session_releases_quota_and_is_not_published(
+    code, failed_lane,
+):
     pool, protocol, quota, _events = _pool()
     original_connect = protocol.connect
 
@@ -262,7 +267,8 @@ def test_share_root_failure_closes_session_releases_quota_and_is_not_published(c
         failure.diagnostic_phase = 'file_operation'
         failure.diagnostic_exception_type = 'SMBOSError'
         failure.diagnostic_nt_status = '0xC0000022'
-        session.inspect_error = failure
+        if len(protocol.sessions) == failed_lane:
+            session.inspect_error = failure
         return session
 
     protocol.connect = connect
@@ -274,7 +280,8 @@ def test_share_root_failure_closes_session_releases_quota_and_is_not_published(c
     assert exc.value.diagnostic_phase == 'share_access'
     assert exc.value.diagnostic_exception_type == 'SMBOSError'
     assert exc.value.diagnostic_nt_status == '0xC0000022'
-    assert protocol.sessions[0].closed == 1
+    assert len(protocol.sessions) == failed_lane
+    assert all(session.closed == 1 for session in protocol.sessions)
     assert quota.reservations[0].released is True
     assert pool.source_count == 0
 

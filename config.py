@@ -754,6 +754,9 @@ RATELIMIT_SSH_CONNECT = os.environ.get('SSH_CONNECT_RATELIMIT', '10 per minute')
 RATELIMIT_SSH_KEY_WRITE = os.environ.get(
     'SSH_KEY_WRITE_RATELIMIT', '30 per minute'
 )
+RATELIMIT_SSH_KEY_LIST = os.environ.get(
+    'SSH_KEY_LIST_RATELIMIT', '30 per minute'
+)
 RATELIMIT_COMMAND_MUTATION = os.environ.get(
     'COMMAND_MUTATION_RATELIMIT',
     '60 per minute',

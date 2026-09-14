@@ -1780,17 +1780,127 @@ def test_explicit_empty_expected_identity_chain_rejects_non_root_path(
     assert error.value.public_code == 'OPERATION_FAILED'
 
 
+class _DirectoryPages:
+    """Finite decoded pages; no network or protocol payload generation."""
+
+    def __init__(self, pages, terminal=None):
+        from app import smb_protocol
+
+        self.fd = self
+        self.pages = iter(pages)
+        self.terminal = terminal or smb_protocol.NoMoreFiles
+        self.calls = []
+        self.closed = False
+
+    def query_directory(self, pattern, info_class, *, flags):
+        self.calls.append((pattern, info_class, flags))
+        try:
+            return next(self.pages)
+        except StopIteration:
+            raise self.terminal(None)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.mark.parametrize('terminal_name', ('NoMoreFiles', 'NoSuchFile'))
+@pytest.mark.parametrize('names', ([], ['.', '..'], ['.', '..', 'first', 'second'], ['first', 'second']))
+def test_directory_pages_preserve_entries_flags_and_normal_completion(
+    monkeypatch, terminal_name, names,
+):
+    from app import smb_protocol
+
+    monkeypatch.setattr(smb_protocol, '_entry_from_directory_info', lambda entry: entry)
+    raw = _DirectoryPages(
+        [[_object_info(name, index + 1, directory=True)] for index, name in enumerate(names)],
+        terminal=getattr(smb_protocol, terminal_name),
+    )
+    iterator = smb_protocol._VerifiedDirectoryIterator(raw, _object_info('', 10, directory=True))
+    assert [entry.name for entry in iterator] == [name for name in names if name not in {'.', '..'}]
+    assert [call[2] for call in raw.calls] == [
+        smb_protocol.QueryDirectoryFlags.SMB2_RESTART_SCANS, *([0] * len(names)),
+    ]
+    assert all(call[0] == '*' for call in raw.calls)
+    assert all(call[1] == smb_protocol.FileInformationClass.FILE_ID_FULL_DIRECTORY_INFORMATION for call in raw.calls)
+    assert iterator.closed is True
+    assert raw.closed is True
+
+
+@pytest.mark.parametrize('pages', ((['.'], ['.']), (['..'], ['..']), (['.', '..'], ['.']), ([],)))
+@pytest.mark.parametrize('exact_child', (False, True))
+def test_directory_progress_rejects_repeated_special_entries_and_empty_pages(
+    monkeypatch, pages, exact_child,
+):
+    from app import smb_protocol
+
+    monkeypatch.setattr(smb_protocol, '_entry_from_directory_info', lambda entry: entry)
+    raw = _DirectoryPages([
+        [_object_info(name, 1, directory=True) for name in page] for page in pages
+    ])
+    iterator = None
+    with pytest.raises(SMBProtocolError) as error:
+        if exact_child:
+            smb_protocol._query_exact_child(raw, 'normal.txt')
+        else:
+            iterator = smb_protocol._VerifiedDirectoryIterator(raw, _object_info('', 10, directory=True))
+            next(iterator)
+    assert error.value.public_code == 'OPERATION_FAILED'
+    assert len(raw.calls) == len(pages)
+    if iterator is not None:
+        assert iterator.closed is True
+        assert raw.closed is True
+    else:
+        # Exact lookup borrows the parent's handle; verified-path cleanup owns it.
+        assert raw.closed is False
+
+
+@pytest.mark.parametrize('names, expected', (
+    (['.', '..', 'Normal.txt'], None),
+    (['.', '..'], 'NOT_FOUND'),
+    (['Normal.txt', 'normal.txt'], 'CONFLICT'),
+    (['other.txt'], 'CONFLICT'),
+))
+def test_exact_child_preserves_matching_and_conflict_semantics(monkeypatch, names, expected):
+    from app import smb_protocol
+
+    monkeypatch.setattr(smb_protocol, '_entry_from_directory_info', lambda entry: entry)
+    raw = _DirectoryPages([[_object_info(name, i + 1) for i, name in enumerate(names)]])
+    if expected is not None:
+        with pytest.raises(SMBProtocolError) as error:
+            smb_protocol._query_exact_child(raw, 'normal.txt')
+        assert error.value.public_code == expected
+    else:
+        assert smb_protocol._query_exact_child(raw, 'normal.txt').name == 'Normal.txt'
+    assert raw.closed is False
+
+
+def test_directory_special_entry_allowance_is_per_iterator(monkeypatch):
+    from app import smb_protocol
+
+    monkeypatch.setattr(smb_protocol, '_entry_from_directory_info', lambda entry: entry)
+    for _ in range(2):
+        raw = _DirectoryPages([[_object_info(name, 1, directory=True) for name in ('.', '..')]])
+        iterator = smb_protocol._VerifiedDirectoryIterator(raw, _object_info('', 10, directory=True))
+        assert list(iterator) == []
+        assert raw.closed is True
+
+
 def test_exact_child_no_result_fails_closed():
     from app import smb_protocol
 
     class Directory:
-        def query_directory(self, pattern, info_class):
+        @property
+        def fd(self):
+            return self
+
+        def query_directory(self, pattern, info_class, *, flags):
             assert pattern == 'missing.txt'
             assert info_class == (
                 smb_protocol.FileInformationClass
                 .FILE_ID_FULL_DIRECTORY_INFORMATION
             )
-            return iter(())
+            assert flags == smb_protocol.QueryDirectoryFlags.SMB2_RESTART_SCANS
+            raise smb_protocol.NoSuchFile(None)
 
     with pytest.raises(SMBProtocolError) as error:
         smb_protocol._query_exact_child(Directory(), 'missing.txt')
@@ -1798,13 +1908,17 @@ def test_exact_child_no_result_fails_closed():
     assert error.value.public_code == 'NOT_FOUND'
 
 
-def test_verified_iterator_closes_raw_when_enumeration_setup_fails():
+def test_verified_iterator_closes_raw_when_first_page_fails():
     from app import smb_protocol
 
     class Raw:
         closed = False
 
-        def query_directory(self, *_args):
+        @property
+        def fd(self):
+            return self
+
+        def query_directory(self, *_args, **_kwargs):
             raise RuntimeError('query setup failed')
 
         def close(self):
@@ -1812,10 +1926,11 @@ def test_verified_iterator_closes_raw_when_enumeration_setup_fails():
 
     raw = Raw()
     with pytest.raises(RuntimeError, match='query setup failed'):
-        smb_protocol._VerifiedDirectoryIterator(
+        iterator = smb_protocol._VerifiedDirectoryIterator(
             raw,
             _object_info('', 1, directory=True),
         )
+        next(iterator)
     assert raw.closed is True
 
 
@@ -1831,9 +1946,13 @@ def test_verified_iterator_opens_enumerated_child_without_root_rewalk(
         def __init__(self, entries):
             self.entries = entries
             self.closed = False
+            self.fd = self
 
-        def query_directory(self, *_args):
-            return iter(self.entries)
+        def query_directory(self, *_args, **_kwargs):
+            if not self.entries:
+                raise smb_protocol.NoMoreFiles(None)
+            entries, self.entries = self.entries, []
+            return entries
 
         def close(self):
             self.closed = True
@@ -1893,9 +2012,10 @@ def test_verified_iterator_child_identity_mismatch_closes_child(
     class Raw:
         def __init__(self):
             self.closed = False
+            self.fd = self
 
-        def query_directory(self, *_args):
-            return iter(())
+        def query_directory(self, *_args, **_kwargs):
+            raise smb_protocol.NoMoreFiles(None)
 
         def close(self):
             self.closed = True
