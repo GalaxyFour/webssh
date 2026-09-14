@@ -29,6 +29,8 @@ from smbprotocol.exceptions import (
     DirectoryNotEmpty,
     IOTimeout,
     LogonFailure,
+    NoMoreFiles,
+    NoSuchFile,
     ObjectNameCollision,
     ObjectNameNotFound,
     ObjectPathNotFound,
@@ -50,6 +52,7 @@ from smbprotocol.open import (
     FileAttributes,
     FileInformationClass,
     FilePipePrinterAccessMask,
+    QueryDirectoryFlags,
 )
 from smbprotocol.session import Session, SessionFlags
 
@@ -242,21 +245,51 @@ def _entry_from_directory_info(raw_info):
     )
 
 
+def _directory_entries(raw, pattern):
+    """Enumerate bounded pages on the already-verified handle, without DFS.
+
+    Keep progress checks below the filtering boundary: the high-level client
+    iterator can request another page before returning control to our caller.
+    Each directory may contain one '.' and one '..'; neither consumes the
+    caller's budget for ordinary entries.
+    """
+    flags = QueryDirectoryFlags.SMB2_RESTART_SCANS
+    special_entries = set()
+    while True:
+        try:
+            page = raw.fd.query_directory(
+                pattern,
+                FileInformationClass.FILE_ID_FULL_DIRECTORY_INFORMATION,
+                flags=flags,
+            )
+        except (NoMoreFiles, NoSuchFile):
+            return
+        if not page:
+            raise SMBProtocolError('OPERATION_FAILED')
+        flags = 0
+        for raw_info in page:
+            entry = _entry_from_directory_info(raw_info)
+            if entry.name in {'.', '..'}:
+                if entry.name in special_entries:
+                    raise SMBProtocolError('OPERATION_FAILED')
+                special_entries.add(entry.name)
+                continue
+            yield entry
+
+
 def _query_exact_child(directory, name):
     """Resolve one exact child through an already-open parent handle."""
     matches = []
-    for raw_info in directory.query_directory(
-        name,
-        FileInformationClass.FILE_ID_FULL_DIRECTORY_INFORMATION,
-    ):
-        entry = _entry_from_directory_info(raw_info)
-        if entry.name in {'.', '..'}:
-            continue
-        if entry.name.casefold() != name.casefold():
-            raise SMBProtocolError('CONFLICT')
-        matches.append(entry)
-        if len(matches) > 1:
-            raise SMBProtocolError('CONFLICT')
+    entries = _directory_entries(directory, name)
+    try:
+        for entry in entries:
+            if entry.name.casefold() != name.casefold():
+                raise SMBProtocolError('CONFLICT')
+            matches.append(entry)
+            if len(matches) > 1:
+                raise SMBProtocolError('CONFLICT')
+    finally:
+        entries.close()
     if not matches:
         raise SMBProtocolError('NOT_FOUND')
     return matches[0]
@@ -795,10 +828,7 @@ class _VerifiedDirectoryIterator:
             None if connection_kwargs is None else dict(connection_kwargs)
         )
         try:
-            self._iterator = raw.query_directory(
-                '*',
-                FileInformationClass.FILE_ID_FULL_DIRECTORY_INFORMATION,
-            )
+            self._iterator = _directory_entries(raw, '*')
         except BaseException:
             try:
                 raw.close()
@@ -816,10 +846,7 @@ class _VerifiedDirectoryIterator:
         if self.closed:
             raise StopIteration
         try:
-            while True:
-                entry = _entry_from_directory_info(next(self._iterator))
-                if entry.name not in {'.', '..'}:
-                    return entry
+            return next(self._iterator)
         except StopIteration:
             self.close()
             raise

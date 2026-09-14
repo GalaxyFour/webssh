@@ -2573,13 +2573,39 @@ def handle_delete_jump_host(data, current_user=None):
         log_error("Failed to delete jump host", error=str(e))
         emit('error', {'error': 'Failed to delete jump host'})
 
+def _key_summary_rate_limit(current_user):
+    if check_socket_rate_limit(
+        current_user.id,
+        'ssh_key_list',
+        config.RATELIMIT_SSH_KEY_LIST,
+    ):
+        return _key_mutation_error(
+            'Too many SSH key list requests. Please wait a moment.'
+        )
+    return None
+
+
+def _emit_key_summaries(current_user):
+    """Emit fresh usability after the caller reserves one summary operation."""
+    try:
+        keys = key_manager.load_key_summaries(current_user.id)
+        emit('keys_list', {'keys': keys})
+    except StorageCorruptionError as error:
+        return _emit_storage_error(error, current_user)
+    except Exception as e:
+        log_error("Failed to load keys", error=str(e))
+        emit('error', {'error': 'Failed to load keys'})
+
+
 @socketio.on('list_keys')
 @socket_login_required
 def handle_list_keys(current_user=None):
     """Return list of stored SSH keys for this user."""
     try:
-        keys = key_manager.load_key_summaries(current_user.id)
-        emit('keys_list', {'keys': keys})
+        limited = _key_summary_rate_limit(current_user)
+        if limited:
+            return limited
+        return _emit_key_summaries(current_user)
     except StorageCorruptionError as error:
         return _emit_storage_error(error, current_user)
     except Exception as e:
@@ -2639,6 +2665,9 @@ def handle_upload_key(data, current_user=None):
 def handle_rename_key(data, current_user=None):
     """Rename one owned SSH key without exposing its encrypted contents."""
     try:
+        limited = _key_summary_rate_limit(current_user)
+        if limited:
+            return limited
         data = data if isinstance(data, dict) else {}
         result, error = key_manager.rename_key(
             current_user.id,
@@ -2656,7 +2685,7 @@ def handle_rename_key(data, current_user=None):
         )
         payload = {'success': True, 'key': result['key']}
         emit('key_renamed', payload)
-        handle_list_keys(current_user=current_user)
+        _emit_key_summaries(current_user)
         return payload
     except StorageCorruptionError as error:
         return _emit_storage_error(error, current_user)
@@ -2669,6 +2698,9 @@ def handle_rename_key(data, current_user=None):
 def handle_replace_key(data, current_user=None):
     """Replace one owned SSH key without changing its stable identity."""
     try:
+        limited = _key_summary_rate_limit(current_user)
+        if limited:
+            return limited
         data = data if isinstance(data, dict) else {}
         key_id = data.get('key_id')
         key_content = data.get('key_content')
@@ -2715,7 +2747,7 @@ def handle_replace_key(data, current_user=None):
         )
         payload = {'success': True, 'key': key}
         emit('key_replaced', payload)
-        handle_list_keys(current_user=current_user)
+        _emit_key_summaries(current_user)
         return payload
     except StorageCorruptionError as error:
         return _emit_storage_error(error, current_user)
@@ -2727,6 +2759,9 @@ def handle_replace_key(data, current_user=None):
 def handle_delete_key(data, current_user=None):
     """Delete an SSH key for this user."""
     try:
+        limited = _key_summary_rate_limit(current_user)
+        if limited:
+            return limited
         key_id = data.get('key_id')
         if not key_id:
             emit('error', {'error': 'Key ID required'})
@@ -2736,7 +2771,7 @@ def handle_delete_key(data, current_user=None):
         if success:
             log_key_delete(current_user.username, key_id, request.remote_addr)
             emit('key_deleted', {'key_id': key_id})
-            handle_list_keys(current_user=current_user)
+            _emit_key_summaries(current_user)
         else:
             emit('error', {'error': 'Failed to delete key'})
 

@@ -4064,13 +4064,6 @@ test('remote filenames never enter attributes even when they contain quote and e
         },
         workspace: { layout: 'single' },
         displayMode: 'embedded',
-        escapeHtml(value) {
-            return String(value)
-                .replaceAll('&', '&amp;')
-                .replaceAll('"', '&quot;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;');
-        },
         updatePaneStatus() {},
         t(_key, fallback) { return fallback; },
     });

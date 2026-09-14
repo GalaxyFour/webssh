@@ -98,7 +98,14 @@ Connection, transfer, background-work, and thread limits form one capacity model
 | `RATELIMIT_REAUTH` | `5 per minute` |
 | `SSH_CONNECT_RATELIMIT` | `10 per minute` |
 | `SSH_KEY_WRITE_RATELIMIT` | `30 per minute` |
+| `SSH_KEY_LIST_RATELIMIT` | `30 per minute` |
 | `CONNECTION_MUTATION_RATELIMIT` | `60 per minute` |
+
+Key listings and the refresh after renaming, replacing, or deleting a key share
+`SSH_KEY_LIST_RATELIMIT` per user across browser connections. Admission is checked
+before the mutation; when exhausted, the change is rejected without altering the
+key. Accepted changes retain their acknowledgement and updated key list. Usability
+is still checked against the current key files, without caching decrypted keys.
 
 ## SSH key and live-output limits
 
