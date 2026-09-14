@@ -2,6 +2,8 @@ FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360
 
 WORKDIR /build
 
+# CI changes this value per run/attempt so package updates cannot use stale layers.
+ARG OS_PACKAGE_REFRESH=local
 RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends \
@@ -39,6 +41,7 @@ RUN adduser --disabled-password --gecos "" appuser
 
 COPY requirements.txt /app/
 COPY --from=ldap-builder /install /usr/local
+ARG OS_PACKAGE_REFRESH=local
 RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends \

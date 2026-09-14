@@ -1,7 +1,7 @@
 --require-hashes
-graphifyy==0.9.53 \
-    --hash=sha256:900348aa7c41ef31c0581a8c2e0ca9f0b6a81f1e5bc6ef2184cce697e5342e3f \
-    --hash=sha256:c951490a2c8856fe46ade3c165780de501a3fe8de1c9414e971c378e8f4d2164
+graphifyy==0.9.58 \
+    --hash=sha256:169598570fa226de76b7fe24052980da06f307877483baacabd034abd73fb175 \
+    --hash=sha256:e239803288e91c723d6e30540860bd6d5a1dc3f0914b9fc1104b0233e98aaeb8
     # via -r requirements-graph.in
 networkx==3.6.1 \
     --hash=sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509 \

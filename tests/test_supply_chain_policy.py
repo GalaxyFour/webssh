@@ -175,6 +175,27 @@ def test_container_build_applies_available_base_image_security_updates():
     assert dockerfile.count('apt-get upgrade --yes') == 2
 
 
+def test_scanned_and_published_images_refresh_os_packages_per_ci_attempt():
+    """A cached apt upgrade must not hide newly available security updates."""
+    dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
+    stages = re.split(r'^FROM ', dockerfile, flags=re.MULTILINE)[1:]
+    assert len(stages) == 2
+    for stage in stages:
+        assert stage.index('ARG OS_PACKAGE_REFRESH=local') < stage.index(
+            'RUN apt-get update'
+        )
+
+    refresh = 'OS_PACKAGE_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}'
+    for filename, expected_builds in [('security.yml', 2), ('docker-publish.yml', 1)]:
+        workflow = (WORKFLOWS / filename).read_text(encoding='utf-8')
+        builds = re.split(r'uses: docker/build-push-action@', workflow)[1:]
+        assert len(builds) == expected_builds
+        for build in builds:
+            step = re.split(r'\n      - ', build)[0]
+            assert re.search(r'build-args:\s*\|\n(?:[^\n]*\n)*?\s+'
+                             + re.escape(refresh), step)
+
+
 def test_security_workflow_gates_publish_and_preserves_scan_evidence():
     security = (WORKFLOWS / 'security.yml').read_text(encoding='utf-8')
     publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
@@ -464,9 +485,9 @@ def test_graph_pages_toolchain_versions_are_explicit():
 
     assert re.search(r'with:\s*\n\s+version:\s*[\'"]?0\.12\.3', workflow)
     assert 'uv pip install --require-hashes -r requirements-graph.txt' in workflow
-    assert 'graphifyy==0.9.53' in graph_input
+    assert 'graphifyy==0.9.58' in graph_input
     assert '--require-hashes' in graph_lock
-    assert 'graphifyy==0.9.53' in graph_lock
+    assert 'graphifyy==0.9.58' in graph_lock
 
 
 def test_workflows_use_an_explicit_runner_release():
