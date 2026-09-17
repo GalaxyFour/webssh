@@ -345,6 +345,178 @@ test('copy shortcuts write xterm selection directly to the clipboard', async () 
     delete global.navigator.clipboard;
 });
 
+test('copy falls back to a hidden textarea when the Clipboard API is missing', async () => {
+    delete global.navigator.clipboard;
+    const appended = [];
+    const removed = [];
+    const textarea = {
+        value: '',
+        setAttribute() {},
+        style: {},
+        select() {},
+        remove() { removed.push(true); },
+    };
+    global.document.createElement = tag => {
+        assert.equal(tag, 'textarea');
+        return textarea;
+    };
+    global.document.body = {appendChild(node) { appended.push(node); }};
+    let copiedCommand = null;
+    global.document.execCommand = command => {
+        copiedCommand = command;
+        return true;
+    };
+    const terminal = {getSelection: () => 'fallback text'};
+
+    assert.equal(await TerminalManager.copySelectionToClipboard(terminal), true);
+    assert.equal(textarea.value, 'fallback text');
+    assert.equal(copiedCommand, 'copy');
+    assert.deepEqual(appended, [textarea]);
+    assert.deepEqual(removed, [true]);
+
+    delete global.document.createElement;
+    delete global.document.body;
+    delete global.document.execCommand;
+});
+
+test('copy falls back to a hidden textarea when clipboard write is denied', async () => {
+    global.navigator.clipboard = {
+        writeText() { return Promise.reject(new Error('denied')); },
+    };
+    const textarea = {
+        value: '',
+        setAttribute() {},
+        style: {},
+        select() {},
+        remove() {},
+    };
+    global.document.createElement = () => textarea;
+    global.document.body = {appendChild() {}};
+    let copiedCommand = null;
+    global.document.execCommand = command => {
+        copiedCommand = command;
+        return true;
+    };
+    const terminal = {getSelection: () => 'denied then copied'};
+
+    assert.equal(await TerminalManager.copySelectionToClipboard(terminal), true);
+    assert.equal(textarea.value, 'denied then copied');
+    assert.equal(copiedCommand, 'copy');
+
+    delete global.navigator.clipboard;
+    delete global.document.createElement;
+    delete global.document.body;
+    delete global.document.execCommand;
+});
+
+test('copy rejects when both the Clipboard API and the fallback fail', async () => {
+    delete global.navigator.clipboard;
+    const textarea = {
+        value: '',
+        setAttribute() {},
+        style: {},
+        select() {},
+        remove() {},
+    };
+    global.document.createElement = () => textarea;
+    global.document.body = {appendChild() {}};
+    global.document.execCommand = () => false;
+    const terminal = {getSelection: () => 'nowhere to go'};
+
+    await assert.rejects(
+        TerminalManager.copySelectionToClipboard(terminal),
+        /copy unavailable/,
+    );
+
+    delete global.document.createElement;
+    delete global.document.body;
+    delete global.document.execCommand;
+});
+
+test('OSC 52 approval falls back to a hidden textarea without the Clipboard API', async () => {
+    delete global.navigator.clipboard;
+    const textarea = {
+        value: '',
+        setAttribute() {},
+        style: {},
+        select() {},
+        remove() {},
+    };
+    global.document.createElement = () => textarea;
+    global.document.body = {appendChild() {}};
+    let copiedCommand = null;
+    global.document.execCommand = command => {
+        copiedCommand = command;
+        return true;
+    };
+    let handler;
+    const notifications = [];
+    global.window.showNotification = value => {
+        notifications.push(value);
+    };
+    const terminal = {
+        parser: {
+            registerOscHandler(identifier, callback) {
+                assert.equal(identifier, 52);
+                handler = callback;
+                return {dispose() {}};
+            },
+        },
+    };
+
+    const registered = TerminalManager.registerOsc52ClipboardHandler(terminal);
+    assert.equal(handler(';dG11eCBzZWxlY3Rpb24='), true);
+    const prompt = notifications.find(value => typeof value === 'object');
+    assert.equal(typeof prompt?.action?.onClick, 'function');
+    prompt.action.onClick();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(textarea.value, 'tmux selection');
+    assert.equal(copiedCommand, 'copy');
+    assert.ok(notifications.includes('Remote text copied to clipboard'));
+    registered.dispose();
+
+    delete global.window.showNotification;
+    delete global.document.createElement;
+    delete global.document.body;
+    delete global.document.execCommand;
+});
+
+for (const copyResult of ['success', 'denied', 'throws']) {
+    test(`clipboard fallback restores focus after copy ${copyResult}`, async () => {
+        const previousDocument = global.document;
+        const previousFocus = {
+            isConnected: true,
+            focus(options) {
+                assert.deepEqual(options, {preventScroll: true});
+                global.document.activeElement = this;
+            },
+        };
+        const textarea = {
+            style: {},
+            setAttribute() {},
+            select() { global.document.activeElement = this; },
+            remove() { global.document.activeElement = global.document.body; },
+        };
+        global.document = {
+            activeElement: previousFocus,
+            body: {appendChild() {}},
+            createElement: () => textarea,
+            execCommand() {
+                if (copyResult === 'throws') throw new Error('copy failed');
+                return copyResult === 'success';
+            },
+        };
+        try {
+            const copy = TerminalManager.writeTextToClipboardFallback('selected text');
+            if (copyResult === 'success') await copy;
+            else await assert.rejects(copy);
+            assert.equal(global.document.activeElement, previousFocus);
+        } finally {
+            global.document = previousDocument;
+        }
+    });
+}
+
 test('Ctrl+C without a selection remains terminal interrupt input', () => {
     const terminal = {
         hasSelection: () => false,

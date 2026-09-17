@@ -35,6 +35,49 @@ Remote OSC 52 clipboard requests are limited to 128 KiB of decoded UTF-8 text.
 Oversized OSC/DCS control strings are discarded by the terminal parser before
 they can accumulate unbounded browser memory.
 
+### Remote tmux clipboard configuration
+
+WebSSH preserves the remote tmux configuration on both new connections and
+reconnects. It does not change `set-clipboard` or `allow-passthrough` automatically.
+Existing persistent sessions keep using the same tmux server and session names.
+
+For tmux's own copy mode, `set-clipboard external` allows tmux to send clipboard
+requests when the attached terminal supports them, while preventing applications
+inside tmux from setting its clipboard buffers. Applications such as editors that
+emit their own OSC 52 sequences may need additional operator configuration.
+
+`set-clipboard` is a **server-wide** option, even when a command includes
+`-t session`. If you deliberately want applications in every session on that
+server to set clipboard contents, configure this on the remote host:
+
+```tmux
+set-option -s set-clipboard on
+```
+
+This also affects other sessions and attached native terminals using that tmux
+server. WebSSH's Copy confirmation protects only the WebSSH browser, not those
+other clients. Leave the existing policy unchanged if that broader effect is
+unwanted.
+
+`allow-passthrough` is needed only for applications using tmux's DCS passthrough
+wrapper, not for ordinary tmux copy mode. On tmux versions supporting the option,
+an operator who wants it across windows can explicitly configure:
+
+```tmux
+set-option -gw allow-passthrough on
+```
+
+This changes the default for existing and future windows on the server that
+inherit it. Explicit window or pane overrides still take precedence; inspect and
+configure those individually if needed. Using only `-t session` changes the
+selected window, not all windows of that session. Passthrough also permits other
+wrapped terminal sequences, so enable it only where intended.
+
+These settings belong in the remote account's tmux configuration, or can be
+applied to a running server without killing sessions. See the
+[tmux clipboard guide](https://github.com/tmux/tmux/wiki/Clipboard) for terminal
+capability checks and application-specific setup.
+
 ## Broadcast input
 
 Broadcast mode sends the same input to every open SSH session. Treat it as a

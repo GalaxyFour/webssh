@@ -27,6 +27,7 @@ const SessionManager = {
         }
         this.ensureTerminalGrid();
         this.setSplitLayout(1);
+        this.initTabScrollAffordances();
         window.addEventListener('languageChanged', () => {
             this.refreshEmptyPanes();
         });
@@ -338,6 +339,7 @@ const SessionManager = {
         });
 
         document.getElementById('sessionTabs').appendChild(tab);
+        this.scrollTabIntoView(sessionId);
     },
 
     switchSession(sessionId) {
@@ -628,6 +630,7 @@ const SessionManager = {
         });
 
         document.getElementById('sessionTabs').appendChild(tab);
+        this.scrollTabIntoView(requestId);
         this.pendingConnections[requestId] = { host, username, port };
     },
 
@@ -823,6 +826,133 @@ const SessionManager = {
 
     ensureTerminalGrid() {
         return document.getElementById('terminalGrid');
+    },
+
+    getSessionTabsElement() {
+        return document.getElementById('sessionTabs');
+    },
+
+    isSessionTabsRowHidden() {
+        const tabs = this.getSessionTabsElement();
+        const row = tabs?.closest?.('.session-tabs-row');
+        return Boolean(row?.hidden);
+    },
+
+    scrollTabIntoView(sessionId) {
+        if (!sessionId || this.isSessionTabsRowHidden()) {
+            return;
+        }
+        const tab = document.getElementById(`tab-${sessionId}`)
+            || document.getElementById(`pending-${sessionId}`);
+        tab?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
+    },
+
+    initTabScrollAffordances() {
+        const tabs = this.getSessionTabsElement();
+        if (!tabs || tabs.dataset.tabScrollReady === 'true') {
+            return;
+        }
+        tabs.dataset.tabScrollReady = 'true';
+
+        tabs.addEventListener('wheel', (event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                return;
+            }
+            const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+                ? event.deltaX
+                : event.deltaY;
+            if (!delta) {
+                return;
+            }
+            const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+            if (maxScroll <= 0) {
+                return;
+            }
+            const next = tabs.scrollLeft + delta;
+            if ((delta < 0 && tabs.scrollLeft <= 0)
+                || (delta > 0 && tabs.scrollLeft >= maxScroll)) {
+                return;
+            }
+            event.preventDefault();
+            tabs.scrollLeft = next;
+        }, {passive: false});
+
+        let dragPointerId = null;
+        let dragStartX = 0;
+        let dragStartScrollLeft = 0;
+        let dragDistance = 0;
+        let suppressClick = false;
+
+        const endDrag = () => {
+            if (dragPointerId === null) {
+                return;
+            }
+            dragPointerId = null;
+            const wasDrag = dragDistance > 6;
+            dragDistance = 0;
+            if (tabs.style) {
+                tabs.style.userSelect = '';
+            }
+            window.removeEventListener('pointermove', onDragMove);
+            window.removeEventListener('pointerup', onDragEnd);
+            window.removeEventListener('pointercancel', onDragEnd);
+            window.setTimeout(() => {
+                suppressClick = false;
+            }, 0);
+            suppressClick = wasDrag;
+        };
+
+        const onDragMove = (event) => {
+            if (dragPointerId === null || event.pointerId !== dragPointerId) {
+                return;
+            }
+            if (event.pointerType === 'touch') {
+                return;
+            }
+            const deltaX = event.clientX - dragStartX;
+            if (Math.abs(deltaX) <= 6) {
+                return;
+            }
+            dragDistance = Math.max(dragDistance, Math.abs(deltaX));
+            if (tabs.style) {
+                tabs.style.userSelect = 'none';
+            }
+            tabs.scrollLeft = dragStartScrollLeft - deltaX;
+            suppressClick = true;
+        };
+
+        const onDragEnd = (event) => {
+            if (dragPointerId === null || event.pointerId !== dragPointerId) {
+                return;
+            }
+            endDrag();
+        };
+
+        tabs.addEventListener('pointerdown', (event) => {
+            if (event.pointerType === 'mouse' && event.button !== 0) {
+                return;
+            }
+            if (dragPointerId !== null) {
+                return;
+            }
+            dragPointerId = event.pointerId;
+            dragStartX = event.clientX;
+            dragStartScrollLeft = tabs.scrollLeft;
+            dragDistance = 0;
+            suppressClick = false;
+            window.addEventListener('pointermove', onDragMove);
+            window.addEventListener('pointerup', onDragEnd);
+            window.addEventListener('pointercancel', onDragEnd);
+        });
+
+        tabs.addEventListener('click', (event) => {
+            if (!suppressClick) {
+                return;
+            }
+            suppressClick = false;
+            event.stopPropagation();
+            event.preventDefault();
+        }, true);
     },
 
     notifyWorkspaceChange() {
@@ -1037,6 +1167,7 @@ const SessionManager = {
             const tab = document.getElementById(`tab-${sessionId}`);
             if (tab) {
                 tab.classList.add('active');
+                this.scrollTabIntoView(sessionId);
             }
         }
         if (launcherOpen) {

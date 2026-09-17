@@ -558,7 +558,15 @@ def test_tailscale_tmux_forces_utf8_locale(monkeypatch):
     }
     assert ssh_manager.sessions[session_id]['auth_type'] == 'tailscale'
     assert clients.required_interfaces == ['tailscale0']
-    probe_channel, tmux_channel = clients[0].transport.session_channels
+    channels = clients[0].transport.session_channels
+    probe_channel = next(
+        channel for channel in channels
+        if channel.command == 'command -v tmux'
+    )
+    tmux_channel = next(
+        channel for channel in channels
+        if channel.command and 'new-session' in channel.command
+    )
     assert probe_channel.command == 'command -v tmux'
     assert tmux_channel.pty == ('xterm-256color', 80, 24)
     assert tmux_channel.command == (
@@ -601,7 +609,11 @@ def test_password_tmux_preserves_remote_locale(monkeypatch):
         'tmux_reconnect': True,
         'client_request_id': 'tmux-reconnect-request',
     }
-    _, tmux_channel = clients[0].transport.session_channels
+    channels = clients[0].transport.session_channels
+    tmux_channel = next(
+        channel for channel in channels
+        if channel.command and 'new-session' in channel.command
+    )
     assert tmux_channel.command == 'tmux new-session -A -s existing_session'
 
 
@@ -616,10 +628,34 @@ def test_tmux_reconnect_quotes_session_name_at_ssh_boundary(monkeypatch):
 
     assert error is None
     assert session_id in ssh_manager.sessions
-    _, tmux_channel = clients[0].transport.session_channels
+    channels = clients[0].transport.session_channels
+    tmux_channel = next(
+        channel for channel in channels
+        if channel.command and 'new-session' in channel.command
+    )
     assert tmux_channel.command == (
         "tmux new-session -A -s 'name; touch /tmp/marker'"
     )
+
+
+@pytest.mark.parametrize('reconnect_tmux_name', [None, 'existing_session'])
+def test_tmux_connect_preserves_remote_clipboard_policy(monkeypatch, reconnect_tmux_name):
+    clients = install_ssh_clients(monkeypatch)
+
+    session_id, error = connect_target(
+        password='secret',
+        use_tmux=True,
+        reconnect_tmux_name=reconnect_tmux_name,
+    )
+
+    assert error is None
+    assert session_id in ssh_manager.sessions
+    channels = clients[0].transport.session_channels
+    commands = [channel.command for channel in channels if channel.command]
+    assert len(commands) == 2
+    assert commands[0] == 'command -v tmux'
+    assert commands[1].startswith('tmux new-session ')
+    assert not any('set-option' in command for command in commands)
 
 
 def test_proxy_jump_password_opens_direct_tcpip_channel(monkeypatch):
