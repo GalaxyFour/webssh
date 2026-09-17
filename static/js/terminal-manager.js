@@ -199,12 +199,6 @@ const TerminalManager = {
             const text = this.decodeOsc52Clipboard(data);
             if (text === null) return true;
 
-            const clipboard = navigator.clipboard;
-            if (!clipboard || typeof clipboard.writeText !== 'function') {
-                reportFailure();
-                return true;
-            }
-
             if (pendingRequest) {
                 pendingRequest.text = text;
                 return true;
@@ -230,7 +224,7 @@ const TerminalManager = {
                         pendingRequest = null;
                         try {
                             Promise.resolve(
-                                clipboard.writeText(requestedText)
+                                this.writeTextToClipboard(requestedText)
                             ).then(() => {
                                 failureReported = false;
                                 window.showNotification?.(
@@ -311,19 +305,59 @@ const TerminalManager = {
             : event.ctrlKey && !event.metaKey;
     },
 
+    writeTextToClipboard(text) {
+        const clipboard = typeof navigator !== 'undefined'
+            ? navigator.clipboard
+            : undefined;
+        if (clipboard && typeof clipboard.writeText === 'function') {
+            try {
+                return Promise.resolve(clipboard.writeText(text)).catch(() => (
+                    this.writeTextToClipboardFallback(text)
+                ));
+            } catch {
+                return this.writeTextToClipboardFallback(text);
+            }
+        }
+        return this.writeTextToClipboardFallback(text);
+    },
+
+    // Hidden-textarea fallback for contexts (e.g. inside tmux) where the
+    // async Clipboard API is unavailable or permission is denied. Mirrors
+    // the defaultWriteClipboard fallback in static/js/session-diagnostics.js.
+    writeTextToClipboardFallback(text) {
+        let textarea = null;
+        return new Promise((resolve, reject) => {
+            try {
+                if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+                    throw new Error('copy unavailable');
+                }
+                textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body?.appendChild(textarea);
+                textarea.select?.();
+                if (typeof document.execCommand !== 'function' || !document.execCommand('copy')) {
+                    throw new Error('copy unavailable');
+                }
+                resolve();
+            } catch (error) {
+                reject(error);
+            } finally {
+                textarea?.remove?.();
+            }
+        });
+    },
+
     copySelectionToClipboard(terminal) {
         const selection = terminal?.getSelection?.() || '';
         if (!selection) {
             return Promise.resolve(false);
         }
 
-        const clipboard = navigator.clipboard;
-        if (!clipboard || typeof clipboard.writeText !== 'function') {
-            return Promise.reject(new Error('Clipboard API unavailable'));
-        }
-
         try {
-            return Promise.resolve(clipboard.writeText(selection)).then(() => true);
+            return Promise.resolve(this.writeTextToClipboard(selection)).then(() => true);
         } catch (error) {
             return Promise.reject(error);
         }
