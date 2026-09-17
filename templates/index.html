@@ -21,8 +21,9 @@
     <link rel="stylesheet" href="{{ static_asset_url(filename='css/sftp-file-manager.css') }}">
     <link rel="stylesheet" href="{{ static_asset_url(filename='css/session-workspace.css') }}">
     <link rel="stylesheet" href="{{ static_asset_url(filename='css/webssh-2.css') }}">
+    <link rel="stylesheet" href="{{ static_asset_url(filename='css/terminal-appearance.css') }}">
 </head>
-<body data-theme="{{ theme|default('glass') }}" data-confirm-session-close="{{ 'true' if confirm_session_close else 'false' }}" data-disconnect-session-action="{{ disconnect_session_action }}" data-connection-history-scope="{{ connection_history_scope }}">
+<body data-theme="{{ theme|default('glass') }}" data-confirm-session-close="{{ 'true' if confirm_session_close else 'false' }}" data-disconnect-session-action="{{ disconnect_session_action }}" data-connection-history-scope="{{ connection_history_scope }}" data-terminal-appearance="{{ terminal_appearance|default({})|tojson|forceescape }}">
     <script src="{{ static_asset_url(filename='js/theme-preference.js') }}"></script>
 
     <header class="header">
@@ -48,6 +49,7 @@
                 </nav>
 
                 <div class="mobile-more-actions" aria-label="Session actions" data-i18n-aria-label="workspace.sessionActions">
+                    <button class="mobile-more-action" type="button" data-open-terminal-appearance><span class="material-icons" aria-hidden="true">palette</span><span data-i18n="terminalAppearance.title">Terminal appearance</span></button>
                     <button id="mobileQuickConnectAction" class="mobile-more-action" type="button" onclick="window.openDefaultConnectionModal?.(); window.mobileAppShell?.closeMoreMenu()"><span class="material-icons" aria-hidden="true">add_link</span><span data-i18n="connection.newConnection">Quick Connect</span></button>
                     <button id="mobileToolsAction" class="mobile-more-action" type="button" onclick="window.primaryWorkspaceController?.showWorkspaces(); window.workspaceLayoutController?.setNotesOpen(true, 'user'); window.mobileAppShell?.closeMoreMenu()"><span class="material-icons" aria-hidden="true">edit_note</span><span data-i18n="workspaceContext.notes">Notes</span></button>
                     <button id="mobileBroadcastAction" class="mobile-more-action" type="button" onclick="window.primaryWorkspaceController?.showWorkspaces(); window.BroadcastInput?.toggle(); window.mobileAppShell?.closeMoreMenu()"><span class="material-icons" aria-hidden="true">cell_tower</span><span data-i18n="broadcast.toggle">Broadcast to all open sessions</span></button>
@@ -102,25 +104,26 @@
 
         <div class="session-tabs-row">
             <div class="session-tabs" id="sessionTabs"></div>
+            <button class="btn-new-tab material-icons" id="newTabBtn" title="Select a session or use Quick Connect" data-i18n-title="panes.selectSession" aria-label="Select a session or use Quick Connect" data-i18n-aria-label="panes.selectSession">add</button>
             <div class="tab-row-actions">
-                <div class="split-controls" aria-label="Split layout">
-                    <button class="split-btn active" data-layout="1" title="Single pane" aria-label="Single pane">1</button>
-                    <button class="split-btn" data-layout="2" title="Split pane" aria-label="Split pane">2</button>
-                    <button class="split-btn" data-layout="4" title="Quad pane" aria-label="Quad pane">4</button>
+                <button class="tab-row-icon-btn" id="terminalAppearanceBtn" type="button" data-open-terminal-appearance title="Terminal appearance" aria-label="Terminal appearance" data-i18n-title="terminalAppearance.title" data-i18n-aria-label="terminalAppearance.title"><span class="material-icons" aria-hidden="true">palette</span></button>
+                <div class="split-controls" aria-label="Split layout" data-i18n-aria-label="panes.layout">
+                    <button class="split-btn active" data-layout="1" title="Single pane" aria-label="Single pane" data-i18n-title="panes.single" data-i18n-aria-label="panes.single">1</button>
+                    <button class="split-btn" data-layout="2" title="Split pane" aria-label="Split pane" data-i18n-title="panes.split" data-i18n-aria-label="panes.split">2</button>
+                    <button class="split-btn" data-layout="4" title="Quad pane" aria-label="Quad pane" data-i18n-title="panes.quad" data-i18n-aria-label="panes.quad">4</button>
                 </div>
                 <button class="tab-row-icon-btn" id="broadcastToggleBtn" type="button" aria-pressed="false" title="Broadcast to all sessions" data-i18n-title="broadcast.toggle">
                     <span class="material-icons" aria-hidden="true">cell_tower</span>
                 </button>
-                <button class="tab-row-icon-btn" id="saveTranscriptBtn" title="Save Transcript" aria-label="Save transcript">
+                <button class="tab-row-icon-btn" id="saveTranscriptBtn" title="Save Transcript" aria-label="Save transcript" data-i18n-title="terminal.saveTranscript" data-i18n-aria-label="terminal.saveTranscript">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"></path><rect x="8" y="4" width="8" height="5"></rect><rect x="8" y="15" width="8" height="4" rx="1"></rect></svg>
                 </button>
                 <div class="tab-row-divider"></div>
-                <button class="btn-new-tab material-icons" id="newTabBtn" title="Select a session or use Quick Connect" data-i18n-title="panes.selectSession" aria-label="Select a session or use Quick Connect" data-i18n-aria-label="panes.selectSession">add</button>
             </div>
         </div>
     </header>
 
-    <section id="primaryWorkspaceSurface" class="primary-workspace-surface" aria-label="Application workspace" hidden></section>
+    <section id="primaryWorkspaceSurface" class="primary-workspace-surface" aria-label="Application workspace" data-i18n-aria-label="workspace.application" hidden></section>
 
     <main class="main-content">
         <!-- session-meta kept hidden for JS references; visible session-bar only on mobile -->
@@ -309,28 +312,28 @@
 
                 <div class="session-diagnostics-primary-grid">
                     <article class="session-diagnostics-primary-card" id="sessionDiagnosticsCpuMetric" hidden>
-                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.cpu">CPU</span><span class="session-severity-label" id="sessionDiagnosticsCpuSeverity">Normal</span></div>
+                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.cpu">CPU</span><span class="session-severity-label" id="sessionDiagnosticsCpuSeverity" data-i18n="diagnostics.severityNormal">Normal</span></div>
                         <strong id="sessionDiagnosticsCpuValue">--</strong>
                         <small id="sessionDiagnosticsCpuDetail" data-i18n="diagnostics.currentUtilization">Current utilization</small>
                         <div class="session-diagnostics-bar" role="presentation"><span id="sessionDiagnosticsCpuBar"></span></div>
                         <canvas id="sessionDiagnosticsCpuSparkline" width="240" height="64" aria-label="Recent CPU utilization trend" data-i18n-aria-label="diagnostics.cpuTrend"></canvas>
                     </article>
                     <article class="session-diagnostics-primary-card" id="sessionDiagnosticsMemoryMetric" hidden>
-                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.memory">Memory</span><span class="session-severity-label" id="sessionDiagnosticsMemorySeverity">Normal</span></div>
+                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.memory">Memory</span><span class="session-severity-label" id="sessionDiagnosticsMemorySeverity" data-i18n="diagnostics.severityNormal">Normal</span></div>
                         <strong id="sessionDiagnosticsMemoryValue">--</strong>
                         <small id="sessionDiagnosticsMemoryDetail"></small>
                         <div class="session-diagnostics-bar" role="presentation"><span id="sessionDiagnosticsMemoryBar"></span></div>
                         <canvas id="sessionDiagnosticsMemorySparkline" width="240" height="64" aria-label="Recent memory utilization trend" data-i18n-aria-label="diagnostics.memoryTrend"></canvas>
                     </article>
                     <article class="session-diagnostics-primary-card" id="sessionDiagnosticsDiskMetric" hidden>
-                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.rootDisk">Root disk</span><span class="session-severity-label" id="sessionDiagnosticsDiskSeverity">Normal</span></div>
+                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.rootDisk">Root disk</span><span class="session-severity-label" id="sessionDiagnosticsDiskSeverity" data-i18n="diagnostics.severityNormal">Normal</span></div>
                         <strong id="sessionDiagnosticsDiskValue">--</strong>
                         <small id="sessionDiagnosticsDiskDetail"></small>
                         <div class="session-diagnostics-bar" role="presentation"><span id="sessionDiagnosticsDiskBar"></span></div>
                         <canvas id="sessionDiagnosticsDiskSparkline" width="240" height="64" aria-label="Recent root disk utilization trend" data-i18n-aria-label="diagnostics.diskTrend"></canvas>
                     </article>
                     <article class="session-diagnostics-primary-card" id="sessionDiagnosticsLoadMetric" hidden>
-                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.normalizedLoad">Normalized load</span><span class="session-severity-label" id="sessionDiagnosticsLoadSeverity">Normal</span></div>
+                        <div class="session-diagnostics-card-heading"><span data-i18n="diagnostics.normalizedLoad">Normalized load</span><span class="session-severity-label" id="sessionDiagnosticsLoadSeverity" data-i18n="diagnostics.severityNormal">Normal</span></div>
                         <strong id="sessionDiagnosticsLoadValue">--</strong>
                         <small id="sessionDiagnosticsLoadDetail"></small>
                         <div class="session-diagnostics-bar" role="presentation"><span id="sessionDiagnosticsLoadBar"></span></div>
@@ -699,7 +702,7 @@
             <div class="modal-body profile-management-modal-body">
                 <nav class="connection-asset-nav" aria-label="Connection assets" data-i18n-aria-label="connectionAssets.navigation">
                     <div class="management-resource-title"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></div>
-                    <p class="connection-asset-nav-label">Connection resources</p>
+                    <p class="connection-asset-nav-label" data-i18n="connectionAssets.navigation">Connection resources</p>
                     <button type="button" class="connection-asset-nav-item active" data-connection-asset="hosts" aria-current="page"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="jump-hosts"><span class="material-icons" aria-hidden="true">alt_route</span><span data-i18n="connectionAssets.jumpHosts">Jump Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="keys"><span class="material-icons" aria-hidden="true">key</span><span data-i18n="connectionAssets.keys">SSH Keys</span></button>
@@ -898,7 +901,7 @@
             <div class="modal-body">
                 <nav class="connection-asset-nav" aria-label="Connection assets" data-i18n-aria-label="connectionAssets.navigation">
                     <div class="management-resource-title"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></div>
-                    <p class="connection-asset-nav-label">Connection resources</p>
+                    <p class="connection-asset-nav-label" data-i18n="connectionAssets.navigation">Connection resources</p>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="hosts"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="jump-hosts"><span class="material-icons" aria-hidden="true">alt_route</span><span data-i18n="connectionAssets.jumpHosts">Jump Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item active" data-connection-asset="keys" aria-current="page"><span class="material-icons" aria-hidden="true">key</span><span data-i18n="connectionAssets.keys">SSH Keys</span></button>
@@ -945,11 +948,12 @@
             <div class="command-workspace-layout">
             <aside class="command-workspace-tabs management-resource-navigation" role="tablist" aria-label="Command management" data-i18n-aria-label="accessibility.commandManagement">
                 <div class="management-resource-title"><span class="material-icons" aria-hidden="true">code</span><span data-i18n="commands.workspace">Commands</span></div>
-                <p class="command-workspace-nav-label">Command resources</p>
+                <p class="command-workspace-nav-label" data-i18n="commands.resources">Command resources</p>
                 <button type="button" id="commandSetsTab" class="command-workspace-tab active" role="tab" aria-selected="true" aria-controls="commandSetsPanel" data-command-workspace-section="sets"><span class="material-icons" aria-hidden="true">account_tree</span><span data-i18n="commandSets.manage">Command Sets</span></button>
                 <button type="button" id="commandLibraryTab" class="command-workspace-tab" role="tab" aria-selected="false" aria-controls="commandLibraryPanel" data-command-workspace-section="library"><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="commands.library">Command Library</span></button>
             </aside>
             <div class="modal-body command-workspace-body">
+                <div id="commandWorkspaceTarget" class="command-workspace-target" aria-live="polite"></div>
                 <section id="commandLibraryPanel" class="command-workspace-panel hidden" role="tabpanel" aria-labelledby="commandLibraryTab">
                     <div class="management-panel-heading">
                         <h3 data-i18n="commands.library">Command Library</h3>
@@ -1069,7 +1073,7 @@
             <div class="modal-body">
                 <nav class="connection-asset-nav" aria-label="Connection assets" data-i18n-aria-label="connectionAssets.navigation">
                     <div class="management-resource-title"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></div>
-                    <p class="connection-asset-nav-label">Connection resources</p>
+                    <p class="connection-asset-nav-label" data-i18n="connectionAssets.navigation">Connection resources</p>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="hosts"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item active" data-connection-asset="jump-hosts" aria-current="page"><span class="material-icons" aria-hidden="true">alt_route</span><span data-i18n="connectionAssets.jumpHosts">Jump Hosts</span></button>
                     <button type="button" class="connection-asset-nav-item" data-connection-asset="keys"><span class="material-icons" aria-hidden="true">key</span><span data-i18n="connectionAssets.keys">SSH Keys</span></button>
@@ -1083,7 +1087,7 @@
                     <form id="jumpHostForm">
                         <div class="form-group">
                             <label for="jhNameInput" data-i18n="jumphosts.name">Name</label>
-                            <input type="text" id="jhNameInput" class="form-control" placeholder="Office Bastion" required>
+                            <input type="text" id="jhNameInput" class="form-control" placeholder="Office Bastion" data-i18n-placeholder="jumpHosts.namePlaceholder" required>
                         </div>
                         <div class="form-row">
                             <div class="form-group flex-2">
@@ -1295,11 +1299,11 @@
                     <div class="form-row">
                         <div class="form-group flex-2">
                             <label for="smbSourceHost" data-i18n="smb.host">Server</label>
-                            <input type="text" class="form-control" id="smbSourceHost" maxlength="253" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="hostname or IP" required>
+                            <input type="text" class="form-control" id="smbSourceHost" maxlength="253" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="hostname or IP" data-i18n-placeholder="smb.hostPlaceholder" required>
                         </div>
                         <div class="form-group flex-1">
                             <label for="smbSourceShare" data-i18n="smb.share">Share</label>
-                            <input type="text" class="form-control" id="smbSourceShare" maxlength="80" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Docs" required>
+                            <input type="text" class="form-control" id="smbSourceShare" maxlength="80" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Docs" data-i18n-placeholder="smb.sharePlaceholder" required>
                         </div>
                     </div>
 
@@ -1331,7 +1335,7 @@
 
                     <div class="form-group">
                         <label for="smbSourceName" data-i18n="smb.name">Connection name (for saving)</label>
-                        <input type="text" class="form-control" id="smbSourceName" maxlength="128" autocomplete="off" placeholder="Team files">
+                        <input type="text" class="form-control" id="smbSourceName" maxlength="128" autocomplete="off" placeholder="Team files" data-i18n-placeholder="smb.namePlaceholder">
                     </div>
 
                     <div class="smb-source-security-note">
@@ -1439,6 +1443,9 @@
     <script src="{{ static_asset_url(filename='js/connection-launcher.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/command-workspace.js') }}"></script>
 
+    {% include 'terminal_appearance.html' %}
+    {% include 'terminal_file_bridge.html' %}
+    <script src="{{ static_asset_url(filename='js/terminal-appearance.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/terminal-manager.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/ssh-input.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/session-manager.js') }}"></script>
@@ -1463,6 +1470,7 @@
     <script src="{{ static_asset_url(filename='js/notepad-controller.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/connection-validation.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/app.js') }}"></script>
+    <script src="{{ static_asset_url(filename='js/terminal-file-bridge.js') }}"></script>
     <script>
         const flashedMessages = {{ get_flashed_messages(with_categories=true) | tojson }};
         flashedMessages.forEach(([category, message]) => {

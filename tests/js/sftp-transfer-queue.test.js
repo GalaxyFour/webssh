@@ -4,8 +4,58 @@ const test = require('node:test');
 global.window = {};
 global.document = { getElementById: () => null };
 require('../../static/js/file-workspace-state.js');
+require('../../static/js/profile-launcher-utils.js');
 require('../../static/js/sftp-file-manager.js');
 const SFTPFileManager = global.window.SFTPFileManager;
+
+test('transfer recovery retries only readable downloads and never repeats writes', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    const state = {source: {capabilities: ['read']}};
+    manager.findPaneStateEntry = () => ({state});
+    manager.sourceCan = (_state, capability) => capability === 'read';
+    const failed = {id: '1', status: 'error', retryable: true, sourceId: 'sftp-session:1', sourcePath: '/file', type: 'download', filename: 'file'};
+    assert.equal(manager.getTransferRecovery(failed), 'download');
+    assert.equal(manager.getTransferRecovery({...failed, type: 'upload'}), null);
+    assert.equal(manager.getTransferRecovery({...failed, type: 's2s'}), null);
+    assert.equal(manager.getTransferRecovery({...failed, retryable: false}), null);
+    manager.findPaneStateEntry = () => null;
+    assert.equal(manager.getTransferRecovery(failed), null);
+    assert.equal(manager.getTransferRecovery({...failed, errorCode: 'SOURCE_UNAVAILABLE'}), 'reconnect');
+    manager.displayMode = 'embedded';
+    assert.equal(manager.getTransferRecovery({...failed, errorCode: 'SOURCE_UNAVAILABLE'}), null);
+});
+
+test('recovery rechecks source readiness and retries a folder only once', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    const transfer = {id: 'folder', type: 'download', status: 'error', retryable: true,
+        sourceId: 'sftp-session:1', sourcePath: '/folder', filename: 'folder.zip', folderName: 'folder'};
+    const calls = [];
+    Object.assign(manager, {
+        transferQueue: [transfer],
+        findPaneStateEntry: () => ({state: {}}), sourceCan: () => true,
+        downloadFolderToBrowser: (...args) => calls.push(args), renderTransferQueue() {},
+    });
+    manager.recoverTransfer('folder');
+    manager.recoverTransfer('folder');
+    assert.deepEqual(calls, [['sftp-session:1', '/folder', 'folder']]);
+    transfer.retryable = true;
+    manager.findPaneStateEntry = () => null;
+    manager.recoverTransfer('folder');
+    assert.equal(calls.length, 1);
+});
+
+test('saved source readiness uses the same credentials as the host launcher', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    Object.assign(manager, {qcProfiles: [
+        {id: 'password', host: 'host', username: 'user', auth_type: 'password'},
+        {id: 'missing', host: 'host', username: 'user', auth_type: 'key', key_id: 'absent'},
+        {id: 'saved', host: 'host', username: 'user', auth_type: 'key', key_id: 'present'},
+    ], qcKeys: [{id: 'present', usable: true}], t: (_key, fallback) => fallback});
+    const saved = manager.buildSourceCatalog().find(group => group.id === 'saved').items;
+    assert.deepEqual(saved.map(item => [item.status, item.actionLabel]), [
+        ['Password needed', 'Connect'], ['Key missing or unavailable', 'Review'], ['Saved', 'Connect'],
+    ]);
+});
 
 function classList() {
     const values = new Set();
@@ -3872,7 +3922,7 @@ test('the full modal suspends embedded Files and restores it when closed', async
     };
     global.window.dispatchEvent = () => { dispatched += 1; };
     const originalGetElementById = global.document.getElementById;
-    global.document.getElementById = () => ({ style: {}, classList: classList(), value: '' });
+    global.document.getElementById = () => ({ style: {}, classList: classList(), value: '', setAttribute() {} });
 
     manager.open();
 

@@ -249,6 +249,10 @@ def test_all_popup_translation_references_exist_in_every_locale():
     referenced_keys = set()
     for source_path in source_paths:
         source = source_path.read_text(encoding='utf-8')
+        if source_path.name == 'terminal_appearance.html':
+            from jinja2 import Template
+
+            source = Template(source).render()
         referenced_keys.update(
             re.findall(
                 r'data-i18n(?:-placeholder|-title|-label|-aria-label|-alt)?="([^"]+)"',

@@ -415,6 +415,21 @@ const TerminalManager = {
         return this.getCssVar('--font-mono', 'monospace');
     },
 
+    getAppearance() {
+        const theme = this.buildTheme();
+        const font = this.getMonoFont();
+        const size = this.getResponsiveFontSize();
+        return window.TerminalAppearance?.resolve(
+            window.TerminalAppearance.getPreferences(), theme, font, size,
+        ) || {surface: theme.background, opacity: 1, options: {theme, fontFamily: font, fontSize: size}};
+    },
+
+    updateAppearanceSurface() {
+        const appearance = this.getAppearance();
+        document.body.style.setProperty('--terminal-surface-color', appearance.surface);
+        document.body.style.setProperty('--terminal-surface-opacity', `${appearance.opacity * 100}%`);
+    },
+
     getResponsiveFontSize() {
         const width = window.innerWidth;
         if (width < 480) return 12;
@@ -450,7 +465,8 @@ const TerminalManager = {
             scrollOnOutput: true,
             scrollOnUserInput: true,
             tabStopWidth: 4,
-            allowProposedApi: true
+            allowProposedApi: true,
+            ...this.getAppearance().options,
         });
 
         const isMac = this.isMacPlatform();
@@ -1265,23 +1281,27 @@ const TerminalManager = {
 
     applyThemeToTerminal(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
-        const theme = this.buildTheme();
-        const font = this.getMonoFont();
+        const appearance = this.getAppearance();
         terminalKeys.forEach(key => {
             const terminal = this.terminals[key];
             if (!terminal) {
                 return;
             }
-            terminal.options.theme = theme;
-            terminal.options.fontFamily = font;
+            Object.assign(terminal.options, appearance.options);
             terminal.refresh(0, terminal.rows - 1);
         });
     },
 
     applyThemeToAll() {
         requestAnimationFrame(() => {
+            this.updateAppearanceSurface();
             Object.keys(this.sessionTerminals).forEach(sessionId => {
                 this.applyThemeToTerminal(sessionId);
+            });
+            this.fitAndSyncVisibleTerminals({
+                socket: window.socket,
+                isConnected: sessionId => Boolean(window.SessionManager?.getSession(sessionId)?.connected),
+                force: true,
             });
         });
     },
@@ -1339,7 +1359,7 @@ const TerminalManager = {
     },
 
     handleOrientationChange() {
-        const newFontSize = this.getResponsiveFontSize();
+        const newFontSize = this.getAppearance().options.fontSize;
         this.updateFontSize(newFontSize);
         setTimeout(() => {
             this.fitAllTerminals();

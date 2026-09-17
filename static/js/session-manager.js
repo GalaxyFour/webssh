@@ -847,12 +847,59 @@ const SessionManager = {
         tab?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
     },
 
+    initNewTabPlacement() {
+        const tabs = this.getSessionTabsElement();
+        const row = tabs?.closest?.('.session-tabs-row');
+        const button = document.getElementById('newTabBtn');
+        const actions = row?.querySelector('.tab-row-actions');
+        if (!row || !button || !actions) return;
+
+        const mobile = window.matchMedia?.(
+            '(max-width: 767px), (max-height: 520px) and (pointer: coarse)'
+        );
+        const update = () => {
+            if (row.hidden || !row.clientWidth) return;
+            // Both positions reserve the same width, so moving the button cannot
+            // change the overflow threshold and make its position oscillate.
+            const atEnd = mobile?.matches || tabs.scrollWidth > tabs.clientWidth + 1;
+            const reference = atEnd ? null : actions;
+            if (button.parentNode === row && button.nextElementSibling === reference) return;
+            const focused = document.activeElement === button;
+            const scrollLeft = tabs.scrollLeft;
+            row.insertBefore(button, reference);
+            if (focused) button.focus({preventScroll: true});
+            tabs.scrollLeft = scrollLeft;
+        };
+        let scheduled = false;
+        const schedule = () => {
+            if (scheduled) return;
+            scheduled = true;
+            window.setTimeout(() => {
+                scheduled = false;
+                update();
+            }, 0);
+        };
+        if (window.ResizeObserver) {
+            const observer = new window.ResizeObserver(schedule);
+            [row, tabs, actions, button].forEach(element => observer.observe(element));
+        }
+        if (window.MutationObserver) {
+            const observer = new window.MutationObserver(schedule);
+            observer.observe(tabs, {childList: true, subtree: true, characterData: true, attributes: true});
+            observer.observe(row, {attributes: true, attributeFilter: ['hidden']});
+        }
+        mobile?.addEventListener?.('change', schedule);
+        window.addEventListener('resize', schedule);
+        update();
+    },
+
     initTabScrollAffordances() {
         const tabs = this.getSessionTabsElement();
         if (!tabs || tabs.dataset.tabScrollReady === 'true') {
             return;
         }
         tabs.dataset.tabScrollReady = 'true';
+        this.initNewTabPlacement();
 
         tabs.addEventListener('wheel', (event) => {
             if (event.ctrlKey || event.metaKey || event.shiftKey) {

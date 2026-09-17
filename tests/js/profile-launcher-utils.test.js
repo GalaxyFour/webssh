@@ -7,9 +7,28 @@ const {
     determineLaunchMode,
     filterAndSortProfiles,
     formatEndpoint,
+    getProfileReadiness,
     resolveProfileDrop,
     usesAdvancedConnectionSettings,
 } = require('../../static/js/profile-launcher-utils.js');
+
+test('readiness distinguishes saved credentials, missing keys and live sources', () => {
+    const profile = {host: 'host', username: 'user', auth_type: 'key', key_id: 'key'};
+    const context = {keys: [{id: 'key', usable: true}]};
+    assert.equal(getProfileReadiness(profile, context).state, 'saved');
+    assert.equal(getProfileReadiness(profile, {}).state, 'key-missing');
+    assert.equal(getProfileReadiness(profile, {keys: [{id: 'key', usable: false}]}).action, 'Review');
+    assert.equal(getProfileReadiness({...profile, auth_type: 'password'}, context).state, 'password-needed');
+    assert.equal(getProfileReadiness(profile, {connected: true}).state, 'connected');
+    assert.equal(getProfileReadiness({...profile, host: ''}, context).state, 'review');
+    assert.equal(getProfileReadiness({...profile, jump_host_id: 'missing'}, context).state, 'review');
+    assert.equal(getProfileReadiness({...profile, jump_host_id: 'jump'}, {
+        ...context, jumpHosts: [{id: 'jump', auth_type: 'key', key_id: 'absent'}],
+    }).state, 'key-missing');
+    assert.equal(getProfileReadiness({...profile, jump_host_id: 'jump'}, {
+        ...context, jumpHosts: [{id: 'jump', auth_type: 'password'}],
+    }).state, 'password-needed');
+});
 
 test('detects only saved settings that belong in the advanced connection section', () => {
     assert.equal(usesAdvancedConnectionSettings({}), false);

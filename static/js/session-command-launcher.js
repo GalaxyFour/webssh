@@ -121,7 +121,7 @@
                 );
             },
 
-            insert(sessionId, type, id, options = {}) {
+            async insert(sessionId, type, id, options = {}) {
                 const session = dependencies.getSession?.(sessionId);
                 if (!session || !session.connected) {
                     return { ok: false, reason: 'session-unavailable' };
@@ -134,7 +134,13 @@
                     return { ok: false, reason: entry?.unavailableReason || 'entry-unavailable' };
                 }
 
-                dependencies.emitInput?.(sessionId, insertText);
+                try {
+                    if (!dependencies.emitInput || await dependencies.emitInput(sessionId, insertText) === false) {
+                        return { ok: false, reason: 'send-failed' };
+                    }
+                } catch {
+                    return { ok: false, reason: 'send-failed' };
+                }
                 dependencies.focusSession?.(sessionId);
                 const label = sessionLabel(session, sessionId);
                 const message = dependencies.insertedMessage
@@ -223,10 +229,56 @@
             const connected = Boolean(sessionId && session?.connected);
             this.activeSessionId = connected ? sessionId : null;
             this.trigger.disabled = false;
-            if (this.popup && this.sessionId !== this.activeSessionId) {
+            if (this.popup) {
                 this.sessionId = this.activeSessionId;
                 this.render();
             }
+        },
+
+        chooseConnection() {
+            root.CommandWorkspace?.close();
+            const manager = getSessionManager();
+            manager?.showConnectionLauncher?.(manager.getActivePaneIndex?.() ?? 0);
+        },
+
+        renderTarget(container, sessionId) {
+            const document = root.document;
+            const manager = getSessionManager();
+            const session = manager?.getSession(sessionId);
+            const target = document.createElement('p');
+            target.textContent = session?.connected
+                ? this.t('sessionCommands.target', 'Target: {session}')
+                    .replace('{session}', sessionLabel(session, sessionId))
+                : this.t('sessionCommands.noActiveSession', 'Connect an SSH session to enable insertion.');
+            const select = document.createElement('select');
+            select.className = 'session-command-target-select';
+            select.setAttribute('aria-label', this.t('sessionCommands.chooseSession', 'Choose target session'));
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = this.t('sessionCommands.chooseSession', 'Choose target session');
+            placeholder.disabled = true;
+            select.appendChild(placeholder);
+            Object.entries(manager?.sessions || {}).forEach(([id, candidate]) => {
+                if (!candidate.connected) return;
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = sessionLabel(candidate, id);
+                select.appendChild(option);
+            });
+            select.value = session?.connected ? sessionId : '';
+            select.addEventListener('change', event => {
+                const next = event.target.value;
+                if (!manager?.getSession(next)?.connected) return;
+                manager.switchSession(next);
+                this.sync();
+                root.CommandWorkspace?.refreshTarget();
+            });
+            const connect = document.createElement('button');
+            connect.type = 'button';
+            connect.className = 'btn btn-secondary btn-small';
+            connect.textContent = this.t('sessionCommands.connect', 'Open connections');
+            connect.addEventListener('click', () => this.chooseConnection());
+            container.append(target, select, connect);
         },
 
         setDrawerOpen(open) {
@@ -276,15 +328,8 @@
             const headingWrap = document.createElement('div');
             const heading = document.createElement('h3');
             heading.textContent = this.t('sessionCommands.title', 'Insert Commands');
-            const target = document.createElement('p');
-            target.textContent = canInsert
-                ? this.t('sessionCommands.target', 'Target: {session}')
-                    .replace('{session}', sessionLabel(session, this.sessionId))
-                : this.t(
-                    'sessionCommands.noActiveSession',
-                    'Connect an SSH session to enable insertion.'
-                );
-            headingWrap.append(heading, target);
+            headingWrap.append(heading);
+            this.renderTarget(headingWrap, this.sessionId);
             header.appendChild(headingWrap);
 
             const search = document.createElement('input');
@@ -412,6 +457,7 @@
                         entry.id,
                         { useSudo: this.useSudo }
                     );
+                    insert.disabled = !available;
                     if (!result.ok) {
                         root.showNotification?.(
                             this.t(

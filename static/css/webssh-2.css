@@ -207,7 +207,7 @@ textarea {
     align-self: stretch;
     gap: 3px;
     padding: 7px 0 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     flex-wrap: nowrap;
     white-space: nowrap;
@@ -215,6 +215,15 @@ textarea {
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
+}
+
+.session-tabs-row > .tab-row-actions {
+    margin-left: auto;
+}
+
+.session-tabs-row > .btn-new-tab {
+    flex: 0 0 auto;
+    margin-left: 6px;
 }
 
 .session-tabs::-webkit-scrollbar {
@@ -4905,6 +4914,10 @@ body[data-theme="paper"]:has(.auth-access-dock) {
         place-items: center;
     }
 
+    .session-tabs-row > .tab-row-actions {
+        display: none;
+    }
+
     .tab-row-actions {
         width: auto;
         min-width: 42px;
@@ -5053,7 +5066,7 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     }
 
     .context-workspace-header {
-        min-height: 54px;
+        display: none;
     }
 
     .context-workspace-tab {

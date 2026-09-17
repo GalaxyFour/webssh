@@ -63,6 +63,35 @@
         return 'none';
     }
 
+    function getProfileReadiness(profile, context = {}) {
+        const launchMode = determineLaunchMode(profile, context);
+        let state = 'review';
+        if (context.connected === true) {
+            state = 'connected';
+        } else {
+            const jumpHost = (context.jumpHosts || []).find(item => item?.id === profile?.jump_host_id);
+            const missingKey = (profile?.auth_type === 'key' && !hasKey(context.keys, profile.key_id))
+                || (jumpHost?.auth_type === 'key' && !hasKey(context.keys, jumpHost.key_id));
+            if (missingKey) state = 'key-missing';
+            else if (launchMode === 'password' || launchMode === 'jump-host-password') state = 'password-needed';
+            else if (launchMode === 'connect' && buildDirectConnectionData(profile, context)) state = 'saved';
+        }
+        const labels = {
+            connected: ['readinessConnected', 'Connected'],
+            saved: ['readinessSaved', 'Saved'],
+            'password-needed': ['readinessPassword', 'Password needed'],
+            'key-missing': ['readinessKey', 'Key missing or unavailable'],
+            review: ['readinessReview', 'Review connection'],
+        };
+        const [key, label] = labels[state];
+        const review = state === 'key-missing' || state === 'review';
+        return {
+            state, launchMode, label, labelKey: `connection.${key}`,
+            actionKey: review ? 'connection.actionReview' : 'connection.actionConnect',
+            action: review ? 'Review' : 'Connect',
+        };
+    }
+
     function profilePostConnectPayload(profile) {
         const mode = inferProfileStartupMode(profile);
         if (mode === 'free_text') {
@@ -391,6 +420,7 @@
         determineLaunchMode,
         filterAndSortProfiles,
         formatEndpoint,
+        getProfileReadiness,
         resolveProfileDrop,
         usesAdvancedConnectionSettings,
     };

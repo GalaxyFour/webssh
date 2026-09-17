@@ -38,7 +38,7 @@ const commandSets = [
     },
 ];
 
-test('builds one searchable model with command sets before commands', () => {
+test('builds one searchable model with command sets before commands', async () => {
     const all = launcher.buildLauncherEntries(commands, commandSets, 'status');
 
     assert.deepEqual(all.map(item => [item.type, item.id]), [
@@ -49,7 +49,7 @@ test('builds one searchable model with command sets before commands', () => {
     assert.equal(all[1].insertText, 'systemctl status webssh');
 });
 
-test('keeps unsafe or unresolved entries visible but unavailable', () => {
+test('keeps unsafe or unresolved entries visible but unavailable', async () => {
     const entries = launcher.buildLauncherEntries(commands, commandSets, '');
     const multiline = entries.find(item => item.id === 'cmd-multiline');
     const unresolved = entries.find(item => item.id === 'set-broken');
@@ -60,7 +60,7 @@ test('keeps unsafe or unresolved entries visible but unavailable', () => {
     assert.equal(unresolved.unavailableReason, 'unresolved');
 });
 
-test('inserts exact text into the bound connected session without Enter', () => {
+test('inserts exact text into the bound connected session without Enter', async () => {
     const emissions = [];
     const events = [];
     const controller = launcher.createSessionCommandController({
@@ -75,7 +75,7 @@ test('inserts exact text into the bound connected session without Enter', () => 
         insertedMessage: sessionName => `Inserted into ${sessionName}`,
     });
 
-    const result = controller.insert('session-a', 'set', 'set-1');
+    const result = await controller.insert('session-a', 'set', 'set-1');
 
     assert.equal(result.ok, true);
     assert.deepEqual(emissions, [{
@@ -89,7 +89,7 @@ test('inserts exact text into the bound connected session without Enter', () => 
     ]);
 });
 
-test('adds one sudo prefix to a single command when requested', () => {
+test('adds one sudo prefix to a single command when requested', async () => {
     const emissions = [];
     const controller = launcher.createSessionCommandController({
         getSession: () => ({ connected: true, name: 'Production Edge' }),
@@ -98,7 +98,7 @@ test('adds one sudo prefix to a single command when requested', () => {
         emitInput: (sessionId, text) => emissions.push({ sessionId, text }),
     });
 
-    const result = controller.insert(
+    const result = await controller.insert(
         'session-a', 'command', 'cmd-1', { useSudo: true }
     );
 
@@ -109,7 +109,7 @@ test('adds one sudo prefix to a single command when requested', () => {
     }]);
 });
 
-test('recognizes only an existing sudo command token as prefixed', () => {
+test('recognizes only an existing sudo command token as prefixed', async () => {
     const emissions = [];
     const controller = launcher.createSessionCommandController({
         getSession: () => ({ connected: true, name: 'Production Edge' }),
@@ -131,20 +131,20 @@ test('recognizes only an existing sudo command token as prefixed', () => {
         emitInput: (sessionId, text) => emissions.push({ sessionId, text }),
     });
 
-    const result = controller.insert(
+    const result = await controller.insert(
         'session-a', 'command', 'cmd-sudo', { useSudo: true }
     );
 
     assert.equal(result.ok, true);
     assert.equal(emissions[0].text, 'sudo systemctl restart webssh');
 
-    controller.insert(
+    await controller.insert(
         'session-a', 'command', 'cmd-sudoers', { useSudo: true }
     );
     assert.equal(emissions[1].text, 'sudo sudoers-check');
 });
 
-test('uses the fully resolved sudo variant for a command set', () => {
+test('uses the fully resolved sudo variant for a command set', async () => {
     const emissions = [];
     const controller = launcher.createSessionCommandController({
         getSession: () => ({ connected: true, name: 'Production Edge' }),
@@ -153,7 +153,7 @@ test('uses the fully resolved sudo variant for a command set', () => {
         emitInput: (sessionId, text) => emissions.push({ sessionId, text }),
     });
 
-    const result = controller.insert(
+    const result = await controller.insert(
         'session-a', 'set', 'set-1', { useSudo: true }
     );
 
@@ -164,7 +164,7 @@ test('uses the fully resolved sudo variant for a command set', () => {
     );
 });
 
-test('refuses stale, disconnected, and multiline targets', () => {
+test('refuses stale, disconnected, and multiline targets', async () => {
     const emissions = [];
     const controller = launcher.createSessionCommandController({
         getSession: sessionId => (
@@ -175,13 +175,13 @@ test('refuses stale, disconnected, and multiline targets', () => {
         emitInput: (sessionId, text) => emissions.push({ sessionId, text }),
     });
 
-    assert.equal(controller.insert('missing', 'command', 'cmd-1').ok, false);
-    assert.equal(controller.insert('offline', 'command', 'cmd-1').ok, false);
-    assert.equal(controller.insert('offline', 'command', 'cmd-multiline').ok, false);
+    assert.equal((await controller.insert('missing', 'command', 'cmd-1')).ok, false);
+    assert.equal((await controller.insert('offline', 'command', 'cmd-1')).ok, false);
+    assert.equal((await controller.insert('offline', 'command', 'cmd-multiline')).ok, false);
     assert.deepEqual(emissions, []);
 });
 
-test('mounts with the real top-level const manager pattern', () => {
+test('mounts with the real top-level const manager pattern', async () => {
     class FakeElement {
         constructor(tagName) {
             this.tagName = tagName;
@@ -314,12 +314,17 @@ test('mounts with the real top-level const manager pattern', () => {
     context.window = context;
     vm.runInContext(`
         let launcherOpen = false;
+        let targetName = 'Production Edge';
+        window.renameTarget = name => { targetName = name; };
         const SessionManager = {
             paneAssignments: ['real-session'],
             getActivePaneIndex: () => 0,
+            sessions: { 'real-session': { connected: true, displayName: 'Production Edge' } },
+            switchSession() { launcherOpen = false; },
+            showConnectionLauncher() { window.connectionRequests = (window.connectionRequests || 0) + 1; },
             getActiveSession: () => launcherOpen ? null : 'real-session',
             getSession: id => id === 'real-session'
-                ? { connected: true, displayName: 'Production Edge' }
+                ? { connected: true, displayName: targetName }
                 : null,
         };
         window.setLauncherOpen = open => { launcherOpen = open; };
@@ -365,6 +370,7 @@ test('mounts with the real top-level const manager pattern', () => {
         detail: { activeContext: 'commands' },
     }));
     assert.equal(panel.hidden, false);
+    assert.ok(context.SessionCommandLauncher.popup.querySelector('.session-command-target-select'));
     const sudoInput = context.SessionCommandLauncher.popup.querySelector(
         '.session-command-sudo-input'
     );
@@ -379,7 +385,7 @@ test('mounts with the real top-level const manager pattern', () => {
         )
     );
     const insert = context.SessionCommandLauncher.popup.findByText('Insert');
-    insert.listeners.click();
+    await insert.listeners.click();
 
     assert.equal(context.socket.emissions.length, 1);
     assert.equal(context.socket.emissions[0][0], 'ssh_input');
@@ -393,15 +399,85 @@ test('mounts with the real top-level const manager pattern', () => {
     context.SessionCommandLauncher.render();
     const blockedInsert = context.SessionCommandLauncher.popup.findByText('Insert');
     assert.equal(blockedInsert.disabled, true);
-    blockedInsert.listeners.click();
+    await blockedInsert.listeners.click();
     assert.equal(context.socket.emissions.length, 1);
 
     assert.equal(panel.hidden, false);
     assert.ok(context.SessionCommandLauncher.popup);
+
+    const connect = context.SessionCommandLauncher.popup.findByText('Open connections');
+    assert.ok(connect);
+    connect.listeners.click();
+    assert.equal(context.connectionRequests, 1);
+    const selector = context.SessionCommandLauncher.popup.querySelector('.session-command-target-select');
+    selector.listeners.change({ target: { value: 'real-session' } });
+    assert.ok(context.SessionCommandLauncher.popup.findByText('Target: Production Edge'));
+    assert.equal(context.socket.emissions.length, 1);
+
+    context.renameTarget('Renamed target');
+    context.SessionCommandLauncher.sync();
+    assert.ok(context.SessionCommandLauncher.popup.findByText('Target: Renamed target'));
 
     const manage = context.SessionCommandLauncher.popup.findByText('Manage Commands');
     manage.listeners.click();
     assert.equal(context.CommandSetManager.managementOpens, 1);
     assert.equal(panel.hidden, false);
     assert.ok(context.SessionCommandLauncher.popup);
+});
+
+ test('library insertion rejects multiline text and offers a connection when no target exists', async () => {
+    const emissions = [];
+    let active = 'target';
+    let connectionRequests = 0;
+    const context = vm.createContext({
+        window: {},
+        SessionManager: {
+            getActiveSession: () => active,
+            getSession: id => id === 'target' ? { connected: true } : null,
+        },
+    });
+    context.window = context;
+    context.SessionCommandLauncher = {
+        controller: launcher.createSessionCommandController({
+            getSession: context.SessionManager.getSession,
+            getCommands: () => commands,
+            emitInput: (id, text) => emissions.push([id, text]),
+        }),
+        chooseConnection: () => connectionRequests++,
+        t: (key, fallback) => fallback,
+    };
+    context.showNotification = () => {};
+    context.socket = { emit: (event, payload) => emissions.push(payload) };
+    vm.runInContext(fs.readFileSync('static/js/command-library.js', 'utf8'), context);
+    context.CommandLibrary.commands = commands;
+    context.CommandLibrary.closeLibrary = () => {};
+    await context.CommandLibrary.executeCommand('cmd-multiline');
+    assert.equal(emissions.length, 0);
+    active = null;
+    await context.CommandLibrary.executeCommand('cmd-1');
+    assert.equal(connectionRequests, 1);
+    assert.equal(emissions.length, 0);
+    active = 'target';
+    await context.CommandLibrary.executeCommand('cmd-1');
+    assert.deepEqual(emissions, [['target', 'systemctl status webssh']]);
+});
+
+
+test('command insertion waits for sending and never reports success on rejection', async () => {
+    let finish;
+    const notices = [];
+    const controller = launcher.createSessionCommandController({
+        getSession: () => ({ connected: true }), getCommands: () => commands,
+        emitInput: () => new Promise(resolve => { finish = resolve; }),
+        notify: (...args) => notices.push(args),
+    });
+    const pending = controller.insert('one', 'command', 'cmd-1');
+    assert.deepEqual(notices, []);
+    finish(false);
+    assert.equal((await pending).ok, false);
+    assert.deepEqual(notices, []);
+    const success = controller.insert('one', 'command', 'cmd-1');
+    finish(true);
+    assert.equal((await success).ok, true);
+    assert.equal(notices.length, 1);
 });

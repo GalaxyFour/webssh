@@ -208,6 +208,7 @@ def test_account_preferences_api_validates_and_persists_supported_values(
     assert updated.status_code == 200
     assert updated.get_json()["settings"] == {
         "theme": "obsidian",
+        "terminal_appearance": {},
         "notepad": "",
         "confirm_session_close": True,
         "disconnect_session_action": "close",
