@@ -1566,9 +1566,13 @@
         if (currentConnectRequestId) return false;
 
         closeProfileManagementModal();
+        const randomSuffix = window.crypto.getRandomValues(new Uint32Array(1))[0]
+            .toString(36)
+            .slice(0, 4)
+            .padStart(4, '0');
         const requestId = (
             `req_${Date.now().toString(36)}_`
-            + Math.random().toString(36).slice(2, 6)
+            + randomSuffix
         );
         const payload = {
             ...connectionData,
