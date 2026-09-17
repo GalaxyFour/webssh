@@ -65,6 +65,7 @@ function loadAppSocketHarness() {
     const handlers = new Map();
     const windowHandlers = new Map();
     const documentHandlers = new Map();
+    const timeouts = [];
     const emitted = [];
     const notificationContainer = createElement('div');
     const state = { disconnects: 0, reloads: 0, unloads: [] };
@@ -112,6 +113,7 @@ function loadAppSocketHarness() {
         },
         io: () => socket,
         location: {
+            assign(url) { state.navigationUrl = url; },
             reload() {
                 state.reloads += 1;
                 const event = {
@@ -132,7 +134,7 @@ function loadAppSocketHarness() {
         SessionManager: { sessions: {} },
         sessionStorage: createStorage(),
         setInterval: () => 1,
-        setTimeout: () => 1,
+        setTimeout: callback => { timeouts.push(callback); return timeouts.length; },
         URL,
     };
     browserGlobal.window = browserGlobal;
@@ -150,6 +152,7 @@ function loadAppSocketHarness() {
     return {
         browserGlobal,
         documentHandlers,
+        timeouts,
         emitted,
         handlers,
         notificationContainer,
@@ -254,8 +257,12 @@ test('settings navigation skips only the session warning and only once', () => {
     harness.browserGlobal.SessionManager.sessions = { active: { connected: true } };
     harness.documentHandlers.get('click')?.({
         button: 0,
-        target: { closest: selector => selector === '#accountSettingsBtn' ? { target: '' } : null },
+        preventDefault() {},
+        target: { closest: selector => selector === '#accountSettingsBtn' ? { target: '', href: '/settings#preferences' } : null },
     });
+    // Embedded browsers may dispatch beforeunload after the click task and timers.
+    harness.timeouts.splice(0).forEach(callback => callback());
+    assert.equal(harness.state.navigationUrl, '/settings#preferences');
     harness.browserGlobal.location.reload();
     assert.equal(harness.state.unloads[0].prevented, false);
     harness.browserGlobal.location.reload();
@@ -269,7 +276,8 @@ test('settings navigation retains unsaved notes and modified-click protection', 
         harness.browserGlobal.notepadController = { hasUnsaved: () => Boolean(options.dirty) };
         harness.documentHandlers.get('click')?.({
             button: 0,
-            target: { closest: () => ({ target: '' }) },
+            preventDefault() {},
+            target: { closest: () => ({ target: '', href: '/settings#preferences' }) },
             ...options,
         });
         harness.browserGlobal.location.reload();

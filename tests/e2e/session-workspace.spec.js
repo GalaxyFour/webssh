@@ -1047,6 +1047,42 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await assertNoExternalRequests(page);
 });
 
+for (const reconnecting of [false, true]) {
+test(`account settings navigation does not warn for an active SSH session (reconnecting: ${reconnecting})`, async ({ page }) => {
+    await login(page);
+    await seedLinuxSession(page);
+    if (reconnecting) await page.evaluate(() => window.socket.disconnect());
+    const dialogs = [];
+    page.on('dialog', async dialog => {
+        dialogs.push(dialog.type());
+        await dialog.accept();
+    });
+    await page.locator('#accountBtnHeader').click();
+    if (reconnecting) await page.locator('#accountSettingsBtn').press('Enter');
+    else await page.locator('#accountSettingsBtn').click();
+    await expect(page).toHaveURL(/\/settings#preferences$/);
+    expect(dialogs).toEqual([]);
+});
+}
+
+test('account settings navigation still protects unsaved notes', async ({ page }) => {
+    await login(page);
+    await seedLinuxSession(page);
+    await page.locator('#contextNotesTab').click();
+    await page.evaluate(() => window.socket.disconnect());
+    await page.locator('#sessionNotepad').fill('Unsaved offline note');
+    const dialogPromise = page.waitForEvent('dialog').then(async dialog => {
+        const type = dialog.type();
+        await dialog.dismiss();
+        return type;
+    });
+    await page.locator('#accountBtnHeader').click();
+    await page.locator('#accountSettingsBtn').click();
+    expect(await dialogPromise).toBe('beforeunload');
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator('#sessionNotepad')).toHaveValue('Unsaved offline note');
+});
+
 test('desktop-to-mobile resize is not mistaken for an open virtual keyboard', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await login(page);

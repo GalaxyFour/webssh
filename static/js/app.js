@@ -31,9 +31,15 @@
         if (!link || event.defaultPrevented || event.button !== 0
             || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
             || (link.target && link.target !== '_self')) return;
+        event.preventDefault();
         settingsNavigationPending = true;
-        // A cancelled navigation must not disable future tab-close warnings.
-        setTimeout(() => { settingsNavigationPending = false; }, 0);
+        // Consume the exception in beforeunload, even when the browser defers it.
+        try {
+            window.location.assign(link.href);
+        } catch (error) {
+            settingsNavigationPending = false;
+            throw error;
+        }
     });
 
     function reloadForSocketProtocolMismatch() {
