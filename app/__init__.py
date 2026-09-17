@@ -14,6 +14,7 @@ from .auth import (init_auth, authenticate_user, register_user,
                    password_exceeds_bcrypt_limit)
 from .audit_logger import (log_rate_limit_exceeded, log_info, log_warning, log_error,
                               log_login_attempt, log_logout, log_registration, log_password_change)
+from .terminal_appearance import valid_terminal_appearance
 from .user_settings import (
     AUTHENTICATION_SESSION_DURATION_MINUTES,
     DEFAULT_AUTHENTICATION_SESSION_DURATION_MINUTES,
@@ -857,6 +858,7 @@ def create_app(
             'index.html',
             username=current_user.username,
             theme=theme,
+            terminal_appearance=settings.get('terminal_appearance', {}),
             connection_history_scope=connection_history_scope(
                 current_user,
                 app.config['SECRET_KEY'],
@@ -1200,6 +1202,7 @@ def create_app(
             return jsonify({'error': 'Invalid settings payload'}), 400
         allowed = {
             'theme',
+            'terminal_appearance',
             'confirm_session_close',
             'disconnect_session_action',
             'authentication_session_duration_minutes',
@@ -1208,6 +1211,10 @@ def create_app(
             return jsonify({'error': 'Invalid settings payload'}), 400
 
         updates = {}
+        if 'terminal_appearance' in data:
+            if not valid_terminal_appearance(data['terminal_appearance']):
+                return jsonify({'error': 'Invalid terminal appearance'}), 400
+            updates['terminal_appearance'] = data['terminal_appearance']
         if 'theme' in data:
             valid_themes = {
                 'glass', 'retro', 'solar', 'paper', 'noir',

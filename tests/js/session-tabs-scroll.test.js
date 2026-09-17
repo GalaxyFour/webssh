@@ -39,6 +39,17 @@ function createElement(tagName = 'div') {
             this.children.push(child);
             return child;
         },
+        get nextElementSibling() {
+            const siblings = this.parentNode?.children || [];
+            return siblings[siblings.indexOf(this) + 1] || null;
+        },
+        insertBefore(child, reference) {
+            child.parentNode?.removeChild?.(child);
+            child.parentNode = this;
+            const index = this.children.indexOf(reference);
+            this.children.splice(index < 0 ? this.children.length : index, 0, child);
+            return child;
+        },
         removeChild(child) {
             this.children = this.children.filter(candidate => candidate !== child);
             child.parentNode = null;
@@ -332,4 +343,97 @@ test('drag-to-scroll moves tabs but preserves simple clicks', () => {
     runTimers();
     assert.equal(fireContainerClick(), false);
     assert.equal(tabs.style.userSelect, '');
+});
+
+function preparePlacementHarness({mobile = false, overflow = false} = {}) {
+    const harness = prepareTabsHarness();
+    const {row, tabs, context, manager} = harness;
+    const button = harness.registerElement('newTabBtn', createElement('button'));
+    const actions = createElement('div');
+    actions.className = 'tab-row-actions';
+    row.appendChild(tabs);
+    row.appendChild(actions);
+    row.appendChild(button);
+    tabs.clientWidth = 300;
+    tabs.scrollWidth = overflow ? 600 : 300;
+    const media = {matches: mobile, addEventListener(type, callback) { this.callback = callback; }};
+    context.window.matchMedia = () => media;
+    const observers = [];
+    const mutations = [];
+    context.window.ResizeObserver = class {
+        constructor(callback) { this.callback = callback; observers.push(this); }
+        observe() {}
+    };
+    context.window.MutationObserver = class {
+        constructor(callback) { this.callback = callback; mutations.push(this); }
+        observe() {}
+    };
+    button.focus = () => { context.document.activeElement = button; };
+    const insertBefore = row.insertBefore;
+    row.insertBefore = function(child, reference) {
+        if (context.document.activeElement === child) context.document.activeElement = null;
+        return insertBefore.call(this, child, reference);
+    };
+    manager.initTabScrollAffordances();
+    return {...harness, button, actions, media,
+        update() { observers.forEach(o => o.callback()); harness.runTimers(); },
+        mutate() { mutations.forEach(o => o.callback()); harness.runTimers(); },
+    };
+}
+
+test('desktop add button follows the final tab before the tools when tabs fit', () => {
+    const {row, tabs, button, actions} = preparePlacementHarness();
+    assert.deepEqual(row.children, [tabs, button, actions]);
+});
+
+test('overflow changes preserve button identity, focus, click and tab scroll offset', () => {
+    const {context, row, tabs, button, actions, update} = preparePlacementHarness({overflow: true});
+    let clicks = 0;
+    button.addEventListener('click', () => clicks++);
+    button.focus();
+    tabs.scrollLeft = 100;
+    assert.deepEqual(row.children, [tabs, actions, button]);
+    tabs.scrollWidth = 300;
+    update();
+    assert.deepEqual(row.children, [tabs, button, actions]);
+    assert.equal(context.document.activeElement, button);
+    assert.equal(tabs.scrollLeft, 100);
+    button.click();
+    assert.equal(clicks, 1);
+    tabs.scrollWidth = 500;
+    update();
+    update();
+    assert.deepEqual(row.children, [tabs, actions, button]);
+});
+
+test('mobile add button stays after tools and returns beside fitting tabs on desktop', () => {
+    const {row, tabs, button, actions, media, context, runTimers} = preparePlacementHarness({mobile: true});
+    assert.deepEqual(row.children, [tabs, actions, button]);
+    media.matches = false;
+    context.window.dispatchEvent({type: 'resize'});
+    runTimers();
+    assert.deepEqual(row.children, [tabs, button, actions]);
+});
+
+test('reopening the hidden rail recalculates add button placement', () => {
+    const {row, tabs, button, actions, update} = preparePlacementHarness();
+    assert.deepEqual(row.children, [tabs, button, actions]);
+    row.hidden = true;
+    tabs.clientWidth = 0;
+    update();
+    row.hidden = false;
+    tabs.clientWidth = 200;
+    tabs.scrollWidth = 400;
+    update();
+    assert.deepEqual(row.children, [tabs, actions, button]);
+});
+
+test('tab content changes reposition add button without a viewport resize', () => {
+    const {row, tabs, button, actions, mutate} = preparePlacementHarness();
+    tabs.scrollWidth = 600;
+    mutate();
+    assert.deepEqual(row.children, [tabs, actions, button]);
+    tabs.scrollWidth = 300;
+    mutate();
+    assert.deepEqual(row.children, [tabs, button, actions]);
 });

@@ -24,6 +24,17 @@
     );
 
     let socketProtocolReloadPending = false;
+    let settingsNavigationPending = false;
+
+    document.addEventListener('click', (event) => {
+        const link = event.target.closest?.('#accountSettingsBtn');
+        if (!link || event.defaultPrevented || event.button !== 0
+            || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
+            || (link.target && link.target !== '_self')) return;
+        settingsNavigationPending = true;
+        // A cancelled navigation must not disable future tab-close warnings.
+        setTimeout(() => { settingsNavigationPending = false; }, 0);
+    });
 
     function reloadForSocketProtocolMismatch() {
         socketProtocolReloadPending = true;
@@ -32,8 +43,9 @@
     }
 
     window.addEventListener('beforeunload', (event) => {
-        if (socketProtocolReloadPending) {
+        if (socketProtocolReloadPending || settingsNavigationPending) {
             socketProtocolReloadPending = false;
+            settingsNavigationPending = false;
             if (!window.notepadController?.hasUnsaved()) return;
         }
         const activeSessions = Object.values(SessionManager.sessions).filter(

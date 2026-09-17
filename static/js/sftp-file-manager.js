@@ -37,6 +37,7 @@ class SFTPFileManager {
         this.movePicker = null;
         this.suppressedItemClick = null;
         this.actionSheetIndex = null;
+        this.actionSheetPane = null;
         this.actionSheetTrigger = null;
 
         this.draggedItems = [];
@@ -368,15 +369,24 @@ class SFTPFileManager {
                 };
             })
             .filter(Boolean);
-        const saved = (this.qcProfiles || []).map(profile => ({
-            key: `profile:${profile.id}`,
-            label: profile.name || `${profile.username}@${profile.host}`,
-            endpoint: `${profile.username}@${profile.host}:${profile.port || 22}`,
-            protocol: 'SFTP',
-            status: this.t('fm.workspace.available', 'Available'),
-            security: this.t('fm.workspace.authenticationRequired', 'Authentication required'),
-            profileId: profile.id,
-        }));
+        const saved = (this.qcProfiles || []).map(profile => {
+            const readiness = typeof ProfileLauncherUtils !== 'undefined'
+                ? ProfileLauncherUtils.getProfileReadiness(profile, {
+                    keys: window.ProfileManager?.keys || this.qcKeys || [],
+                    jumpHosts: window.JumpHostManager?.jumpHosts || [],
+                })
+                : { labelKey: 'connection.readinessSaved', label: 'Saved', actionKey: 'connection.actionReview', action: 'Review' };
+            return {
+                key: `profile:${profile.id}`,
+                label: profile.name || `${profile.username}@${profile.host}`,
+                endpoint: `${profile.username}@${profile.host}:${profile.port || 22}`,
+                protocol: 'SFTP',
+                status: this.t(readiness.labelKey, readiness.label),
+                actionLabel: this.t(readiness.actionKey, readiness.action),
+                security: this.t('fm.workspace.authenticationRequired', 'Authentication required'),
+                profileId: profile.id,
+            };
+        });
         const quick = (this.quickConnections || []).map(connection => {
             const source = this.sourceDescriptorForQuickConnection(connection);
             if (!source) return null;
@@ -397,7 +407,8 @@ class SFTPFileManager {
             label: share.name,
             endpoint: `${share.username}@${share.host}/${share.share}`,
             protocol: 'SMB',
-            status: this.t('fm.workspace.available', 'Available'),
+            status: this.t('connection.readinessPassword', 'Password needed'),
+            actionLabel: this.t('connection.actionConnect', 'Connect'),
             security: this.t(
                 'fm.workspace.authenticationRequired',
                 'Authentication required'
@@ -454,6 +465,23 @@ class SFTPFileManager {
     loadWorkspaceProfiles() {
         if (!this.socket || this.workspaceProfilesPending) return;
         this.workspaceProfilesPending = true;
+        if (!this.workspaceCredentialsPending) {
+            this.workspaceCredentialsPending = true;
+            this.socket.once('keys_list', data => {
+                this.workspaceCredentialsPending = false;
+                this.qcKeys = data?.keys || [];
+                if (this.sourceLauncherPane) this.renderSourceLauncher();
+            });
+            this.socket.emit('list_keys');
+        }
+        if (!this.workspaceJumpHostsPending) {
+            this.workspaceJumpHostsPending = true;
+            this.socket.once('jump_hosts_list', () => {
+                this.workspaceJumpHostsPending = false;
+                if (this.sourceLauncherPane) this.renderSourceLauncher();
+            });
+            this.socket.emit('list_jump_hosts');
+        }
         this.socket.emit('list_profiles');
         this.socket.once('profiles_list', data => {
             this.workspaceProfilesPending = false;
@@ -610,6 +638,7 @@ class SFTPFileManager {
                         <span class="fm-protocol-badge">${this.escapeHtml(source.protocol || '')}</span>
                         <span class="fm-source-row-status">
                             <strong>${this.escapeHtml(this.sourceLauncherStatus(source))}</strong>
+                            ${source.actionLabel ? `<span class="fm-source-action">${this.escapeHtml(source.actionLabel)}</span>` : ''}
                             <small><span class="material-icons" aria-hidden="true">verified_user</span>${this.escapeHtml(assurance)}</small>
                         </span>
                     </button>`;
@@ -1077,6 +1106,9 @@ class SFTPFileManager {
                                 <span class="material-icons">create_new_folder</span>
                                 <span class="btn-text" data-i18n="fm.newFolder">New Folder</span>
                             </button>
+                            <button class="btn btn-secondary btn-sm fm-session-folder-action" id="fmOpenTerminalFolder" type="button" title="Open folder in Files" aria-label="Open folder in Files" data-i18n-title="terminalFiles.openFolder" data-i18n-aria-label="terminalFiles.openFolder">
+                                <span class="material-icons" aria-hidden="true">folder_open</span>
+                            </button>
                         </div>
                         <div class="fm-toolbar-center">
                             <button class="btn btn-primary btn-sm" id="fmTransfer" data-i18n-title="fm.transfer">
@@ -1308,6 +1340,10 @@ class SFTPFileManager {
                         <span class="material-icons" aria-hidden="true">folder_open</span>
                         <span data-i18n="fm.ctx.open">Open</span>
                     </button>
+                    <button type="button" class="fm-action-sheet-item" data-action="insert-terminal-path">
+                        <span class="material-icons" aria-hidden="true">terminal</span>
+                        <span data-i18n="terminalFiles.insertPath">Insert path into terminal</span>
+                    </button>
                     <button type="button" class="fm-action-sheet-item" data-action="download">
                         <span class="material-icons" aria-hidden="true">download</span>
                         <span data-i18n="fm.download">Download</span>
@@ -1487,6 +1523,9 @@ class SFTPFileManager {
 
         document.getElementById('fmRefresh').addEventListener('click', () => this.refreshBothPanes());
         document.getElementById('fmNewFolder').addEventListener('click', () => this.createNewFolder());
+        document.getElementById('fmOpenTerminalFolder').addEventListener('click', () => {
+            window.TerminalFileBridge?.openSelection(this.embeddedTarget?.sessionId);
+        });
         document.getElementById('fmTransfer').addEventListener('click', () => this.executeTransfer());
         document.getElementById('fmDownload').addEventListener('click', () => this.downloadSelected());
         document.getElementById('fmPreview').addEventListener('click', () => this.previewSelected());
@@ -1596,6 +1635,11 @@ class SFTPFileManager {
 
         document.getElementById('fmQueueHeader').addEventListener('click', () => this.toggleQueue());
         document.getElementById('fmQueueList').addEventListener('click', (event) => {
+            const recovery = event.target.closest('[data-transfer-recover]');
+            if (recovery) {
+                this.recoverTransfer(recovery.dataset.transferRecover);
+                return;
+            }
             const button = event.target.closest('[data-transfer-cancel]');
             if (!button) return;
             this.cancelQueuedTransfer(button.dataset.transferCancel);
@@ -1844,6 +1888,11 @@ class SFTPFileManager {
     }
 
     setupKeyboardShortcuts() {
+        document.addEventListener('workspace-context-change', event => {
+            if (this.displayMode === 'embedded' && event.detail?.activeContext !== 'files') {
+                this.hideActionSheet({ restoreFocus: false });
+            }
+        });
         // Capture Escape before the workspace and app-level handlers so the
         // topmost Files layer always closes first.
         document.addEventListener(
@@ -2137,6 +2186,7 @@ class SFTPFileManager {
                 refreshOnNextOpen: true,
             });
         });
+        this.hideActionSheet({ restoreFocus: false });
         this.isOpen = false;
         this.displayMode = 'closed';
         this.closeMovePicker({ restoreFocus: false });
@@ -2269,6 +2319,7 @@ class SFTPFileManager {
 
     detachEmbedded() {
         if (this.displayMode !== 'embedded') return;
+        this.hideActionSheet({ restoreFocus: false });
         this.closeMovePicker({ restoreFocus: false });
         this.closeContextMenu();
         this.resetPane('left');
@@ -3385,6 +3436,19 @@ class SFTPFileManager {
         ['left', 'right'].forEach(pane => {
             const listEl = document.getElementById(`fm${this.capitalize(pane)}List`);
 
+            listEl.addEventListener('keydown', event => {
+                if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return;
+                const item = event.target.closest('.fm-file-item');
+                if (!item) return;
+                event.preventDefault();
+                const index = Number(item.dataset.index);
+                this.setActivePane(pane);
+                this.panes[pane].selected.clear();
+                if (index >= 0) this.panes[pane].selected.add(index);
+                this.updateSelectionVisual(pane);
+                this.showActionSheet(pane, index, { trigger: item.querySelector('.fm-file-checkbox') });
+            });
+
             listEl.addEventListener('pointerdown', event => {
                 if (event.pointerType !== 'touch' || gesture) return;
                 const item = event.target.closest('.fm-file-item');
@@ -3449,6 +3513,14 @@ class SFTPFileManager {
         });
     }
 
+    canInsertActionSheetPath(pane, index) {
+        const state = this.panes[pane];
+        const sessionId = state && window.TerminalFileBridge?.sourceSession(this.getPaneSourceId(state));
+        return Boolean(state?.selected?.size === 1 && state.selected.has(index)
+            && state.files[index] && sessionId
+            && this.availableSessions.some(session => session.id === sessionId && session.connected === true));
+    }
+
     showActionSheet(
         pane = this.activePane,
         index = null,
@@ -3456,6 +3528,7 @@ class SFTPFileManager {
     ) {
         const sheet = document.getElementById('fmActionSheet');
         if (sheet) {
+            if (this.displayMode === 'embedded') document.body.appendChild(sheet);
             const state = this.panes[pane];
             const selectedCount = state?.selected?.size || 0;
             const targetPane = pane === 'left' ? 'right' : 'left';
@@ -3464,6 +3537,8 @@ class SFTPFileManager {
                 if (button) button.disabled = Boolean(disabled);
             };
             this.actionSheetIndex = index;
+            this.actionSheetPane = pane;
+            setDisabled('insert-terminal-path', !this.canInsertActionSheetPath(pane, index));
             this.actionSheetTrigger = trigger || document.activeElement;
             setDisabled('open', index === null || (index >= 0 && selectedCount !== 1));
             setDisabled('download', selectedCount === 0 || !this.sourceCan(state, 'read'));
@@ -3492,7 +3567,7 @@ class SFTPFileManager {
         }, 150);
     }
 
-    hideActionSheet() {
+    hideActionSheet({ restoreFocus = true } = {}) {
         const sheet = document.getElementById('fmActionSheet');
         const trigger = this.actionSheetTrigger;
         if (sheet) {
@@ -3500,15 +3575,26 @@ class SFTPFileManager {
             sheet.classList.remove('gesture-active');
             sheet.setAttribute('inert', '');
             sheet.setAttribute('aria-hidden', 'true');
+            if (this.modalContent && sheet.parentElement !== this.modalContent) {
+                this.modalContent.appendChild(sheet);
+            }
         }
+        this.actionSheetPane = null;
         this.actionSheetIndex = null;
         this.actionSheetTrigger = null;
-        if (trigger?.isConnected !== false) trigger?.focus?.();
+        if (restoreFocus && trigger?.isConnected !== false) trigger?.focus?.();
     }
 
     handleActionSheetAction(action) {
         const actionSheetIndex = this.actionSheetIndex;
+        const actionSheetPane = this.actionSheetPane || this.activePane;
         this.hideActionSheet();
+        if (action === 'insert-terminal-path') {
+            if (this.canInsertActionSheetPath(actionSheetPane, actionSheetIndex)) {
+                this.handleContextAction(action, actionSheetPane, actionSheetIndex);
+            }
+            return;
+        }
 
         switch (action) {
             case 'open':
@@ -5577,6 +5663,7 @@ class SFTPFileManager {
             id: transferId,
             type: 'download',
             filename: `${folderName}.zip`,
+            folderName,
             sourcePath: remotePath,
             size: 0,
             sourceId,
@@ -5612,6 +5699,32 @@ class SFTPFileManager {
         return this.transferClient;
     }
 
+    getTransferRecovery(transfer) {
+        if (transfer?.status !== 'error') return null;
+        if (transfer.errorCode === 'SOURCE_UNAVAILABLE') {
+            return this.displayMode === 'embedded' ? null : 'reconnect';
+        }
+        if (transfer.type !== 'download' || transfer.retryable !== true || !transfer.sourcePath) return null;
+        const entry = this.findPaneStateEntry(transfer.sourceId);
+        return entry && this.sourceCan(entry.state, 'read') ? 'download' : null;
+    }
+
+    recoverTransfer(id) {
+        const transfer = this.transferQueue.find(item => String(item.id) === String(id));
+        const recovery = this.getTransferRecovery(transfer);
+        if (recovery === 'reconnect') {
+            this.openSourceLauncher(this.activePane);
+        } else if (recovery === 'download') {
+            transfer.retryable = false;
+            if (transfer.folderName) {
+                this.downloadFolderToBrowser(transfer.sourceId, transfer.sourcePath, transfer.folderName);
+            } else {
+                this.downloadFileToBrowser(transfer.sourceId, transfer.sourcePath, transfer.filename, transfer.size);
+            }
+            this.renderTransferQueue();
+        }
+    }
+
     renderTransferQueue() {
         const container = document.getElementById('fmQueueList');
         const badge = document.getElementById('fmQueueBadge');
@@ -5640,8 +5753,15 @@ class SFTPFileManager {
         }
 
         container.innerHTML = this.transferQueue.slice(-20).map(t => {
-            const reason = t.status === 'error' && t.error
-                ? this.escapeHtml(t.error)
+            const reason = t.status === 'error'
+                ? this.escapeHtml(t.error || this.transferFailureMessage(t.errorCode))
+                : '';
+            const recovery = this.getTransferRecovery(t);
+            const recoveryLabel = recovery === 'download'
+                ? this.t('transfer.retryDownload', 'Retry download')
+                : this.t('transfer.chooseSource', 'Reconnect source');
+            const retryHint = t.status === 'error' && t.retryable === true && t.type !== 'download'
+                ? this.t('transfer.reviewDestination', 'Check the destination before starting the transfer again.')
                 : '';
             return `
             <div class="fm-transfer-item ${t.status}"${reason ? ` title="${reason}"` : ''}>
@@ -5651,6 +5771,7 @@ class SFTPFileManager {
                 <div class="fm-transfer-info">
                     <div class="fm-transfer-name">${this.escapeHtml(t.filename)}</div>
                     ${reason ? `<div class="fm-transfer-error" role="status">${reason}</div>` : ''}
+                    ${retryHint ? `<div class="fm-transfer-error">${this.escapeHtml(retryHint)}</div>` : ''}
                     ${t.status === 'active' ? `
                         <div class="fm-transfer-progress-bar">
                             <div class="fm-transfer-progress-fill" style="width: ${t.progress}%"></div>
@@ -5658,6 +5779,7 @@ class SFTPFileManager {
                     ` : ''}
                 </div>
                 <div class="fm-transfer-status ${t.status}">${this.getStatusText(t)}</div>
+                ${recovery ? `<button type="button" class="btn btn-secondary" data-transfer-recover="${this.escapeHtml(String(t.id))}">${this.escapeHtml(recoveryLabel)}</button>` : ''}
                 ${t.status === 'pending' || t.status === 'active' ? `
                     <div class="fm-transfer-actions">
                         <button type="button" class="fm-transfer-btn cancel material-icons"
@@ -5752,6 +5874,12 @@ class SFTPFileManager {
     getContextMenuItems(file, state, pane = this.activePane) {
         const items = [];
 
+        const bridgeSession = window.TerminalFileBridge?.sourceSession(this.getPaneSourceId(state));
+        if (file && bridgeSession && this.availableSessions.some(session => session.id === bridgeSession && session.connected !== false)) {
+            items.push({ action: 'insert-terminal-path', icon: 'terminal', text: this.t('terminalFiles.insertPath', 'Insert path into terminal') });
+            items.push({ divider: true });
+        }
+
         if (file) {
             if (file.is_dir) {
                 items.push({ action: 'open', icon: 'folder_open', text: this.t('fm.ctx.open', 'Open') });
@@ -5812,6 +5940,12 @@ class SFTPFileManager {
         };
 
         switch (action) {
+            case 'insert-terminal-path': {
+                const file = state.files[index];
+                const sessionId = window.TerminalFileBridge?.sourceSession(this.getPaneSourceId(state));
+                if (file && sessionId) window.TerminalFileBridge.open(sessionId, this.joinPath(state.path, file.name), 'insert');
+                break;
+            }
             case 'open':
                 this.handleItemDblClick(pane, index);
                 break;

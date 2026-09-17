@@ -64,6 +64,7 @@ function createElement(tagName = 'div') {
 function loadAppSocketHarness() {
     const handlers = new Map();
     const windowHandlers = new Map();
+    const documentHandlers = new Map();
     const emitted = [];
     const notificationContainer = createElement('div');
     const state = { disconnects: 0, reloads: 0, unloads: [] };
@@ -94,7 +95,9 @@ function loadAppSocketHarness() {
             createConnectionLauncher: () => ({ launch() {} }),
         },
         document: {
-            addEventListener() {},
+            addEventListener(event, handler) {
+                documentHandlers.set(event, handler);
+            },
             createElement,
             getElementById(id) {
                 return id === 'notificationContainer'
@@ -146,6 +149,7 @@ function loadAppSocketHarness() {
     }
     return {
         browserGlobal,
+        documentHandlers,
         emitted,
         handlers,
         notificationContainer,
@@ -243,6 +247,34 @@ test('protocol reload bypasses the active-session unload warning exactly once', 
     );
     assert.match(appSource, /reload: reloadForSocketProtocolMismatch/);
     assert.match(appSource, /onClick: reloadForSocketProtocolMismatch/);
+});
+
+test('settings navigation skips only the session warning and only once', () => {
+    const harness = loadAppSocketHarness();
+    harness.browserGlobal.SessionManager.sessions = { active: { connected: true } };
+    harness.documentHandlers.get('click')?.({
+        button: 0,
+        target: { closest: selector => selector === '#accountSettingsBtn' ? { target: '' } : null },
+    });
+    harness.browserGlobal.location.reload();
+    assert.equal(harness.state.unloads[0].prevented, false);
+    harness.browserGlobal.location.reload();
+    assert.equal(harness.state.unloads[1].prevented, true);
+});
+
+test('settings navigation retains unsaved notes and modified-click protection', () => {
+    for (const options of [{ dirty: true }, { ctrlKey: true }, { defaultPrevented: true }]) {
+        const harness = loadAppSocketHarness();
+        harness.browserGlobal.SessionManager.sessions = { active: { connected: true } };
+        harness.browserGlobal.notepadController = { hasUnsaved: () => Boolean(options.dirty) };
+        harness.documentHandlers.get('click')?.({
+            button: 0,
+            target: { closest: () => ({ target: '' }) },
+            ...options,
+        });
+        harness.browserGlobal.location.reload();
+        assert.equal(harness.state.unloads[0].prevented, true);
+    }
 });
 
 test('cancelled dirty-editor reload keeps the protocol recovery action', () => {

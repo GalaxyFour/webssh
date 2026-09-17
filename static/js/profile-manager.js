@@ -402,14 +402,15 @@ const ProfileManager = {
                 endpoint.className = 'profile-launcher-endpoint';
                 endpoint.textContent = ProfileLauncherUtils.formatEndpoint(profile);
 
-                const mode = this.getLaunchMode(profile);
+                const readiness = ProfileLauncherUtils.getProfileReadiness(profile, {
+                    keys: this.keys,
+                    jumpHosts: window.JumpHostManager?.jumpHosts || [],
+                });
+                const mode = readiness.launchMode;
                 const action = document.createElement('span');
                 action.className = `profile-launcher-action mode-${mode}`;
-                action.textContent = mode === 'connect'
-                    ? (window.i18n ? i18n.t('connection.connectNow') : 'Connect now')
-                    : (mode === 'password' || mode === 'jump-host-password'
-                        ? (window.i18n ? i18n.t('connection.passwordRequired') : 'Password required')
-                        : (window.i18n ? i18n.t('connection.reviewConnection') : 'Review connection'));
+                action.textContent = `${this.t(readiness.labelKey, readiness.label)} · ${this.t(readiness.actionKey, readiness.action)}`;
+                button.dataset.readiness = readiness.state;
 
                 button.setAttribute(
                     'aria-label',

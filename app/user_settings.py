@@ -1,12 +1,16 @@
+from copy import deepcopy
+
 from .storage_errors import StorageCorruptionError
 from .storage_utils import atomic_write_json, load_json_migrated, storage_lock
 from .storage_migrations import CURRENT_STORAGE_VERSIONS
+from .terminal_appearance import valid_terminal_appearance
 
 AUTHENTICATION_SESSION_DURATION_MINUTES = frozenset({30, 60, 120, 240, 480})
 DEFAULT_AUTHENTICATION_SESSION_DURATION_MINUTES = 30
 
 DEFAULT_SETTINGS = {
     'theme': 'glass',
+    'terminal_appearance': {},
     'notepad': '',
     'confirm_session_close': False,
     'disconnect_session_action': 'retry',
@@ -17,7 +21,7 @@ DEFAULT_SETTINGS = {
 
 
 def _defaults_for_user(user):
-    settings = DEFAULT_SETTINGS.copy()
+    settings = deepcopy(DEFAULT_SETTINGS)
     if int(user.settings_default_generation or 0) < 1:
         settings['confirm_session_close'] = True
     return settings
@@ -31,6 +35,11 @@ def _valid_settings(value):
     if 'theme' in value and not isinstance(value['theme'], str):
         return False
     if 'notepad' in value and not isinstance(value['notepad'], str):
+        return False
+    if (
+        'terminal_appearance' in value
+        and not valid_terminal_appearance(value['terminal_appearance'])
+    ):
         return False
     if (
         'confirm_session_close' in value
@@ -60,6 +69,10 @@ def _valid_settings(value):
 def _valid_settings_update(value):
     return (
         isinstance(value, dict)
+        and (
+            'terminal_appearance' not in value
+            or valid_terminal_appearance(value['terminal_appearance'])
+        )
         and (
             'theme' not in value
             or isinstance(value['theme'], str)
@@ -94,7 +107,7 @@ def _get_user_settings_with_lock_held(user_id):
     from .models import User, db
     user = db.session.get(User, user_id)
     if not user:
-        return DEFAULT_SETTINGS.copy()
+        return deepcopy(DEFAULT_SETTINGS)
 
     settings_file = user.get_data_dir() / 'settings.json'
     data = load_json_migrated(

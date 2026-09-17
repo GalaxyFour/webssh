@@ -30,8 +30,13 @@ const FileTransferManager = {
         client.on('error', data => {
             if (!this.ownedTransfers.delete(data.transferId)) return;
             const reason = data.error ? ` — ${data.error}` : '';
+            const recovery = data.errorCode === 'SOURCE_UNAVAILABLE'
+                ? this.t('transfer.reconnectHint', 'Reconnect the source and try again.')
+                : data.retryable === true
+                    ? this.t('transfer.reviewDestination', 'Check the destination before starting the transfer again.')
+                    : '';
             window.showNotification?.(
-                `${this.t('fm.transferFailed', 'Transfer failed')}: ${data.filename}${reason}`,
+                `${this.t('fm.transferFailed', 'Transfer failed')}: ${data.filename}${reason}${recovery ? ` ${recovery}` : ''}`,
                 'error'
             );
         });

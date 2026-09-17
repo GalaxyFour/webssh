@@ -788,6 +788,18 @@ test('FileTransferManager and DragDropManager use the shared socket coordinator'
         'Transfer failed: report.txt — No write permission for the destination.',
         'error',
     ]);
+    FileTransferManager.ownedTransfers.add('retryable-upload');
+    shared.emit('error', {
+        transferId: 'retryable-upload', filename: 'report.txt',
+        error: 'The file operation timed out.', errorCode: 'TIMEOUT', retryable: true,
+    });
+    assert.match(notifications.at(-1)[0], /timed out.*Check the destination before starting the transfer again/);
+    FileTransferManager.ownedTransfers.add('disconnected-upload');
+    shared.emit('error', {
+        transferId: 'disconnected-upload', filename: 'report.txt',
+        error: 'Source unavailable.', errorCode: 'SOURCE_UNAVAILABLE', retryable: false,
+    });
+    assert.match(notifications.at(-1)[0], /Source unavailable.*Reconnect the source and try again/);
 });
 
 test('terminal uploads report preflight failures without leaking ownership', async () => {

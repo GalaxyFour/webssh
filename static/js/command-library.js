@@ -17,15 +17,15 @@ const CommandLibrary = {
             });
 
             window.socket.on('command_added', () => {
-                window.showNotification('Command added successfully', 'success');
+                window.showNotification(window.i18n?.t('commands.added') || 'Command added successfully', 'success');
             });
 
             window.socket.on('command_updated', () => {
-                window.showNotification('Command updated successfully', 'success');
+                window.showNotification(window.i18n?.t('commands.updated') || 'Command updated successfully', 'success');
             });
 
             window.socket.on('command_deleted', () => {
-                window.showNotification('Command deleted successfully', 'success');
+                window.showNotification(window.i18n?.t('commands.deleted') || 'Command deleted successfully', 'success');
             });
 
         }
@@ -240,12 +240,12 @@ const CommandLibrary = {
                     ${this.escapeHtml(cmd.description)}
                 </div>
                 <div class="command-cell command-actions">
-                    <button class="btn-icon cmd-execute material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="Execute" aria-label="Execute">play_arrow</button>
+                    <button class="btn-icon cmd-execute material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('sessionCommands.insertIntoTerminal', 'Insert into terminal'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('sessionCommands.insertIntoTerminal', 'Insert into terminal'))}">input</button>
                     ${cmd.isSystem ? `
-                        <button class="btn-icon cmd-copy material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="Copy to My Commands" aria-label="Copy to My Commands">content_copy</button>
+                        <button class="btn-icon cmd-copy material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}">content_copy</button>
                     ` : `
-                        <button class="btn-icon cmd-edit material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="Edit" aria-label="Edit">edit</button>
-                        <button class="btn-icon cmd-delete material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="Delete" aria-label="Delete">delete</button>
+                        <button class="btn-icon cmd-edit material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.edit', 'Edit'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.edit', 'Edit'))}">edit</button>
+                        <button class="btn-icon cmd-delete material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.delete', 'Delete'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.delete', 'Delete'))}">delete</button>
                     `}
                 </div>
             `;
@@ -276,41 +276,30 @@ const CommandLibrary = {
         };
     },
 
-    executeCommand(commandId) {
+    async executeCommand(commandId) {
         const cmd = this.commands.find(c => c.id === commandId);
         if (!cmd) return;
 
         const activeSessionId = SessionManager.getActiveSession();
-        if (!activeSessionId) {
-            window.showNotification('No active session', 'warning');
+        const launcher = window.SessionCommandLauncher;
+        if (!activeSessionId || !SessionManager.getSession(activeSessionId)?.connected) {
+            launcher?.chooseConnection();
             return;
         }
-
-        let fullCommand = cmd.command;
-        if (cmd.parameters) {
-            fullCommand += ' ' + cmd.parameters;
+        const result = await launcher?.controller?.insert(activeSessionId, 'command', commandId);
+        if (result?.ok) {
+            this.closeLibrary();
+        } else {
+            window.showNotification(launcher?.t(
+                'sessionCommands.unavailable', 'Entry is unavailable.'
+            ) || 'Entry is unavailable.', 'warning');
         }
-
-        if (window.socket) {
-            if (window.SSHInput) {
-                window.SSHInput.send(activeSessionId, fullCommand);
-            } else {
-                window.socket.emit('ssh_input', {
-                    session_id: activeSessionId,
-                    data: fullCommand
-                });
-            }
-        }
-
-        this.closeLibrary();
-
-        window.showNotification(`Command inserted: ${cmd.name}`, 'success');
     },
 
     showAddCommandForm(options = {}) {
         this.editingCommandId = null;
         this.pendingSaveCallback = typeof options.onSaved === 'function' ? options.onSaved : null;
-        document.getElementById('commandFormTitle').textContent = 'Add New Command';
+        document.getElementById('commandFormTitle').textContent = window.i18n?.t('commands.addCommand') || 'Add Command';
         document.getElementById('commandFormName').value = options.name || '';
         document.getElementById('commandFormCommand').value = options.command || '';
         document.getElementById('commandFormParams').value = '';
@@ -332,7 +321,7 @@ const CommandLibrary = {
         if (!cmd) return;
 
         this.editingCommandId = null;
-        document.getElementById('commandFormTitle').textContent = 'Copy Command to My Library';
+        document.getElementById('commandFormTitle').textContent = window.i18n?.t('commands.copyToMine') || 'Copy to My Commands';
         document.getElementById('commandFormName').value = cmd.name;
         document.getElementById('commandFormCommand').value = cmd.command;
         document.getElementById('commandFormParams').value = cmd.parameters;
@@ -355,7 +344,7 @@ const CommandLibrary = {
         if (!cmd || cmd.isSystem) return;
 
         this.editingCommandId = commandId;
-        document.getElementById('commandFormTitle').textContent = 'Edit Command';
+        document.getElementById('commandFormTitle').textContent = window.i18n?.t('commands.editCommand') || 'Edit Command';
         document.getElementById('commandFormName').value = cmd.name;
         document.getElementById('commandFormCommand').value = cmd.command;
         document.getElementById('commandFormParams').value = cmd.parameters;
@@ -386,12 +375,12 @@ const CommandLibrary = {
         });
 
         if (!name || !command || !description) {
-            window.showNotification('Name, command, and description are required', 'error');
+            window.showNotification(window.i18n?.t('commands.requiredFields') || 'Name, command, and description are required', 'error');
             return;
         }
 
         if (osList.length === 0) {
-            window.showNotification('Select at least one OS', 'error');
+            window.showNotification(window.i18n?.t('commands.osRequired') || 'Select at least one OS', 'error');
             return;
         }
 
@@ -412,7 +401,7 @@ const CommandLibrary = {
             window.socket.emit('add_command', data, acknowledgement => {
                 if (!acknowledgement?.success) {
                     window.showNotification(
-                        acknowledgement?.error || 'Failed to add command', 'error'
+                        window.i18n?.t('commands.saveFailed') || 'Could not save the command. Check the fields and try again.', 'error'
                     );
                     return;
                 }
@@ -427,7 +416,8 @@ const CommandLibrary = {
         const cmd = this.commands.find(c => c.id === commandId);
         if (!cmd || cmd.isSystem) return;
 
-        if (confirm(`Delete command "${cmd.name}"?`)) {
+        const prompt = window.i18n?.t('commands.deleteConfirm') || 'Delete command "{name}"?';
+        if (confirm(prompt.replace('{name}', () => cmd.name))) {
             window.socket.emit('delete_command', { command_id: commandId });
         }
     },
