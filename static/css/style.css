@@ -639,7 +639,7 @@ body[data-theme="paper"] .terminal-pane {
     max-width: 100%;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
-    scrollbar-width: thin;
+    scrollbar-width: none;
     cursor: grab;
 }
 
@@ -648,20 +648,7 @@ body[data-theme="paper"] .terminal-pane {
 }
 
 .session-tabs::-webkit-scrollbar {
-    height: 4px;
-}
-
-.session-tabs::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.session-tabs::-webkit-scrollbar-thumb {
-    background: var(--border-hover);
-    border-radius: 2px;
-}
-
-.session-tabs::-webkit-scrollbar-thumb:hover {
-    background: var(--accent-primary);
+    display: none;
 }
 
 .session-tab {
