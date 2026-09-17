@@ -385,6 +385,25 @@ test('mounts with the real top-level const manager pattern', async () => {
         )
     );
     const insert = context.SessionCommandLauncher.popup.findByText('Insert');
+    const notices = [];
+    context.showNotification = (...args) => notices.push(args);
+    const originalInsert = context.SessionCommandLauncher.controller.insert;
+    let finishInsert;
+    let insertCalls = 0;
+    context.SessionCommandLauncher.controller.insert = () => {
+        insertCalls++;
+        return new Promise(resolve => { finishInsert = resolve; });
+    };
+    const pendingInsert = insert.listeners.click();
+    assert.equal(insert.disabled, true);
+    await insert.listeners.click();
+    assert.equal(insertCalls, 1);
+    assert.equal(notices.length, 0);
+    finishInsert({ ok: true });
+    await pendingInsert;
+    assert.equal(insert.disabled, false);
+    assert.equal(notices.length, 0);
+    context.SessionCommandLauncher.controller.insert = originalInsert;
     await insert.listeners.click();
 
     assert.equal(context.socket.emissions.length, 1);
@@ -423,6 +442,17 @@ test('mounts with the real top-level const manager pattern', async () => {
     assert.equal(context.CommandSetManager.managementOpens, 1);
     assert.equal(panel.hidden, false);
     assert.ok(context.SessionCommandLauncher.popup);
+    const failureInsert = context.SessionCommandLauncher.popup.findByText('Insert');
+    context.SessionCommandLauncher.controller.insert = () => new Promise(resolve => {
+        finishInsert = resolve;
+    });
+    const noticeCount = notices.length;
+    const pendingFailure = failureInsert.listeners.click();
+    assert.equal(notices.length, noticeCount);
+    finishInsert({ ok: false });
+    await pendingFailure;
+    assert.equal(notices.length, noticeCount + 1);
+    assert.equal(notices.at(-1)[1], 'error');
 });
 
  test('library insertion rejects multiline text and offers a connection when no target exists', async () => {

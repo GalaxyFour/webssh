@@ -1064,7 +1064,7 @@ const translations = {
         'backup.pageHint': 'Create, verify, and restore WebSSH backup archives.',
         'fm.workspace.leftSources': 'Left side sources',
         'fm.workspace.rightSources': 'Right side sources',
-        'connectionAssets.navigation': 'Connection assets',
+        'connectionAssets.navigation': 'Connection resources',
         'connectionAssets.hosts': 'Hosts',
         'connectionAssets.jumpHosts': 'Jump Hosts',
         'connectionAssets.keys': 'SSH Keys',

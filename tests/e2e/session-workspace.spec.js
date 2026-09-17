@@ -579,9 +579,9 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
         const xterm = document.querySelector('.terminal-pane.active .xterm');
         const viewport = document.querySelector('.terminal-pane.active .xterm-viewport');
         const themeProbe = document.createElement('span');
-        themeProbe.style.color = getComputedStyle(document.body).getPropertyValue('--term-background');
+        themeProbe.style.backgroundColor = 'color-mix(in srgb, var(--term-background) 100%, transparent)';
         document.body.appendChild(themeProbe);
-        const terminalBackground = getComputedStyle(themeProbe).color;
+        const terminalBackground = getComputedStyle(themeProbe).backgroundColor;
         themeProbe.remove();
         return {
             maxRowHeight: Math.max(...fileRows.map(row => bounds(row).height)),
@@ -595,6 +595,7 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
             }),
             xtermPadding: getComputedStyle(xterm).padding,
             viewportBackground: getComputedStyle(viewport).backgroundColor,
+            paneBackground: getComputedStyle(xterm.closest('.terminal-pane')).backgroundColor,
             terminalBackground,
         };
     });
@@ -603,7 +604,8 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
     expect(embeddedFileLayout.toolbarRows).toBe(1);
     expect(embeddedFileLayout.toolbarButtonsInside).toBe(true);
     expect(embeddedFileLayout.xtermPadding).toBe('0px');
-    expect(embeddedFileLayout.viewportBackground).toBe(embeddedFileLayout.terminalBackground);
+    expect(embeddedFileLayout.viewportBackground).toBe('rgba(0, 0, 0, 0)');
+    expect(embeddedFileLayout.paneBackground).toBe(embeddedFileLayout.terminalBackground);
 
     await page.locator('#fmLeftList .fm-file-item[data-index="0"]').dblclick();
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases');
@@ -1066,7 +1068,9 @@ test('desktop-to-mobile resize is not mistaken for an open virtual keyboard', as
     await page.locator('#mobileMoreBtn').click();
     await page.locator('#mobileToolsAction').click();
     await expect(page.locator('#contextNotesPanel')).toBeVisible();
-    await page.locator('#contextWorkspaceClose').click();
+    await expect(page.locator('#contextWorkspaceClose')).toBeHidden();
+    await page.locator('[data-mobile-view="workspaces"]').click();
+    await expect(page.locator('#contextNotesPanel')).toBeHidden();
     await expect(page.locator('header.header')).toBeVisible();
     await expect(page.locator('.terminal-pane.active')).toBeVisible();
     await assertNoExternalRequests(page);

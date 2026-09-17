@@ -450,8 +450,10 @@
                     reasonText.textContent = reason;
                     details.append(reasonText);
                 }
-                insert.addEventListener('click', () => {
-                    const result = this.controller.insert(
+                insert.addEventListener('click', async () => {
+                    if (insert.disabled) return;
+                    insert.disabled = true;
+                    const result = await this.controller.insert(
                         this.sessionId,
                         entry.type,
                         entry.id,
