@@ -321,11 +321,12 @@ const TerminalManager = {
         return this.writeTextToClipboardFallback(text);
     },
 
-    // Hidden-textarea fallback for contexts (e.g. inside tmux) where the
+    // Hidden-textarea fallback for browser contexts where the
     // async Clipboard API is unavailable or permission is denied. Mirrors
     // the defaultWriteClipboard fallback in static/js/session-diagnostics.js.
     writeTextToClipboardFallback(text) {
         let textarea = null;
+        const previousFocus = typeof document !== 'undefined' ? document.activeElement : null;
         return new Promise((resolve, reject) => {
             try {
                 if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
@@ -346,6 +347,9 @@ const TerminalManager = {
                 reject(error);
             } finally {
                 textarea?.remove?.();
+                if (previousFocus?.isConnected) {
+                    previousFocus.focus?.({preventScroll: true});
+                }
             }
         });
     },

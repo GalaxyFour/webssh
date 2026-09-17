@@ -481,6 +481,42 @@ test('OSC 52 approval falls back to a hidden textarea without the Clipboard API'
     delete global.document.execCommand;
 });
 
+for (const copyResult of ['success', 'denied', 'throws']) {
+    test(`clipboard fallback restores focus after copy ${copyResult}`, async () => {
+        const previousDocument = global.document;
+        const previousFocus = {
+            isConnected: true,
+            focus(options) {
+                assert.deepEqual(options, {preventScroll: true});
+                global.document.activeElement = this;
+            },
+        };
+        const textarea = {
+            style: {},
+            setAttribute() {},
+            select() { global.document.activeElement = this; },
+            remove() { global.document.activeElement = global.document.body; },
+        };
+        global.document = {
+            activeElement: previousFocus,
+            body: {appendChild() {}},
+            createElement: () => textarea,
+            execCommand() {
+                if (copyResult === 'throws') throw new Error('copy failed');
+                return copyResult === 'success';
+            },
+        };
+        try {
+            const copy = TerminalManager.writeTextToClipboardFallback('selected text');
+            if (copyResult === 'success') await copy;
+            else await assert.rejects(copy);
+            assert.equal(global.document.activeElement, previousFocus);
+        } finally {
+            global.document = previousDocument;
+        }
+    });
+}
+
 test('Ctrl+C without a selection remains terminal interrupt input', () => {
     const terminal = {
         hasSelection: () => false,

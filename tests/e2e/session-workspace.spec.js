@@ -500,6 +500,34 @@ test('tmux resync ignores replayed OSC 52 and accepts a live clipboard selection
     await assertNoExternalRequests(page);
 });
 
+test('clipboard fallback preserves terminal focus and subsequent input', async ({ page }) => {
+    await login(page);
+    await seedLinuxSession(page);
+    await page.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', {configurable: true, value: undefined});
+        const terminalKey = TerminalManager.sessionTerminals['workspace-linux'][0];
+        const terminal = TerminalManager.terminals[terminalKey];
+        terminal.focus();
+        terminal.selectAll();
+        window.__workspaceEvents = [];
+        window.__fallbackCopyCalls = 0;
+        document.execCommand = command => {
+            if (command === 'copy') window.__fallbackCopyCalls += 1;
+            return command === 'copy';
+        };
+    });
+
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c');
+    expect(await page.evaluate(() => window.__fallbackCopyCalls)).toBe(1);
+    await expect(page.locator('.terminal-pane.active .xterm-helper-textarea')).toBeFocused();
+    await page.keyboard.type('ls');
+    await expect.poll(() => page.evaluate(() => window.__workspaceEvents
+        .filter(event => event.event === 'ssh_input')
+        .map(event => event.payload.data)
+        .join(''))).toBe('ls');
+    await assertNoExternalRequests(page);
+});
+
 test('plain SSH sessions ignore remote OSC 52 clipboard writes', async ({ page }) => {
     await login(page);
     await seedLinuxSession(page);

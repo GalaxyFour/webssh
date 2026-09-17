@@ -479,38 +479,6 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                     pty=('xterm-256color', 80, 24),
                 )
                 channel.settimeout(0.1)
-                if not connection_cancelled():
-                    # Best-effort OSC52 forwarding: tmux must emit inner
-                    # ESC ] 52 copy sequences to the outer PTY so xterm.js
-                    # can reach the browser clipboard. Target only this
-                    # session; ignore failures (old tmux lacks the option).
-                    clipboard_channel = None
-                    try:
-                        quoted = shlex.quote(tmux_session_name)
-                        clipboard_cmd = (
-                            f'tmux set-option -t {quoted} set-clipboard on; '
-                            f'tmux set-option -t {quoted} allow-passthrough on'
-                        )
-                        clipboard_channel = _open_exec_channel(
-                            transport,
-                            clipboard_cmd,
-                            timeout=3.0,
-                        )
-                        try:
-                            paramiko_channels.wait_for_exit_status(
-                                clipboard_channel,
-                                timeout=3.0,
-                            )
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-                    finally:
-                        if clipboard_channel is not None:
-                            try:
-                                clipboard_channel.close()
-                            except Exception:
-                                pass
         else:
             if connection_cancelled():
                 return None, "Connection cancelled"
