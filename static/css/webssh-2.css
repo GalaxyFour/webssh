@@ -207,6 +207,13 @@ textarea {
     align-self: stretch;
     gap: 3px;
     padding: 7px 0 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
 }
 
 .session-tab {
@@ -216,6 +223,8 @@ textarea {
     border-radius: var(--ws2-radius-sm) var(--ws2-radius-sm) 0 0;
     background: transparent;
     opacity: 0.76;
+    flex: 0 0 auto;
+    flex-shrink: 0;
 }
 
 .session-tab:hover {
@@ -1096,10 +1105,13 @@ body:has(.auth-container) {
 
     .session-tabs-row {
         padding: 0 7px;
+        flex-wrap: nowrap;
+        overflow: hidden;
     }
 
     .tab-row-actions {
-        overflow-x: auto;
+        flex: 0 0 auto;
+        overflow: visible;
     }
 
     .admin-main {
@@ -1531,19 +1543,43 @@ body:has(.auth-container) {
 
     .session-tabs-row {
         flex: 0 0 auto;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        min-height: 48px;
+        max-height: 48px;
         padding: 0 6px;
     }
 
-    .tab-row-actions {
-        min-width: 100%;
-        padding: 5px 0;
-        gap: 3px;
+    .session-tabs {
+        flex: 1 1 auto;
+        min-width: 0;
+        flex-wrap: nowrap;
+        white-space: nowrap;
         overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
         scrollbar-width: none;
     }
 
-    .tab-row-actions::-webkit-scrollbar {
+    .session-tabs::-webkit-scrollbar {
         display: none;
+    }
+
+    .session-tab {
+        flex: 0 0 auto;
+        flex-shrink: 0;
+    }
+
+    .tab-row-actions {
+        min-width: auto;
+        width: auto;
+        flex: 0 0 auto;
+        padding: 5px 0 5px 6px;
+        gap: 3px;
+        overflow: visible;
+        justify-content: flex-end;
+        border-left: 1px solid var(--ws2-border);
     }
 
     .tab-row-actions .session-sftp-toggle,
@@ -4807,6 +4843,18 @@ body[data-theme="paper"]:has(.auth-access-dock) {
         padding: 4px 0;
         align-items: stretch;
         gap: 5px;
+        flex: 1 1 auto;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+    }
+
+    .session-tabs::-webkit-scrollbar {
+        display: none;
     }
 
     .session-tab {
@@ -4815,6 +4863,8 @@ body[data-theme="paper"]:has(.auth-access-dock) {
         padding: 5px 8px;
         border: 1px solid var(--ws2-border);
         border-radius: var(--ws2-radius-sm);
+        flex: 0 0 auto;
+        flex-shrink: 0;
     }
 
     .session-tab.active {

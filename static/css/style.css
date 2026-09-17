@@ -630,10 +630,21 @@ body[data-theme="paper"] .terminal-pane {
     display: flex;
     gap: 6px;
     overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
     padding-top: 10px;
     padding-bottom: 2px;
     max-width: 100%;
-    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    cursor: grab;
+}
+
+.session-tabs:active {
+    cursor: grabbing;
 }
 
 .session-tabs::-webkit-scrollbar {
@@ -663,6 +674,10 @@ body[data-theme="paper"] .terminal-pane {
     border-radius: 8px 8px 0 0;
     cursor: pointer;
     white-space: nowrap;
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    max-width: min(260px, 70vw);
+    overflow: hidden;
     transition: all 0.2s ease;
     border-left: 3px solid transparent;
     position: relative;
@@ -1033,23 +1048,29 @@ body[data-theme="paper"] .terminal-pane {
     }
 }
 
-/* On mobile: tab-row-actions wraps below tabs */
+/* On mobile: keep a single nowrap scrollable tab row; actions stay pinned right */
 @media (max-width: 767px) {
     .session-tabs-row {
-        flex-wrap: wrap;
-        overflow: visible;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        min-height: 48px;
+        max-height: 48px;
     }
     .session-tabs {
-        flex: 1;
+        flex: 1 1 auto;
         min-width: 0;
+        flex-wrap: nowrap;
+        white-space: nowrap;
     }
     .tab-row-actions {
-        width: 100%;
-        border-left: none;
-        border-top: 1px solid var(--border-color);
-        margin-left: 0;
-        padding: 6px 4px 4px;
-        justify-content: flex-start;
+        width: auto;
+        flex: 0 0 auto;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border-color);
+        border-top: none;
+        margin-left: 4px;
+        padding: 4px 4px 4px 8px;
+        justify-content: flex-end;
         gap: 6px;
     }
 }
@@ -3597,6 +3618,16 @@ body.keyboard-open.notepad-focused .notepad-panel {
         background-repeat: no-repeat;
         background-position: right 12px center;
         padding-right: 36px;
+    }
+
+    .session-tabs {
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        touch-action: pan-x pan-y;
+    }
+
+    .session-tabs::-webkit-scrollbar {
+        display: none;
     }
 }
 
