@@ -173,6 +173,8 @@
         let layout = 1;
         let sessionId = null;
         let session = null;
+        let previousConnected = false;
+        let transportReady = true;
         let sftpOpen = false;
         let panelSessionId = null;
         let sftpCapability = 'unknown';
@@ -183,6 +185,7 @@
             return Boolean(
                 sessionId
                 && session?.connected
+                && transportReady
                 && ['available', 'inconclusive'].includes(sftpCapability)
             );
         }
@@ -201,12 +204,13 @@
             const sftpProbeNeeded = Boolean(
                 sessionId
                 && session?.connected
+                && transportReady
                 && ['unknown', 'probing', 'resource_shortage'].includes(sftpCapability)
             );
             return {
                 layout,
                 sessionId,
-                connected: Boolean(session?.connected),
+                connected: Boolean(transportReady && session?.connected),
                 filesAvailable,
                 sftpOpen,
                 sftpEnabled: canOpenSftp(),
@@ -236,12 +240,13 @@
         return {
             update(next) {
                 const previousSessionId = sessionId;
-                const wasConnected = Boolean(session?.connected);
+                const wasConnected = previousConnected;
                 layout = [1, 2, 4].includes(next?.layout) ? next.layout : 1;
                 sessionId = typeof next?.sessionId === 'string' && next.sessionId
                     ? next.sessionId
                     : null;
                 session = next?.session || null;
+                transportReady = next?.transportReady !== false;
                 sftpCapability = [
                     'available',
                     'unavailable',
@@ -251,15 +256,19 @@
                 ].includes(next?.sftpCapability)
                     ? next.sftpCapability
                     : 'unknown';
-                const connected = Boolean(sessionId && session?.connected);
+                const connected = Boolean(transportReady && sessionId && session?.connected);
                 const sessionChanged = sessionId !== previousSessionId;
                 const connectionChanged = connected !== wasConnected;
+                previousConnected = connected;
 
                 if (sessionChanged || connectionChanged) {
                     insights.setSession?.(sessionId, connected);
                 }
 
-                if (!connected) {
+                if (!transportReady && session?.connected) {
+                    if (sftpOpen && panelSessionId !== sessionId) closeSftp();
+                    if (!sftpOpen) filesPanel?.setStatus?.('reconnecting', session);
+                } else if (!connected) {
                     if (sftpOpen && !connected && sessionId) {
                         filesPanel?.setDisconnected?.(sessionId);
                     }

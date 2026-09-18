@@ -279,3 +279,16 @@ test('return-to-connection command-set editing still behaves as a nested modal',
     await expect(page.locator('#commandWorkspaceModal')).not.toHaveClass(/show/);
     await expect(page.locator('#connectionModal')).toHaveClass(/show/);
 });
+
+test('returning to Commands retains the selected library and search', async ({page}) => {
+    await page.locator('#commandLibraryBtn').click();
+    await page.locator('#commandLibraryTab').click();
+    await page.locator('#commandSearchInput').fill('disk');
+    await page.locator('#fileTransferBtn').click();
+    await expect(page.locator('#sftpFileManager')).toBeVisible();
+    await page.locator('#commandLibraryBtn').click();
+    await expect(page.locator('#commandLibraryPanel')).toBeVisible();
+    await expect(page.locator('#commandSearchInput')).toHaveValue('disk');
+    await expect(page.locator('#commandSearchInput')).toBeFocused();
+    await expect(page.locator('#commandLibraryPanel .os-detected')).toHaveCount(0);
+});

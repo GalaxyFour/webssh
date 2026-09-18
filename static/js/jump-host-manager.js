@@ -5,6 +5,7 @@
  */
 window.JumpHostManager = {
     jumpHosts: [],
+    loaded: false,
 
     load() {
         if (window.socket) {
@@ -13,6 +14,7 @@ window.JumpHostManager = {
     },
 
     setJumpHosts(list) {
+        this.loaded = true;
         this.jumpHosts = Array.isArray(list) ? list : [];
         this.renderSelect();
         this.renderList();

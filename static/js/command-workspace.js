@@ -21,14 +21,11 @@ window.CommandWorkspace = {
             this.select(this.activeSection === 'library' ? 'sets' : 'library', true);
         }));
 
-        window.addEventListener('session-workspace-change', () => this.refreshTarget());
-        window.addEventListener('languageChanged', () => this.refreshTarget());
         this.select('sets');
     },
 
-    open(section = 'sets', options = {}) {
+    open(section = this.activeSection, options = {}) {
         this.select(section);
-        this.refreshTarget();
         const modal = document.getElementById('commandWorkspaceModal');
         if (!modal) return;
         if (
@@ -40,18 +37,6 @@ window.CommandWorkspace = {
         window.primaryWorkspaceController?.release(modal);
         if (window.ModalManager) window.ModalManager.open(modal);
         else modal.classList.add('show');
-    },
-
-    refreshTarget() {
-        const target = document.getElementById('commandWorkspaceTarget');
-        if (!target || !window.SessionCommandLauncher) return;
-        target.replaceChildren();
-        window.SessionCommandLauncher.renderTarget(target, SessionManager.getActiveSession());
-        const hint = document.createElement('small');
-        hint.textContent = window.SessionCommandLauncher.t(
-            'sessionCommands.footer', 'Inserted visibly. Press Enter in the terminal to run.'
-        );
-        target.appendChild(hint);
     },
 
     select(section, focusContent = false) {

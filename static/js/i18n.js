@@ -1,6 +1,12 @@
 
 const translations = {
     en: {
+        'sessionCommands.editParameters': "Parameters for this insertion",
+        'sessionCommands.resetParameters': "Restore saved parameters",
+        'workspace.toolsReconnecting': "Reconnecting — displayed data may be out of date.",
+        'workspace.toolsRefreshing': "Refreshing — displayed data may be out of date.",
+        'workspace.toolsRefreshFailed': "Could not refresh. Displayed data is out of date.",
+        'workspace.toolsRetry': "Reload",
         'commands.added': "Command added successfully",
         'commands.updated': "Command updated successfully",
         'commands.deleted': "Command deleted successfully",
@@ -43,6 +49,7 @@ const translations = {
         'connection.readinessSaved': "Saved",
         'connection.readinessPassword': "Password needed",
         'connection.readinessKey': "Key missing or unavailable",
+        'connection.readinessLoading': "Checking credentials…",
         'connection.readinessReview': "Review connection",
         'connection.readinessConnected': "Connected",
         'connection.actionConnect': "Connect",
@@ -1386,6 +1393,12 @@ const translations = {
 
 
     vi: {
+        'sessionCommands.editParameters': "Tham số cho lần chèn này",
+        'sessionCommands.resetParameters': "Khôi phục tham số đã lưu",
+        'workspace.toolsReconnecting': "Đang kết nối lại — dữ liệu hiển thị có thể đã cũ.",
+        'workspace.toolsRefreshing': "Đang cập nhật — dữ liệu hiển thị có thể đã cũ.",
+        'workspace.toolsRefreshFailed': "Không thể cập nhật. Dữ liệu hiển thị đã cũ.",
+        'workspace.toolsRetry': "Tải lại",
         'commands.added': "Đã thêm lệnh",
         'commands.updated': "Đã cập nhật lệnh",
         'commands.deleted': "Đã xóa lệnh",
@@ -1460,6 +1473,7 @@ const translations = {
         'connection.readinessSaved': "Đã lưu",
         'connection.readinessPassword': "Cần mật khẩu",
         'connection.readinessKey': "Thiếu khóa hoặc khóa không khả dụng",
+        'connection.readinessLoading': "Đang kiểm tra thông tin xác thực…",
         'connection.readinessReview': "Kiểm tra kết nối",
         'connection.readinessConnected': "Đã kết nối",
         'connection.actionConnect': "Kết nối",
@@ -2770,6 +2784,12 @@ const translations = {
     },
 
     de: {
+        'sessionCommands.editParameters': "Parameter für dieses Einfügen",
+        'sessionCommands.resetParameters': "Gespeicherte Parameter wiederherstellen",
+        'workspace.toolsReconnecting': "Verbindung wird wiederhergestellt — angezeigte Daten können veraltet sein.",
+        'workspace.toolsRefreshing': "Daten werden aktualisiert — angezeigte Daten können veraltet sein.",
+        'workspace.toolsRefreshFailed': "Aktualisierung fehlgeschlagen. Die angezeigten Daten sind veraltet.",
+        'workspace.toolsRetry': "Erneut laden",
         'commands.added': "Befehl hinzugefügt",
         'commands.updated': "Befehl aktualisiert",
         'commands.deleted': "Befehl gelöscht",
@@ -2812,6 +2832,7 @@ const translations = {
         'connection.readinessSaved': "Gespeichert",
         'connection.readinessPassword': "Passwort erforderlich",
         'connection.readinessKey': "Schlüssel fehlt oder ist nicht verfügbar",
+        'connection.readinessLoading': "Zugangsdaten werden geprüft…",
         'connection.readinessReview': "Verbindung prüfen",
         'connection.readinessConnected': "Verbunden",
         'connection.actionConnect': "Verbinden",
@@ -4153,6 +4174,12 @@ const translations = {
     },
 
     fr: {
+        'sessionCommands.editParameters': "Paramètres pour cette insertion",
+        'sessionCommands.resetParameters': "Rétablir les paramètres enregistrés",
+        'workspace.toolsReconnecting': "Reconnexion en cours — les données affichées peuvent être obsolètes.",
+        'workspace.toolsRefreshing': "Actualisation en cours — les données affichées peuvent être obsolètes.",
+        'workspace.toolsRefreshFailed': "Échec de l’actualisation. Les données affichées sont obsolètes.",
+        'workspace.toolsRetry': "Recharger",
         'commands.added': "Commande ajoutée",
         'commands.updated': "Commande mise à jour",
         'commands.deleted': "Commande supprimée",
@@ -4227,6 +4254,7 @@ const translations = {
         'connection.readinessSaved': "Enregistrée",
         'connection.readinessPassword': "Mot de passe requis",
         'connection.readinessKey': "Clé absente ou indisponible",
+        'connection.readinessLoading': "Vérification des identifiants…",
         'connection.readinessReview': "Vérifier la connexion",
         'connection.readinessConnected': "Connectée",
         'connection.actionConnect': "Se connecter",
@@ -5536,6 +5564,12 @@ const translations = {
     },
 
     es: {
+        'sessionCommands.editParameters': "Parámetros para esta inserción",
+        'sessionCommands.resetParameters': "Restaurar los parámetros guardados",
+        'workspace.toolsReconnecting': "Reconectando — los datos mostrados pueden estar desactualizados.",
+        'workspace.toolsRefreshing': "Actualizando — los datos mostrados pueden estar desactualizados.",
+        'workspace.toolsRefreshFailed': "No se pudo actualizar. Los datos mostrados están desactualizados.",
+        'workspace.toolsRetry': "Volver a cargar",
         'commands.added': "Comando añadido",
         'commands.updated': "Comando actualizado",
         'commands.deleted': "Comando eliminado",
@@ -5610,6 +5644,7 @@ const translations = {
         'connection.readinessSaved': "Guardada",
         'connection.readinessPassword': "Se necesita contraseña",
         'connection.readinessKey': "Clave ausente o no disponible",
+        'connection.readinessLoading': "Comprobando credenciales…",
         'connection.readinessReview': "Revisar conexión",
         'connection.readinessConnected': "Conectada",
         'connection.actionConnect': "Conectar",
@@ -6919,6 +6954,12 @@ const translations = {
     },
 
     zh: {
+        'sessionCommands.editParameters': "本次插入的参数",
+        'sessionCommands.resetParameters': "恢复已保存的参数",
+        'workspace.toolsReconnecting': "正在重新连接 — 显示的数据可能已过期。",
+        'workspace.toolsRefreshing': "正在刷新 — 显示的数据可能已过期。",
+        'workspace.toolsRefreshFailed': "刷新失败。显示的数据已过期。",
+        'workspace.toolsRetry': "重新加载",
         'commands.added': "命令已添加",
         'commands.updated': "命令已更新",
         'commands.deleted': "命令已删除",
@@ -6993,6 +7034,7 @@ const translations = {
         'connection.readinessSaved': "已保存",
         'connection.readinessPassword': "需要密码",
         'connection.readinessKey': "密钥缺失或不可用",
+        'connection.readinessLoading': "正在检查凭据…",
         'connection.readinessReview': "检查连接",
         'connection.readinessConnected': "已连接",
         'connection.actionConnect': "连接",

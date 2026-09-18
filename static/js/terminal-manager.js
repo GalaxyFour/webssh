@@ -11,7 +11,9 @@ const TerminalManager = {
     sequencedOutput: {},
     sequencedOutputSizes: {},
     lastOutputSequences: {},
-    skippedOutput: {},
+    backgroundWrites: {},
+    maxBackgroundWriteSize: 65536,
+    maxBackgroundWriteEvents: 128,
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -617,19 +619,6 @@ const TerminalManager = {
             if (remainingTerminals === 0) onAccepted?.();
         };
         terminalKeys.forEach(key => {
-            if (this.terminals[key] && !this.isTerminalKeyVisible(key)) {
-                // Hidden panes skip expensive xterm rendering entirely. The
-                // transcript and sequenced queues above stay authoritative, so
-                // acknowledge immediately and replay on becoming visible.
-                if (!this.skippedOutput[sessionId]) {
-                    this.skippedOutput[sessionId] = [];
-                }
-                if (!this.skippedOutput[sessionId].includes(key)) {
-                    this.skippedOutput[sessionId].push(key);
-                }
-                terminalAccepted();
-                return;
-            }
             this.writeOutputToTerminal(key, data, terminalAccepted);
         });
     },
@@ -683,7 +672,13 @@ const TerminalManager = {
             };
             this.terminalWriteCallbacks[terminalKey].add(complete);
             try {
-                this.writeToTerminalWithScroll(terminal, data, complete);
+                if (!this.isTerminalKeyVisible(terminalKey)) {
+                    this.queueBackgroundOutput(terminalKey, data, complete);
+                } else {
+                    // Older background chunks must precede the new live write.
+                    this.flushBackgroundOutput(terminalKey);
+                    this.writeToTerminalWithScroll(terminal, data, complete);
+                }
             } catch (error) {
                 complete();
                 throw error;
@@ -719,8 +714,8 @@ const TerminalManager = {
         return buffer.viewportY >= buffer.baseY;
     },
 
-    writeToTerminalWithScroll(terminal, data, onWritten = null) {
-        const shouldScroll = this.isTerminalAtBottom(terminal);
+    writeToTerminalWithScroll(terminal, data, onWritten = null, allowScroll = true) {
+        const shouldScroll = allowScroll && this.isTerminalAtBottom(terminal);
         terminal.write(data, () => {
             if (shouldScroll) {
                 terminal.scrollToBottom();
@@ -782,6 +777,8 @@ const TerminalManager = {
             this.terminalReady[key] = false;
             this.pendingOutput[key] = [];
             this.pendingOutputSizes[key] = 0;
+
+            this.clearBackgroundOutput(key);
 
             // Socket.IO acknowledgements belong to the connection that
             // delivered them. Retire callbacks from the disconnected socket
@@ -991,57 +988,60 @@ const TerminalManager = {
         delete this.sequencedOutput[sessionId];
         delete this.sequencedOutputSizes[sessionId];
         delete this.lastOutputSequences[sessionId];
-        delete this.skippedOutput[sessionId];
         this.clearSyncedSize(sessionId);
     },
 
-    replaySkippedOutput(sessionId, onComplete = null) {
-        const skippedKeys = this.skippedOutput[sessionId];
-        if (!skippedKeys || skippedKeys.length === 0) {
-            onComplete?.();
+    queueBackgroundOutput(terminalKey, data, onWritten) {
+        let batch = this.backgroundWrites[terminalKey];
+        if (!batch) {
+            batch = {chunks: [], callbacks: [], size: 0, timer: null};
+            this.backgroundWrites[terminalKey] = batch;
+            batch.timer = setTimeout(() => this.flushBackgroundOutput(terminalKey), 16);
+        }
+        batch.chunks.push(data);
+        batch.callbacks.push(onWritten);
+        batch.size += data.length;
+        if (batch.size >= this.maxBackgroundWriteSize
+                || batch.chunks.length >= this.maxBackgroundWriteEvents) {
+            this.flushBackgroundOutput(terminalKey);
+        }
+    },
+
+    clearBackgroundOutput(terminalKey) {
+        const batch = this.backgroundWrites[terminalKey];
+        if (!batch) return null;
+        clearTimeout(batch.timer);
+        delete this.backgroundWrites[terminalKey];
+        return batch;
+    },
+
+    flushBackgroundOutput(terminalKey) {
+        const batch = this.clearBackgroundOutput(terminalKey);
+        if (!batch) return;
+        const accepted = () => batch.callbacks.forEach(callback => callback?.());
+        const terminal = this.terminals[terminalKey];
+        if (!terminal) {
+            accepted();
             return;
         }
-        const replayOutput = this.getTranscript(sessionId);
-        // Terminals still waiting for attach own their catch-up through the
-        // attach replay; only catch up opened terminals that are visible now.
-        // Keys that cannot replay yet keep their flag for the next attempt.
-        const terminalKeys = (this.sessionTerminals[sessionId] || [])
-            .filter(key => skippedKeys.includes(key)
-                && this.terminals[key]
-                && this.terminalReady[key]
-                && this.isTerminalKeyVisible(key));
-        if (!replayOutput || terminalKeys.length === 0) {
-            onComplete?.();
-            return;
+        // Parse every byte in order: bounded raw history cannot reconstruct
+        // terminal modes or a partially received control sequence. Hidden
+        // panes batch parser work and avoid scroll/layout work, but ACK only
+        // once xterm consumes the batch, retaining server-side backpressure.
+        try {
+            this.writeToTerminalWithScroll(
+                terminal, batch.chunks.join(''), accepted,
+                this.isTerminalKeyVisible(terminalKey),
+            );
+        } catch (error) {
+            accepted();
+            throw error;
         }
-        const replayed = new Set(terminalKeys);
-        const remaining = skippedKeys.filter(key => !replayed.has(key));
-        if (remaining.length > 0) {
-            this.skippedOutput[sessionId] = remaining;
-        } else {
-            delete this.skippedOutput[sessionId];
-        }
-        let remainingReplays = terminalKeys.length;
-        const replayAccepted = () => {
-            remainingReplays -= 1;
-            if (remainingReplays === 0) onComplete?.();
-        };
-        terminalKeys.forEach(key => {
-            const terminal = this.terminals[key];
-            // Replayed output is untrusted history: rebuild from the bounded
-            // transcript exactly like the resync path, keeping OSC 52
-            // disabled until xterm has finished rebuilding the screen.
-            this.clipboardDisposers[key]?.dispose?.();
-            delete this.clipboardDisposers[key];
-            if (typeof terminal.reset === 'function') {
-                terminal.reset();
-            } else {
-                terminal.clear?.();
-            }
-            this.writeOutputToTerminal(key, replayOutput, () => {
-                this.activateOsc52ClipboardHandler(key, terminal);
-                replayAccepted();
-            });
+    },
+
+    resumeVisibleOutput(sessionId) {
+        (this.sessionTerminals[sessionId] || []).forEach(key => {
+            if (this.isTerminalKeyVisible(key)) this.flushBackgroundOutput(key);
         });
     },
 
@@ -1171,6 +1171,7 @@ const TerminalManager = {
         let startScroll = 0;
 
         const updateScrollbar = () => {
+            if (!this.isTerminalKeyVisible(terminalKey)) return;
             const buffer = terminal.buffer.active;
             const totalLines = buffer.length;
             const viewportHeight = terminal.rows;
@@ -1292,6 +1293,7 @@ const TerminalManager = {
     },
 
     destroyTerminalKey(terminalKey, sessionId) {
+        this.clearBackgroundOutput(terminalKey);
         const terminal = this.terminals[terminalKey];
         (this.pendingOutput[terminalKey] || []).forEach(entry => {
             entry.onWritten?.();
@@ -1318,15 +1320,7 @@ const TerminalManager = {
 
         if (sessionId && this.sessionTerminals[sessionId]) {
             this.sessionTerminals[sessionId] = this.sessionTerminals[sessionId].filter(key => key !== terminalKey);
-            const remaining = this.skippedOutput[sessionId];
-            if (remaining) {
-                const filtered = remaining.filter(key => key !== terminalKey);
-                if (filtered.length > 0) {
-                    this.skippedOutput[sessionId] = filtered;
-                } else {
-                    delete this.skippedOutput[sessionId];
-                }
-            }
+
         }
     },
 

@@ -267,7 +267,7 @@ async function seedLinuxSession(page, options = {}) {
                 }
                 if (['ssh_input', 'ssh_resize'].includes(event)) return window.socket;
             }
-            return originalEmit(event, payload, ...rest);
+            return originalEmit(...arguments);
         };
 
         window.__createWorkspaceSession = function createWorkspaceSession() {
@@ -1047,6 +1047,81 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await assertNoExternalRequests(page);
 });
 
+for (const width of [360, 1920]) {
+    test(`command management stays compact without session actions at ${width}px`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: width === 360 ? 640 : 1080 });
+        await login(page);
+        await seedLinuxSession(page);
+        await page.evaluate(() => window.CommandLibrary.openLibrary());
+        const panel = page.locator('#commandLibraryPanel');
+        await expect(panel).toBeVisible();
+        await expect(panel.locator('#commandWorkspaceTarget, .cmd-execute')).toHaveCount(0);
+        await expect(panel.getByRole('button', { name: 'Open connections', exact: true })).toHaveCount(0);
+        const geometry = await page.evaluate(() => ({
+            panelWidth: document.getElementById('commandLibraryPanel').getBoundingClientRect().width,
+            bodyWidth: document.querySelector('.command-workspace-body').getBoundingClientRect().width,
+            pageWidth: document.documentElement.scrollWidth,
+        }));
+        expect(geometry.panelWidth).toBeGreaterThan(geometry.bodyWidth * 0.85);
+        expect(geometry.panelWidth).toBeLessThanOrEqual(geometry.bodyWidth + 1);
+        expect(geometry.pageWidth).toBeLessThanOrEqual(width);
+        await page.screenshot({ path: testInfo.outputPath(`commands-${width}.png`) });
+        if (width === 360) {
+            await page.evaluate(() => {
+                const original = window.CommandLibrary.commands[0];
+                window.CommandLibrary.setCommands(Array.from({ length: 95 }, (_, index) => ({
+                    ...original, id: `scroll-${index}`, name: `Command ${index}`,
+                })));
+            });
+            for (let chunk = 0; chunk < 3; chunk++) {
+                await panel.locator('.command-row').last().scrollIntoViewIfNeeded();
+            }
+            await expect(panel.locator('.command-row')).toHaveCount(95);
+            const action = panel.locator('.command-row').last().locator('button').first();
+            await action.scrollIntoViewIfNeeded();
+            await expect(action).toBeInViewport();
+        }
+    });
+}
+
+test('workspace tools resume after repeated transport interruptions', async ({ page }) => {
+    await login(page);
+    await seedLinuxSession(page);
+    const files = page.locator('#sessionFilesMount');
+    for (let cycle = 0; cycle < 3; cycle++) {
+        await page.locator('#contextFilesTab').click();
+        await expect(files).toBeVisible();
+        await page.evaluate(() => window.socket.disconnect());
+        await expect(files).toBeVisible();
+        await expect(files.locator('.fm-file-item').first()).toBeVisible();
+        await expect(files.locator('.fm-embedded-mode')).toHaveAttribute('inert', '');
+        await expect(page.locator('#sessionFilesStatus')).toContainText('Reconnecting');
+        await page.evaluate(() => { window.socket.connect(); });
+        await expect.poll(() => page.evaluate(() => window.socket.connected)).toBe(true);
+        await page.locator('#contextFilesTab').click();
+        await expect(files).toBeVisible();
+        await expect(files.locator('.fm-file-item').first()).toBeVisible();
+        await expect(files.locator('.fm-embedded-mode')).not.toHaveAttribute('inert', '');
+        await page.locator('#contextDiagnosticsTab').click();
+        await expect(page.locator('#sessionDiagnosticsState')).toHaveText('Live');
+        await page.evaluate(() => window.socket.disconnect());
+        await expect(page.locator('#sessionDiagnosticsState')).toContainText('Reconnecting');
+        await expect(page.locator('#sessionDiagnosticsRefresh')).toBeDisabled();
+        await page.evaluate(() => { window.socket.connect(); });
+        await expect(page.locator('#sessionDiagnosticsState')).toHaveText('Live');
+        await page.locator('#contextCommandsTab').click();
+        await expect(page.locator('#sessionCommandsPanel').getByRole('button', {name: 'Open connections', exact: true})).toHaveCount(0);
+        const sudo = page.locator('.session-command-sudo-input');
+        await sudo.check();
+        await page.locator('#sessionCommandsPanel').getByRole('button', {name: 'Insert', exact: true}).first().click();
+        const sent = await page.evaluate(() => window.__workspaceEvents.filter(item => item.event === 'ssh_input').at(-1)?.payload);
+        expect(sent.session_id).toBe('workspace-linux');
+        expect(sent.data).toMatch(/^sudo\s/);
+        expect(sent.data).not.toMatch(/[\r\n]/);
+    }
+    await assertNoExternalRequests(page);
+});
+
 for (const reconnecting of [false, true]) {
 test(`account settings navigation does not warn for an active SSH session (reconnecting: ${reconnecting})`, async ({ page }) => {
     await login(page);
@@ -1542,9 +1617,12 @@ test('pending saved-profile connection can be cancelled from its tab by keyboard
 
 test('pending connection cancellation returns focus to an empty pane launcher', async ({ page }) => {
     await login(page);
+    await expect.poll(() => page.evaluate(() => (
+        ProfileManager.keys.some(key => key.usable === true)
+    ))).toBe(true);
 
     await page.evaluate(() => {
-        ProfileManager.keys = [{ id: 'empty-pane-key', usable: true }];
+        const keyId = ProfileManager.keys.find(key => key.usable === true).id;
         ProfileManager.profilesLoaded = true;
         ProfileManager.profiles = [{
             id: 'empty-pane-profile',
@@ -1553,7 +1631,7 @@ test('pending connection cancellation returns focus to an empty pane launcher', 
             port: 22,
             username: 'deploy',
             auth_type: 'key',
-            key_id: 'empty-pane-key',
+            key_id: keyId,
             startup_mode: 'none',
         }];
         const previousEmit = window.socket.emit.bind(window.socket);
@@ -1607,9 +1685,12 @@ test('pending connection cancellation returns focus to an empty pane launcher', 
 
 test('a late cancellation keeps and opens the already committed connection', async ({ page }) => {
     await login(page);
+    await expect.poll(() => page.evaluate(() => (
+        ProfileManager.keys.some(key => key.usable === true)
+    ))).toBe(true);
 
     await page.evaluate(() => {
-        ProfileManager.keys = [{ id: 'committed-key', usable: true }];
+        const keyId = ProfileManager.keys.find(key => key.usable === true).id;
         ProfileManager.profilesLoaded = true;
         ProfileManager.profiles = [{
             id: 'committed-profile',
@@ -1618,7 +1699,7 @@ test('a late cancellation keeps and opens the already committed connection', asy
             port: 22,
             username: 'deploy',
             auth_type: 'key',
-            key_id: 'committed-key',
+            key_id: keyId,
             startup_mode: 'none',
         }];
         const previousEmit = window.socket.emit.bind(window.socket);
@@ -1693,9 +1774,12 @@ test('a late cancellation keeps and opens the already committed connection', asy
 
 test('a completed connection explains a cancellation acknowledgement that arrives later', async ({ page }) => {
     await login(page);
+    await expect.poll(() => page.evaluate(() => (
+        ProfileManager.keys.some(key => key.usable === true)
+    ))).toBe(true);
 
     await page.evaluate(() => {
-        ProfileManager.keys = [{ id: 'completion-race-key', usable: true }];
+        const keyId = ProfileManager.keys.find(key => key.usable === true).id;
         ProfileManager.profilesLoaded = true;
         ProfileManager.profiles = [{
             id: 'completion-race-profile',
@@ -1704,7 +1788,7 @@ test('a completed connection explains a cancellation acknowledgement that arrive
             port: 22,
             username: 'deploy',
             auth_type: 'key',
-            key_id: 'completion-race-key',
+            key_id: keyId,
             startup_mode: 'none',
         }];
         const previousEmit = window.socket.emit.bind(window.socket);
@@ -2614,4 +2698,84 @@ test('compact breakpoints close diagnostics until the user reopens session tools
     }).toBeGreaterThan(beforeResize);
     await expect(page.locator('#sessionDiagnosticsState')).toHaveText('Live');
     await assertNoExternalRequests(page);
+});
+
+
+for (const width of [360, 1920]) {
+    test(`command drafts and scroll follow active session at ${width}px`, async ({ page }, testInfo) => {
+        await page.setViewportSize({width, height: width === 360 ? 740 : 1080});
+        await login(page);
+        await seedLinuxSession(page);
+        await page.evaluate(() => {
+            window.CommandSetManager.setCommandSets([]);
+            window.CommandLibrary.setCommands(Array.from({length: 30}, (_, index) => ({
+                id: `draft-${index}`, name: `Service ${index}`, command: 'systemctl status',
+                parameters: 'webssh', description: 'Service state', os: ['linux'],
+            })));
+            SessionManager.createSession({session_id: 'second-draft', host: 'second.example', username: 'ops', port: 22});
+            SessionManager.switchSession('workspace-linux');
+            window.workspaceLayoutController.openContext('commands', 'user');
+        });
+        const search = page.locator('.session-command-search');
+        await search.fill('Service');
+        const row = page.locator('.session-command-item').nth(8);
+        await row.locator('summary').click();
+        await row.locator('input').fill('nginx --no-pager');
+        await page.locator('.session-command-sudo-input').check();
+        await expect(row.locator('code')).toHaveText('sudo systemctl status nginx --no-pager');
+        await row.scrollIntoViewIfNeeded();
+        const top = await page.locator('.session-command-results').evaluate(el => el.scrollTop);
+        await page.evaluate(() => SessionManager.switchSession('second-draft'));
+        await expect(search).toHaveValue('Service');
+        await expect(row.locator('input')).toHaveValue('nginx --no-pager');
+        expect(await page.locator('.session-command-results').evaluate(el => el.scrollTop)).toBeCloseTo(top, 0);
+        await row.getByRole('button', {name: 'Insert', exact: true}).click();
+        const sent = await page.evaluate(() => window.__workspaceEvents.filter(item => item.event === 'ssh_input').at(-1)?.payload);
+        expect(sent).toEqual({session_id: 'second-draft', data: 'sudo systemctl status nginx --no-pager'});
+        expect(await page.evaluate(() => window.CommandLibrary.commands[8].parameters)).toBe('webssh');
+        await page.screenshot({path: testInfo.outputPath(`parameters-${width}.png`)});
+        await row.getByRole('button', {name: 'Restore saved parameters'}).click();
+        await expect(row.locator('input')).toHaveValue('webssh');
+        await expect(row.locator('code')).toHaveText('sudo systemctl status webssh');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    });
+}
+
+
+test('Files retains stale rows through a failed refresh and retry', async ({ page }, testInfo) => {
+    await login(page);
+    await seedLinuxSession(page);
+    await page.locator('#contextFilesTab').click();
+    const rows = page.locator('#sessionFilesMount .fm-file-item');
+    await expect(rows).toHaveCount(5);
+    const previousRows = await rows.allTextContents();
+    await page.evaluate(() => {
+        const emit = window.socket.emit.bind(window.socket);
+        let fail = true;
+        window.socket.emit = function failOneDirectory(event, ...args) {
+            if (event === 'list_directory' && fail) {
+                fail = false;
+                const payload = args[0];
+                queueMicrotask(() => window.socket.listeners('error').forEach(listener => listener({
+                    operation: 'list_directory', source_id: payload.source_id,
+                    request_id: payload.request_id, path: payload.remote_path, cursor: 0,
+                    error: 'Temporary directory failure',
+                })));
+                return window.socket;
+            }
+            return emit(event, ...args);
+        };
+        window.socket.disconnect();
+    });
+    await expect(page.locator('#sessionFilesStatus')).toContainText('Reconnecting');
+    expect(await rows.allTextContents()).toEqual(previousRows);
+    await page.evaluate(() => { window.socket.connect(); });
+    await expect(page.locator('#sessionFilesStatus')).toContainText('Could not refresh');
+    await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).toHaveAttribute('inert', '');
+    expect(await rows.allTextContents()).toEqual(previousRows);
+    await page.screenshot({path: testInfo.outputPath('files-stale-retry.png')});
+    await page.locator('#sessionFilesStatus').getByRole('button', {name: 'Reload', exact: true}).click();
+    await expect(page.locator('#sessionFilesStatus')).toBeHidden();
+    await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).not.toHaveAttribute('inert', '');
+    await expect(rows).toHaveCount(5);
 });

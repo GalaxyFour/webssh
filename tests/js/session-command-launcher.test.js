@@ -370,7 +370,8 @@ test('mounts with the real top-level const manager pattern', async () => {
         detail: { activeContext: 'commands' },
     }));
     assert.equal(panel.hidden, false);
-    assert.ok(context.SessionCommandLauncher.popup.querySelector('.session-command-target-select'));
+    assert.equal(context.SessionCommandLauncher.popup.querySelector('.session-command-target-select'), null);
+    assert.equal(context.SessionCommandLauncher.popup.findByText('Insert Commands'), null);
     const sudoInput = context.SessionCommandLauncher.popup.querySelector(
         '.session-command-sudo-input'
     );
@@ -424,18 +425,11 @@ test('mounts with the real top-level const manager pattern', async () => {
     assert.equal(panel.hidden, false);
     assert.ok(context.SessionCommandLauncher.popup);
 
-    const connect = context.SessionCommandLauncher.popup.findByText('Open connections');
-    assert.ok(connect);
-    connect.listeners.click();
-    assert.equal(context.connectionRequests, 1);
-    const selector = context.SessionCommandLauncher.popup.querySelector('.session-command-target-select');
-    selector.listeners.change({ target: { value: 'real-session' } });
-    assert.ok(context.SessionCommandLauncher.popup.findByText('Target: Production Edge'));
-    assert.equal(context.socket.emissions.length, 1);
-
-    context.renameTarget('Renamed target');
+    assert.equal(context.SessionCommandLauncher.popup.findByText('Open connections'), null);
+    context.setLauncherOpen(false);
     context.SessionCommandLauncher.sync();
-    assert.ok(context.SessionCommandLauncher.popup.findByText('Target: Renamed target'));
+    assert.equal(context.SessionCommandLauncher.sessionId, 'real-session');
+    assert.equal(context.socket.emissions.length, 1);
 
     const manage = context.SessionCommandLauncher.popup.findByText('Manage Commands');
     manage.listeners.click();
@@ -455,44 +449,6 @@ test('mounts with the real top-level const manager pattern', async () => {
     assert.equal(notices.at(-1)[1], 'error');
 });
 
- test('library insertion rejects multiline text and offers a connection when no target exists', async () => {
-    const emissions = [];
-    let active = 'target';
-    let connectionRequests = 0;
-    const context = vm.createContext({
-        window: {},
-        SessionManager: {
-            getActiveSession: () => active,
-            getSession: id => id === 'target' ? { connected: true } : null,
-        },
-    });
-    context.window = context;
-    context.SessionCommandLauncher = {
-        controller: launcher.createSessionCommandController({
-            getSession: context.SessionManager.getSession,
-            getCommands: () => commands,
-            emitInput: (id, text) => emissions.push([id, text]),
-        }),
-        chooseConnection: () => connectionRequests++,
-        t: (key, fallback) => fallback,
-    };
-    context.showNotification = () => {};
-    context.socket = { emit: (event, payload) => emissions.push(payload) };
-    vm.runInContext(fs.readFileSync('static/js/command-library.js', 'utf8'), context);
-    context.CommandLibrary.commands = commands;
-    context.CommandLibrary.closeLibrary = () => {};
-    await context.CommandLibrary.executeCommand('cmd-multiline');
-    assert.equal(emissions.length, 0);
-    active = null;
-    await context.CommandLibrary.executeCommand('cmd-1');
-    assert.equal(connectionRequests, 1);
-    assert.equal(emissions.length, 0);
-    active = 'target';
-    await context.CommandLibrary.executeCommand('cmd-1');
-    assert.deepEqual(emissions, [['target', 'systemctl status webssh']]);
-});
-
-
 test('command insertion waits for sending and never reports success on rejection', async () => {
     let finish;
     const notices = [];
@@ -510,4 +466,21 @@ test('command insertion waits for sending and never reports success on rejection
     finish(true);
     assert.equal((await success).ok, true);
     assert.equal(notices.length, 1);
+});
+
+
+test('parameter overrides change only the inserted text and respect sudo and empty values', async () => {
+    const sent = [];
+    const controller = launcher.createSessionCommandController({
+        getSession: () => ({connected: true}), getCommands: () => commands,
+        emitInput: (id, text) => sent.push([id, text]),
+    });
+    assert.equal((await controller.insert('active', 'command', 'cmd-1', {parameters: 'nginx --no-pager', useSudo: true})).ok, true);
+    assert.deepEqual(sent[0], ['active', 'sudo systemctl status nginx --no-pager']);
+    await controller.insert('active', 'command', 'cmd-1', {parameters: ''});
+    assert.equal(sent[1][1], 'systemctl status');
+    assert.equal(commands[0].parameters, 'webssh');
+    assert.equal((await controller.insert('active', 'command', 'cmd-1', {parameters: 'nginx\nreboot'})).ok, false);
+    assert.equal((await controller.insert('active', 'command', 'cmd-multiline', {parameters: ''})).ok, false);
+    assert.equal(sent.length, 2);
 });

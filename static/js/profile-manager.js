@@ -1,6 +1,7 @@
 const ProfileManager = {
     profiles: [],
     keys: [],
+    keysLoaded: false,
     profilesLoaded: false,
     selectedLegacyStartupCommands: '',
     editingProfileId: null,
@@ -269,6 +270,7 @@ const ProfileManager = {
     },
 
     setKeys(keys) {
+        this.keysLoaded = true;
         this.keys = Array.isArray(keys) ? keys : [];
         this.renderKeySelect();
         this.renderKeysList();
@@ -404,12 +406,17 @@ const ProfileManager = {
 
                 const readiness = ProfileLauncherUtils.getProfileReadiness(profile, {
                     keys: this.keys,
+                    keysLoaded: this.keysLoaded,
+                    jumpHostsLoaded: window.JumpHostManager?.loaded,
                     jumpHosts: window.JumpHostManager?.jumpHosts || [],
                 });
                 const mode = readiness.launchMode;
                 const action = document.createElement('span');
                 action.className = `profile-launcher-action mode-${mode}`;
-                action.textContent = `${this.t(readiness.labelKey, readiness.label)} · ${this.t(readiness.actionKey, readiness.action)}`;
+                action.textContent = readiness.pending
+                    ? this.t(readiness.labelKey, readiness.label)
+                    : `${this.t(readiness.labelKey, readiness.label)} · ${this.t(readiness.actionKey, readiness.action)}`;
+                button.disabled = readiness.pending === true;
                 button.dataset.readiness = readiness.state;
 
                 button.setAttribute(

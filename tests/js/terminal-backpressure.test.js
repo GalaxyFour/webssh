@@ -63,145 +63,79 @@ function resetManager() {
     TerminalManager.sequencedOutput = {};
     TerminalManager.sequencedOutputSizes = {};
     TerminalManager.lastOutputSequences = {};
-    TerminalManager.skippedOutput = {};
+    TerminalManager.backgroundWrites = {};
     TerminalManager.terminalWriteCallbacks = {};
     TerminalManager.clipboardDisposers = {};
     TerminalManager.osc52ClipboardAllowed = {};
     TerminalManager.scrollbarDisposers = {};
 }
 
-test('hidden panes skip xterm rendering but keep transcript and prompt ACK', () => {
+test('hidden chunks batch parser work without scrolling and ACK after consumption', () => {
     resetManager();
-    const visible = xtermMock(false);
     const hidden = xtermMock(true);
-    TerminalManager.terminals = {
-        visibleKey: visible.terminal,
-        hiddenKey: hidden.terminal,
-    };
-    TerminalManager.sessionTerminals = {s: ['visibleKey', 'hiddenKey']};
-    TerminalManager.terminalReady = {visibleKey: true, hiddenKey: true};
-
+    TerminalManager.terminals = {k: hidden.terminal};
+    TerminalManager.sessionTerminals = {s: ['k']};
+    TerminalManager.terminalReady = {k: true};
     let acknowledgements = 0;
-    TerminalManager.writeOutput('s', 'chunk', 5, () => {
-        acknowledgements += 1;
-    });
-
-    assert.deepEqual(visible.hooks.writes, ['chunk']);
-    assert.deepEqual(hidden.hooks.writes || [], []);
-    assert.equal(acknowledgements, 0);
-    assert.equal(TerminalManager.getTranscript('s'), 'chunk');
-    assert.deepEqual(
-        TerminalManager.sequencedOutput.s,
-        [{sequence: 5, data: 'chunk'}],
-    );
-    assert.deepEqual(TerminalManager.skippedOutput.s, ['hiddenKey']);
-
-    visible.hooks.callbacks[0]();
-    assert.equal(acknowledgements, 1);
-});
-
-test('all-hidden sessions acknowledge immediately without rendering', () => {
-    resetManager();
-    const first = xtermMock(true);
-    const second = xtermMock(true);
-    TerminalManager.terminals = {
-        firstKey: first.terminal,
-        secondKey: second.terminal,
-    };
-    TerminalManager.sessionTerminals = {s: ['firstKey', 'secondKey']};
-    TerminalManager.terminalReady = {firstKey: true, secondKey: true};
-
-    let acknowledgements = 0;
-    TerminalManager.writeOutput('s', 'background', null, () => {
-        acknowledgements += 1;
-    });
-
-    assert.equal(acknowledgements, 1);
-    assert.deepEqual(first.hooks.writes || [], []);
-    assert.deepEqual(second.hooks.writes || [], []);
-    assert.equal(TerminalManager.getTranscript('s'), 'background');
-    assert.deepEqual(
-        (TerminalManager.skippedOutput.s || []).sort(),
-        ['firstKey', 'secondKey'],
-    );
-});
-
-test('replaySkippedOutput rebuilds visible terminals from the transcript', () => {
-    resetManager();
-    const originalRegister = TerminalManager.registerOsc52ClipboardHandler;
-    const activations = [];
-    TerminalManager.registerOsc52ClipboardHandler = () => {
-        activations.push(true);
-        return {dispose() {}};
-    };
-    try {
-        const peer = xtermMock(false);
-        TerminalManager.terminals = {replayKey: peer.terminal};
-        TerminalManager.sessionTerminals = {s: ['replayKey']};
-        TerminalManager.terminalReady = {replayKey: true};
-        TerminalManager.transcripts = {s: ['first ', 'second']};
-        TerminalManager.transcriptSizes = {s: 13};
-        TerminalManager.skippedOutput = {s: ['replayKey']};
-        TerminalManager.osc52ClipboardAllowed = {replayKey: true};
-
-        let completed = 0;
-        TerminalManager.replaySkippedOutput('s', () => {
-            completed += 1;
-        });
-
-        assert.equal(peer.hooks.resets, 1);
-        assert.deepEqual(peer.hooks.writes, ['first second']);
-        assert.equal(completed, 0);
-        assert.deepEqual(activations, []);
-
-        peer.hooks.callbacks[0]();
-        assert.equal(completed, 1);
-        assert.deepEqual(activations, [true]);
-        assert.equal(TerminalManager.skippedOutput.s, undefined);
-    } finally {
-        TerminalManager.registerOsc52ClipboardHandler = originalRegister;
+    for (let i = 1; i <= 8; i++) {
+        TerminalManager.writeOutput('s', String(i), i, () => acknowledgements++);
     }
+    assert.equal(acknowledgements, 0);
+    assert.equal(hidden.hooks.writes, undefined);
+    TerminalManager.flushBackgroundOutput('k');
+    assert.deepEqual(hidden.hooks.writes, ['12345678']);
+    assert.equal(acknowledgements, 0);
+    hidden.hooks.callbacks[0]();
+    assert.equal(acknowledgements, 8);
+    assert.equal(hidden.hooks.scrolls || 0, 0);
+    assert.equal(TerminalManager.getTranscript('s'), '12345678');
+    assert.equal(TerminalManager.backgroundWrites.k, undefined);
 });
 
-test('replaySkippedOutput defers terminals that are still hidden or unattached', () => {
+test('visible output flushes older background bytes first without resetting', () => {
     resetManager();
-    const hidden = xtermMock(true);
-    TerminalManager.terminals = {hiddenKey: hidden.terminal};
-    TerminalManager.sessionTerminals = {s: ['hiddenKey', 'pendingKey']};
-    TerminalManager.terminalReady = {hiddenKey: true, pendingKey: false};
-    TerminalManager.transcripts = {s: ['live']};
-    TerminalManager.transcriptSizes = {s: 4};
-    TerminalManager.skippedOutput = {s: ['hiddenKey', 'pendingKey']};
-
-    let completed = 0;
-    TerminalManager.replaySkippedOutput('s', () => {
-        completed += 1;
-    });
-
-    assert.equal(completed, 1);
-    assert.deepEqual(hidden.hooks.writes || [], []);
-    assert.deepEqual(TerminalManager.skippedOutput.s, ['hiddenKey', 'pendingKey']);
-
-    hidden.wrapper.setUnassigned(false);
-    TerminalManager.replaySkippedOutput('s');
-    assert.deepEqual(hidden.hooks.writes, ['live']);
-    assert.deepEqual(TerminalManager.skippedOutput.s, ['pendingKey']);
+    const peer = xtermMock(true);
+    TerminalManager.terminals = {k: peer.terminal};
+    TerminalManager.sessionTerminals = {s: ['k']};
+    TerminalManager.terminalReady = {k: true};
+    TerminalManager.writeOutput('s', 'background');
+    peer.wrapper.setUnassigned(false);
+    TerminalManager.writeOutput('s', 'live');
+    assert.deepEqual(peer.hooks.writes, ['background', 'live']);
+    assert.equal(peer.hooks.resets || 0, 0);
+    TerminalManager.destroyTerminalKey('k', 's');
 });
 
-test('destroyTerminalKey drops skipped flags for the removed key', () => {
+test('background batch flushes at its byte and event limits', () => {
     resetManager();
-    TerminalManager.terminals = {a: {dispose() {}}, b: {dispose() {}}};
-    TerminalManager.sessionTerminals = {s: ['a', 'b']};
-    TerminalManager.pendingOutput = {a: [], b: []};
-    TerminalManager.terminalWriteCallbacks = {a: new Set(), b: new Set()};
-    TerminalManager.skippedOutput = {s: ['a', 'b']};
+    const peer = xtermMock(true);
+    TerminalManager.terminals = {k: peer.terminal};
+    TerminalManager.sessionTerminals = {s: ['k']};
+    TerminalManager.terminalReady = {k: true};
+    TerminalManager.writeOutput('s', 'x'.repeat(TerminalManager.maxBackgroundWriteSize));
+    assert.equal(peer.hooks.writes.length, 1);
+    assert.equal(TerminalManager.backgroundWrites.k, undefined);
+    for (let i = 0; i < TerminalManager.maxBackgroundWriteEvents; i++) {
+        TerminalManager.writeOutput('s', 'a');
+    }
+    assert.equal(peer.hooks.writes.length, 2);
+    assert.equal(TerminalManager.backgroundWrites.k, undefined);
+    TerminalManager.destroyTerminalKey('k', 's');
+});
 
-    TerminalManager.destroyTerminalKey('a', 's');
-    assert.deepEqual(TerminalManager.sessionTerminals.s, ['b']);
-    assert.deepEqual(TerminalManager.skippedOutput.s, ['b']);
-
-    TerminalManager.destroyTerminalKey('b', 's');
-    assert.equal(TerminalManager.skippedOutput.s, undefined);
+test('destroy cancels queued background writes and releases each ACK once', async () => {
+    resetManager();
+    const peer = xtermMock(true);
+    TerminalManager.terminals = {k: peer.terminal};
+    TerminalManager.sessionTerminals = {s: ['k']};
+    TerminalManager.terminalReady = {k: true};
+    let acknowledgements = 0;
+    TerminalManager.writeOutput('s', 'pending', null, () => acknowledgements++);
+    TerminalManager.destroyTerminalKey('k', 's');
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(acknowledgements, 1);
+    assert.equal(peer.hooks.writes, undefined);
+    assert.equal(TerminalManager.backgroundWrites.k, undefined);
 });
 
 test('scrollbar interval skips DOM work for hidden panes and disposes cleanly', () => {
@@ -319,11 +253,11 @@ function loadSessionManager(termStub) {
     return {manager: context.__SessionManager, panes, wrappers};
 }
 
-test('renderPane replays skipped output when a session becomes visible', () => {
+test('renderPane flushes queued background output when a session becomes visible', () => {
     const calls = {fit: [], replay: []};
     const {manager, panes, wrappers} = loadSessionManager({
         fitTerminal: sessionId => calls.fit.push(sessionId),
-        replaySkippedOutput: sessionId => calls.replay.push(sessionId),
+        resumeVisibleOutput: sessionId => calls.replay.push(sessionId),
     });
     const removed = [];
     const appended = [];

@@ -33,10 +33,19 @@ body[data-theme] .terminal-grid > .terminal-pane { background-image: none; }
 .context-workspace .fm-embedded-mode .btn:hover:not(:disabled) { border-color: var(--ws2-border); background: var(--ws2-panel); }
 .context-workspace .notepad-input { border: 0; border-radius: 0; padding: 16px; background: transparent; box-shadow: none; }
 .context-workspace :is(.session-diagnostics-primary-card, .session-diagnostics-secondary article, .session-diagnostics-chart-panel) { border: 1px solid var(--ws2-border); border-radius: 4px; box-shadow: none; background: var(--ws2-surface); }
-.session-command-target-select { width: 100%; min-width: 0; min-height: 36px; padding: 6px 8px; margin: 8px 0; border: 1px solid var(--ws2-border); border-radius: 4px; background: var(--ws2-canvas); color: var(--ws2-text); font: inherit; }
-.command-workspace-target { padding: 12px 16px; margin-bottom: 16px; border: 1px solid var(--ws2-border); border-radius: 6px; }
-.command-workspace-target p { margin: 0; color: var(--ws2-text-secondary); font-size: 12px; }
-.command-workspace-target .session-command-target-select { max-width: 440px; margin-right: 8px; }
+@media (max-width: 680px) {
+    #commandLibraryPanel { flex: 0 0 100%; width: 100%; align-self: flex-start; overflow: visible; }
+    #commandLibraryPanel > .management-panel-heading { display: none; }
+    #commandLibraryPanel .commands-table-wrapper, #commandLibraryPanel .commands-table-body { flex: 0 0 auto; overflow: visible; }
+    #commandLibraryPanel .commands-table-header { display: none; }
+    #commandLibraryPanel .os-filter-toolbar { display: block; padding: 8px; }
+    #commandLibraryPanel .os-filter-toolbar > span, #commandLibraryPanel .os-detected { display: none; }
+    #commandLibraryPanel .os-filter-buttons { overflow-x: auto; padding-bottom: 2px; }
+    #commandLibraryPanel .os-filter-btn { flex: 0 0 auto; min-height: 36px; }
+    #commandLibraryPanel .command-actions { flex-direction: row; gap: 8px; }
+    #commandLibraryPanel .command-actions button { min-width: 44px; min-height: 44px; }
+    #commandLibraryPanel .command-row:hover { transform: none; }
+}
 .fm-source-status, .fm-source-action { overflow-wrap: anywhere; white-space: normal; }
 .terminal-file-content { width: min(560px, calc(100vw - 24px)); }
 #terminalFileForm { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -140,3 +149,14 @@ body[data-theme] .terminal-grid > .terminal-pane { background-image: none; }
         border-radius: 12px 12px 0 0;
     }
 }
+
+.session-commands-panel .session-command-popover { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.session-command-item-details { min-width: 0; }
+.session-command-parameters { margin-top: 8px; font-size: 12px; }
+.session-command-parameters summary { cursor: pointer; color: var(--ws2-text-secondary); padding: 6px 0; }
+.session-command-parameters input { display: block; width: 100%; min-width: 0; min-height: 40px; margin: 6px 0; padding: 8px; border: 1px solid var(--ws2-border); border-radius: 4px; background: var(--ws2-canvas); color: var(--ws2-text); font: inherit; }
+.session-command-parameters summary:focus-visible, .session-command-parameters input:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.context-workspace .session-files-status.session-files-recovery { display: block; text-align: left; order: -1; flex: 0 0 auto; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--ws2-border); color: var(--ws2-text-secondary); }
+.session-files-recovery button { margin-left: 8px; }
+.session-files-mount:has([inert]) { opacity: 0.65; }
+.session-insights-state.reconnecting { color: var(--text-secondary); white-space: normal; }

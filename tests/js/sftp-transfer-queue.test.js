@@ -5154,3 +5154,29 @@ test('source identity changes keep their actionable transfer message', () => {
         'The source changed during the transfer. Try again.',
     ), 'The source changed during the transfer. Try again.');
 });
+
+
+test('embedded transport recovery preserves rows and cancels stale responses before one reload', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    const files = [{name: 'keep.txt'}];
+    const states = [];
+    let refreshes = 0;
+    Object.assign(manager, {
+        displayMode: 'embedded', modalBody: {},
+        panes: {left: {files, path: '/work', loading: true, pendingDirectoryRequestId: 'old', pendingHomeRequestId: 'old-home'}},
+        hideActionSheet() {}, closeMovePicker() {}, closeContextMenu() {},
+        onEmbeddedRecoveryChange: state => states.push(state),
+        refreshPane: () => { refreshes++; },
+    });
+    manager.setEmbeddedTransportReady(false);
+    manager.setEmbeddedTransportReady(false);
+    assert.equal(manager.modalBody.inert, true);
+    assert.equal(manager.panes.left.files, files);
+    assert.equal(manager.panes.left.path, '/work');
+    assert.equal(manager.panes.left.pendingDirectoryRequestId, null);
+    assert.equal(manager.panes.left.pendingHomeRequestId, null);
+    manager.setEmbeddedTransportReady(true);
+    manager.setEmbeddedTransportReady(true);
+    assert.equal(refreshes, 1);
+    assert.deepEqual(states, ['reconnecting']);
+});

@@ -37,7 +37,13 @@ const CommandLibrary = {
         const commandLibraryBtn = document.getElementById('commandLibraryBtn');
         if (commandLibraryBtn) {
             commandLibraryBtn.addEventListener('click', () => {
-                window.CommandSetManager?.openManagement();
+                if (window.CommandWorkspace?.activeSection === 'library') {
+                    this.returnToModalId = null;
+                    window.CommandWorkspace.open();
+                    setTimeout(() => document.getElementById('commandSearchInput')?.focus(), 0);
+                } else {
+                    window.CommandSetManager?.openManagement();
+                }
             });
         }
 
@@ -101,10 +107,6 @@ const CommandLibrary = {
         this.renderCommandsList();
         window.CommandSetManager?.onCommandsChanged();
         window.ConnectionCommandManager?.onDataChanged();
-        const osDisplay = document.getElementById('currentOsDisplay');
-        if (osDisplay) {
-            osDisplay.textContent = this.currentOs.charAt(0).toUpperCase() + this.currentOs.slice(1);
-        }
     },
 
     openLibrary() {
@@ -202,6 +204,13 @@ const CommandLibrary = {
                 this.renderNextChunk();
             }
         };
+        const body = container.closest('.command-workspace-body');
+        if (body) body.onscroll = () => {
+            if (!document.getElementById('commandLibraryPanel').classList.contains('hidden')
+                && container.getBoundingClientRect().bottom <= body.getBoundingClientRect().bottom + 40) {
+                this.renderNextChunk();
+            }
+        };
     },
 
     renderNextChunk() {
@@ -240,7 +249,6 @@ const CommandLibrary = {
                     ${this.escapeHtml(cmd.description)}
                 </div>
                 <div class="command-cell command-actions">
-                    <button class="btn-icon cmd-execute material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('sessionCommands.insertIntoTerminal', 'Insert into terminal'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('sessionCommands.insertIntoTerminal', 'Insert into terminal'))}">input</button>
                     ${cmd.isSystem ? `
                         <button class="btn-icon cmd-copy material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}">content_copy</button>
                     ` : `
@@ -264,9 +272,7 @@ const CommandLibrary = {
                 return;
             }
             const cmdId = btn.dataset.cmdId;
-            if (btn.classList.contains('cmd-execute')) {
-                this.executeCommand(cmdId);
-            } else if (btn.classList.contains('cmd-copy')) {
+            if (btn.classList.contains('cmd-copy')) {
                 this.copyCommand(cmdId);
             } else if (btn.classList.contains('cmd-edit')) {
                 this.editCommand(cmdId);
@@ -274,26 +280,6 @@ const CommandLibrary = {
                 this.deleteCommand(cmdId);
             }
         };
-    },
-
-    async executeCommand(commandId) {
-        const cmd = this.commands.find(c => c.id === commandId);
-        if (!cmd) return;
-
-        const activeSessionId = SessionManager.getActiveSession();
-        const launcher = window.SessionCommandLauncher;
-        if (!activeSessionId || !SessionManager.getSession(activeSessionId)?.connected) {
-            launcher?.chooseConnection();
-            return;
-        }
-        const result = await launcher?.controller?.insert(activeSessionId, 'command', commandId);
-        if (result?.ok) {
-            this.closeLibrary();
-        } else {
-            window.showNotification(launcher?.t(
-                'sessionCommands.unavailable', 'Entry is unavailable.'
-            ) || 'Entry is unavailable.', 'warning');
-        }
     },
 
     showAddCommandForm(options = {}) {
