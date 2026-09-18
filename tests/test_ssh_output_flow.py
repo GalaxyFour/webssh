@@ -304,3 +304,57 @@ def test_failed_socket_disconnect_does_not_free_retained_callbacks(
         output_flow._disconnect_lagging_socket(socketio, 'browser')
 
     assert controller.usage()['reservations'] == 1
+
+
+def test_many_sessions_share_a_small_delivery_window_without_raising_budgets(monkeypatch):
+    import app.ssh_output_flow as output_flow
+
+    controller = output_flow.SSHOutputFlowController()
+    _configure_limits(monkeypatch, 512 * 1024, events=128)
+    controller.register_socket('browser')
+    tokens = [controller.reserve('browser', 7, f's{i}', 100)[0] for i in range(8)]
+    try:
+        assert all(tokens)
+        # Even tiny output events from twenty producers must not create a
+        # polling ACK burst above Engine.IO's packet-count limit of sixteen.
+        assert not controller.can_reserve('browser', 7, 100)
+        token, reason = controller.reserve('browser', 7, 's9', 100, timeout=0)
+        assert token is None and reason == 'timeout'
+        controller.release(tokens[0])
+        token, reason = controller.reserve('browser', 7, 's9', 100, timeout=0)
+        assert token is not None and reason is None
+        assert controller.usage()['global_events'] == 8
+    finally:
+        controller.release_socket('browser')
+
+
+def test_capacity_wait_timeout_does_not_evict_socket_with_fresh_pending_output(monkeypatch):
+    import app.ssh_output_flow as output_flow
+
+    controller = output_flow.SSHOutputFlowController()
+    monkeypatch.setattr(output_flow, 'ssh_output_flow', controller)
+    _configure_limits(monkeypatch, 1000, events=8)
+    controller.register_socket('browser')
+    reserve = controller.reserve
+    calls = []
+
+    def contested_reserve(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            # Other readers used each newly released slot while this reader
+            # waited. The only outstanding ACK is fresh, not timed out.
+            reserve('browser', 7, 'other-terminal', 100)
+            return None, 'timeout'
+        return reserve(*args, **kwargs)
+
+    monkeypatch.setattr(controller, 'reserve', contested_reserve)
+    socketio = FakeSocketIO(['browser'], auto_ack=['browser'])
+    try:
+        output_flow.emit_ssh_output(socketio, 'user_7', 7, 'waiting-terminal', {
+            'session_id': 'waiting-terminal', 'data': 'ready', 'sequence': 1,
+        })
+        assert socketio.server.disconnected == []
+        assert len(calls) == 2
+        assert any(event[0] == 'ssh_output' for event in socketio.emitted)
+    finally:
+        controller.release_socket('browser')
