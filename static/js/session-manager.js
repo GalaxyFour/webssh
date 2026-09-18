@@ -1098,6 +1098,7 @@ const SessionManager = {
                 pane.appendChild(wrapper);
             }
             TerminalManager.fitTerminal(sessionId);
+            TerminalManager.replaySkippedOutput?.(sessionId);
             return;
         }
 

@@ -11,6 +11,7 @@ const TerminalManager = {
     sequencedOutput: {},
     sequencedOutputSizes: {},
     lastOutputSequences: {},
+    skippedOutput: {},
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -616,6 +617,19 @@ const TerminalManager = {
             if (remainingTerminals === 0) onAccepted?.();
         };
         terminalKeys.forEach(key => {
+            if (this.terminals[key] && !this.isTerminalKeyVisible(key)) {
+                // Hidden panes skip expensive xterm rendering entirely. The
+                // transcript and sequenced queues above stay authoritative, so
+                // acknowledge immediately and replay on becoming visible.
+                if (!this.skippedOutput[sessionId]) {
+                    this.skippedOutput[sessionId] = [];
+                }
+                if (!this.skippedOutput[sessionId].includes(key)) {
+                    this.skippedOutput[sessionId].push(key);
+                }
+                terminalAccepted();
+                return;
+            }
             this.writeOutputToTerminal(key, data, terminalAccepted);
         });
     },
@@ -877,12 +891,16 @@ const TerminalManager = {
         return output.join('');
     },
 
+    isTerminalKeyVisible(terminalKey) {
+        const terminal = this.terminals[terminalKey];
+        const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
+        return Boolean(terminal && !wrapper?.classList.contains('unassigned'));
+    },
+
     fitTerminal(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
         terminalKeys.forEach(key => {
-            const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            if (wrapper?.classList.contains('unassigned')) {
+            if (!this.isTerminalKeyVisible(key)) {
                 return;
             }
             const fitAddon = this.fitAddons[key];
@@ -898,19 +916,14 @@ const TerminalManager = {
 
     hasVisibleTerminal(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
-        return terminalKeys.some(key => {
-            const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            return Boolean(terminal && !wrapper?.classList.contains('unassigned'));
-        });
+        return terminalKeys.some(key => this.isTerminalKeyVisible(key));
     },
 
     getVisibleTerminalSize(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
         for (const key of terminalKeys) {
             const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            if (terminal && !wrapper?.classList.contains('unassigned')) {
+            if (terminal && this.isTerminalKeyVisible(key)) {
                 return { rows: terminal.rows, cols: terminal.cols };
             }
         }
@@ -978,7 +991,58 @@ const TerminalManager = {
         delete this.sequencedOutput[sessionId];
         delete this.sequencedOutputSizes[sessionId];
         delete this.lastOutputSequences[sessionId];
+        delete this.skippedOutput[sessionId];
         this.clearSyncedSize(sessionId);
+    },
+
+    replaySkippedOutput(sessionId, onComplete = null) {
+        const skippedKeys = this.skippedOutput[sessionId];
+        if (!skippedKeys || skippedKeys.length === 0) {
+            onComplete?.();
+            return;
+        }
+        const replayOutput = this.getTranscript(sessionId);
+        // Terminals still waiting for attach own their catch-up through the
+        // attach replay; only catch up opened terminals that are visible now.
+        // Keys that cannot replay yet keep their flag for the next attempt.
+        const terminalKeys = (this.sessionTerminals[sessionId] || [])
+            .filter(key => skippedKeys.includes(key)
+                && this.terminals[key]
+                && this.terminalReady[key]
+                && this.isTerminalKeyVisible(key));
+        if (!replayOutput || terminalKeys.length === 0) {
+            onComplete?.();
+            return;
+        }
+        const replayed = new Set(terminalKeys);
+        const remaining = skippedKeys.filter(key => !replayed.has(key));
+        if (remaining.length > 0) {
+            this.skippedOutput[sessionId] = remaining;
+        } else {
+            delete this.skippedOutput[sessionId];
+        }
+        let remainingReplays = terminalKeys.length;
+        const replayAccepted = () => {
+            remainingReplays -= 1;
+            if (remainingReplays === 0) onComplete?.();
+        };
+        terminalKeys.forEach(key => {
+            const terminal = this.terminals[key];
+            // Replayed output is untrusted history: rebuild from the bounded
+            // transcript exactly like the resync path, keeping OSC 52
+            // disabled until xterm has finished rebuilding the screen.
+            this.clipboardDisposers[key]?.dispose?.();
+            delete this.clipboardDisposers[key];
+            if (typeof terminal.reset === 'function') {
+                terminal.reset();
+            } else {
+                terminal.clear?.();
+            }
+            this.writeOutputToTerminal(key, replayOutput, () => {
+                this.activateOsc52ClipboardHandler(key, terminal);
+                replayAccepted();
+            });
+        });
     },
 
     setupTouchScroll(container, terminal) {
@@ -1131,10 +1195,15 @@ const TerminalManager = {
         const scrollDisposable = terminal.onScroll(() => updateScrollbar());
         const resizeDisposable = terminal.onResize(() => updateScrollbar());
 
-        // Also update periodically for output-driven changes
+        // Also update periodically for output-driven changes. Hidden panes
+        // skip DOM reads/writes here; scroll/resize events still refresh the
+        // thumb on the next visible interaction.
         const intervalId = setInterval(() => {
             if (!this.terminals[terminalKey]) {
                 clearInterval(intervalId);
+                return;
+            }
+            if (!this.isTerminalKeyVisible(terminalKey)) {
                 return;
             }
             updateScrollbar();
@@ -1249,6 +1318,15 @@ const TerminalManager = {
 
         if (sessionId && this.sessionTerminals[sessionId]) {
             this.sessionTerminals[sessionId] = this.sessionTerminals[sessionId].filter(key => key !== terminalKey);
+            const remaining = this.skippedOutput[sessionId];
+            if (remaining) {
+                const filtered = remaining.filter(key => key !== terminalKey);
+                if (filtered.length > 0) {
+                    this.skippedOutput[sessionId] = filtered;
+                } else {
+                    delete this.skippedOutput[sessionId];
+                }
+            }
         }
     },
 
