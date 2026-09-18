@@ -54,6 +54,8 @@
         const insertText = base + (parameters ? ` ${parameters}` : '');
         const available = Boolean(insertText.trim()) && !hasLineBreak(insertText);
         return {
+            command: base,
+            parameters,
             type: 'command',
             id: command?.id || '',
             name: command?.name || base || '',
@@ -126,9 +128,15 @@
                 if (!session || !session.connected) {
                     return { ok: false, reason: 'session-unavailable' };
                 }
-                const entry = this.entries().find(candidate => (
+                let entry = this.entries().find(candidate => (
                     candidate.type === type && candidate.id === id
                 ));
+                if (entry?.type === 'command' && options.parameters !== undefined) {
+                    if (typeof options.parameters !== 'string' || options.parameters.length > 4096) {
+                        return { ok: false, reason: 'entry-unavailable' };
+                    }
+                    entry = commandEntry({ ...entry, parameters: options.parameters });
+                }
                 const insertText = insertTextFor(entry, options.useSudo);
                 if (!entry || !entry.available || !insertText || hasLineBreak(insertText)) {
                     return { ok: false, reason: entry?.unavailableReason || 'entry-unavailable' };
@@ -165,6 +173,9 @@
         activeSessionId: null,
         initialized: false,
         useSudo: false,
+        parameterDrafts: new Map(),
+        expandedParameters: new Set(),
+        resultsScrollTop: 0,
 
         t(key, fallback) {
             const translated = root.i18n?.t(key);
@@ -198,6 +209,8 @@
             });
 
             root.addEventListener?.('session-workspace-change', () => this.sync());
+            root.socket?.on?.('disconnect', () => this.sync());
+            root.socket?.on?.('connected', () => this.sync());
             root.addEventListener?.('session-removed', event => {
                 if (event.detail?.sessionId === this.sessionId) this.close(false);
                 root.setTimeout?.(() => this.sync(), 0);
@@ -226,59 +239,13 @@
             const sessionManager = getSessionManager();
             const sessionId = sessionManager?.getActiveSession?.();
             const session = sessionId ? sessionManager.getSession(sessionId) : null;
-            const connected = Boolean(sessionId && session?.connected);
+            const connected = Boolean(root.socket?.connected !== false && sessionId && session?.connected);
             this.activeSessionId = connected ? sessionId : null;
             this.trigger.disabled = false;
             if (this.popup) {
                 this.sessionId = this.activeSessionId;
                 this.render();
             }
-        },
-
-        chooseConnection() {
-            root.CommandWorkspace?.close();
-            const manager = getSessionManager();
-            manager?.showConnectionLauncher?.(manager.getActivePaneIndex?.() ?? 0);
-        },
-
-        renderTarget(container, sessionId) {
-            const document = root.document;
-            const manager = getSessionManager();
-            const session = manager?.getSession(sessionId);
-            const target = document.createElement('p');
-            target.textContent = session?.connected
-                ? this.t('sessionCommands.target', 'Target: {session}')
-                    .replace('{session}', sessionLabel(session, sessionId))
-                : this.t('sessionCommands.noActiveSession', 'Connect an SSH session to enable insertion.');
-            const select = document.createElement('select');
-            select.className = 'session-command-target-select';
-            select.setAttribute('aria-label', this.t('sessionCommands.chooseSession', 'Choose target session'));
-            const placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = this.t('sessionCommands.chooseSession', 'Choose target session');
-            placeholder.disabled = true;
-            select.appendChild(placeholder);
-            Object.entries(manager?.sessions || {}).forEach(([id, candidate]) => {
-                if (!candidate.connected) return;
-                const option = document.createElement('option');
-                option.value = id;
-                option.textContent = sessionLabel(candidate, id);
-                select.appendChild(option);
-            });
-            select.value = session?.connected ? sessionId : '';
-            select.addEventListener('change', event => {
-                const next = event.target.value;
-                if (!manager?.getSession(next)?.connected) return;
-                manager.switchSession(next);
-                this.sync();
-                root.CommandWorkspace?.refreshTarget();
-            });
-            const connect = document.createElement('button');
-            connect.type = 'button';
-            connect.className = 'btn btn-secondary btn-small';
-            connect.textContent = this.t('sessionCommands.connect', 'Open connections');
-            connect.addEventListener('click', () => this.chooseConnection());
-            container.append(target, select, connect);
         },
 
         setDrawerOpen(open) {
@@ -290,9 +257,8 @@
         open(sessionId) {
             const session = getSessionManager()?.getSession(sessionId);
             this.sessionId = session?.connected ? sessionId : null;
-            this.searchQuery = '';
-            this.useSudo = false;
             this.setDrawerOpen(true);
+            if (this.popup) { this.render(); return; }
 
             const popup = root.document.createElement('section');
             popup.className = 'session-command-popover';
@@ -305,12 +271,11 @@
         },
 
         close(restoreFocus = false) {
+            this.resultsScrollTop = this.popup?.querySelector('.session-command-results')?.scrollTop || this.resultsScrollTop;
             this.popup?.remove();
             this.mount?.replaceChildren();
             this.popup = null;
             this.sessionId = null;
-            this.searchQuery = '';
-            this.useSudo = false;
             if (this.panel) this.setDrawerOpen(false);
             if (restoreFocus) this.trigger?.focus();
         },
@@ -320,17 +285,14 @@
             const document = root.document;
             const popup = this.popup;
             const session = getSessionManager()?.getSession(this.sessionId);
-            const canInsert = Boolean(session?.connected);
+            const canInsert = Boolean(root.socket?.connected !== false && session?.connected);
+            const oldList = popup.querySelector('.session-command-results');
+            if (oldList) this.resultsScrollTop = oldList.scrollTop || 0;
+            const focused = document.activeElement;
+            const focusKey = focused?.dataset?.commandParameter;
+            const searchFocused = focused?.className === 'session-command-search';
+            const selection = focused ? [focused.selectionStart, focused.selectionEnd] : null;
             popup.replaceChildren();
-
-            const header = document.createElement('header');
-            header.className = 'session-command-popover-header';
-            const headingWrap = document.createElement('div');
-            const heading = document.createElement('h3');
-            heading.textContent = this.t('sessionCommands.title', 'Insert Commands');
-            headingWrap.append(heading);
-            this.renderTarget(headingWrap, this.sessionId);
-            header.appendChild(headingWrap);
 
             const search = document.createElement('input');
             search.type = 'search';
@@ -343,6 +305,9 @@
             search.value = this.searchQuery;
             search.addEventListener('input', event => {
                 this.searchQuery = event.target.value;
+                const results = this.popup.querySelector('.session-command-results');
+                if (results) results.scrollTop = 0;
+                this.resultsScrollTop = 0;
                 this.render();
                 const nextSearch = this.popup?.querySelector('.session-command-search');
                 nextSearch?.focus();
@@ -395,7 +360,16 @@
                 root.CommandSetManager?.openManagement();
             });
             footer.append(hint, manage);
-            popup.append(header, search, sudoOption, list, footer);
+            popup.append(search, sudoOption, list, footer);
+            list.scrollTop = this.resultsScrollTop;
+            list.addEventListener('scroll', () => { this.resultsScrollTop = list.scrollTop; });
+            const nextFocus = searchFocused ? search : Array.from(
+                popup.querySelectorAll?.('[data-command-parameter]') || []
+            ).find(input => input.dataset.commandParameter === focusKey);
+            if (nextFocus) {
+                nextFocus.focus({ preventScroll: true });
+                if (selection) nextFocus.setSelectionRange?.(...selection);
+            }
         },
 
         renderGroup(parent, entries, type, label, canInsert = false) {
@@ -408,7 +382,11 @@
             heading.textContent = label;
             section.appendChild(heading);
 
-            matching.forEach(entry => {
+            matching.forEach(savedEntry => {
+                let entry = savedEntry;
+                if (entry.type === 'command' && this.parameterDrafts.has(entry.id)) {
+                    entry = commandEntry({ ...entry, parameters: this.parameterDrafts.get(entry.id) });
+                }
                 const insertText = insertTextFor(entry, this.useSudo);
                 const available = canInsert && entry.available
                     && Boolean(insertText)
@@ -432,6 +410,8 @@
                 insert.type = 'button';
                 insert.className = 'btn btn-primary btn-small';
                 insert.textContent = this.t('sessionCommands.insert', 'Insert');
+                let currentAvailable = available;
+                let inserting = false;
                 insert.disabled = !available;
                 if (!available) {
                     const reason = entry.unavailableReason === 'multiline'
@@ -450,16 +430,56 @@
                     reasonText.textContent = reason;
                     details.append(reasonText);
                 }
+                if (entry.type === 'command') {
+                    const editor = document.createElement('details');
+                    editor.className = 'session-command-parameters';
+                    editor.open = this.expandedParameters.has(entry.id);
+                    const summary = document.createElement('summary');
+                    summary.textContent = this.t('sessionCommands.editParameters', 'Parameters for this insertion');
+                    editor.addEventListener('toggle', () => {
+                        if (editor.open) this.expandedParameters.add(entry.id);
+                        else this.expandedParameters.delete(entry.id);
+                    });
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.maxLength = 4096;
+                    input.dataset.commandParameter = entry.id;
+                    input.setAttribute('aria-label', summary.textContent);
+                    input.value = entry.parameters;
+                    const updatePreview = () => {
+                        const updated = commandEntry({ ...savedEntry, parameters: input.value });
+                        preview.textContent = insertTextFor(updated, this.useSudo);
+                        currentAvailable = canInsert && updated.available;
+                        insert.disabled = inserting || !currentAvailable;
+                    };
+                    input.addEventListener('input', () => {
+                        this.parameterDrafts.set(entry.id, input.value);
+                        updatePreview();
+                    });
+                    const reset = document.createElement('button');
+                    reset.type = 'button';
+                    reset.className = 'btn btn-secondary btn-small';
+                    reset.textContent = this.t('sessionCommands.resetParameters', 'Restore saved parameters');
+                    reset.addEventListener('click', () => {
+                        this.parameterDrafts.delete(entry.id);
+                        input.value = savedEntry.parameters;
+                        updatePreview();
+                    });
+                    editor.append(summary, input, reset);
+                    details.appendChild(editor);
+                }
                 insert.addEventListener('click', async () => {
-                    if (insert.disabled) return;
+                    if (insert.disabled || inserting) return;
+                    inserting = true;
                     insert.disabled = true;
                     const result = await this.controller.insert(
                         this.sessionId,
                         entry.type,
                         entry.id,
-                        { useSudo: this.useSudo }
+                        { useSudo: this.useSudo, parameters: entry.type === 'command' ? this.parameterDrafts.get(entry.id) : undefined }
                     );
-                    insert.disabled = !available;
+                    inserting = false;
+                    insert.disabled = !currentAvailable;
                     if (!result.ok) {
                         root.showNotification?.(
                             this.t(

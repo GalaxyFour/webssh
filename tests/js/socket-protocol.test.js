@@ -111,7 +111,7 @@ function loadAppSocketHarness() {
                     : null;
             },
         },
-        io: () => socket,
+        io: options => { state.socketOptions = options; return socket; },
         location: {
             assign(url) { state.navigationUrl = url; },
             reload() {
@@ -447,4 +447,17 @@ test('unsaved notes warn before leaving even with no connected SSH session', () 
     beforeUnload(event);
     assert.equal(prevented, true);
     assert.ok(event.returnValue);
+});
+
+
+test('initial transport waits for UI setup and compatible reconnect reloads command data', () => {
+    const harness = loadAppSocketHarness();
+    assert.equal(harness.state.socketOptions.autoConnect, false);
+    const loads = [];
+    harness.browserGlobal.CommandLibrary = {loadCommands: () => loads.push('commands')};
+    harness.browserGlobal.CommandSetManager = {load: () => loads.push('sets')};
+    const connected = harness.handlers.get('connected');
+    connected({status: 'success', wire_revision: SocketProtocol.WIRE_REVISION});
+    connected({status: 'success', wire_revision: SocketProtocol.WIRE_REVISION});
+    assert.deepEqual(loads, ['commands', 'sets', 'commands', 'sets']);
 });

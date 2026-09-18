@@ -11,6 +11,9 @@ const TerminalManager = {
     sequencedOutput: {},
     sequencedOutputSizes: {},
     lastOutputSequences: {},
+    backgroundWrites: {},
+    maxBackgroundWriteSize: 65536,
+    maxBackgroundWriteEvents: 128,
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -669,7 +672,13 @@ const TerminalManager = {
             };
             this.terminalWriteCallbacks[terminalKey].add(complete);
             try {
-                this.writeToTerminalWithScroll(terminal, data, complete);
+                if (!this.isTerminalKeyVisible(terminalKey)) {
+                    this.queueBackgroundOutput(terminalKey, data, complete);
+                } else {
+                    // Older background chunks must precede the new live write.
+                    this.flushBackgroundOutput(terminalKey);
+                    this.writeToTerminalWithScroll(terminal, data, complete);
+                }
             } catch (error) {
                 complete();
                 throw error;
@@ -705,8 +714,8 @@ const TerminalManager = {
         return buffer.viewportY >= buffer.baseY;
     },
 
-    writeToTerminalWithScroll(terminal, data, onWritten = null) {
-        const shouldScroll = this.isTerminalAtBottom(terminal);
+    writeToTerminalWithScroll(terminal, data, onWritten = null, allowScroll = true) {
+        const shouldScroll = allowScroll && this.isTerminalAtBottom(terminal);
         terminal.write(data, () => {
             if (shouldScroll) {
                 terminal.scrollToBottom();
@@ -768,6 +777,8 @@ const TerminalManager = {
             this.terminalReady[key] = false;
             this.pendingOutput[key] = [];
             this.pendingOutputSizes[key] = 0;
+
+            this.clearBackgroundOutput(key);
 
             // Socket.IO acknowledgements belong to the connection that
             // delivered them. Retire callbacks from the disconnected socket
@@ -877,12 +888,16 @@ const TerminalManager = {
         return output.join('');
     },
 
+    isTerminalKeyVisible(terminalKey) {
+        const terminal = this.terminals[terminalKey];
+        const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
+        return Boolean(terminal && !wrapper?.classList.contains('unassigned'));
+    },
+
     fitTerminal(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
         terminalKeys.forEach(key => {
-            const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            if (wrapper?.classList.contains('unassigned')) {
+            if (!this.isTerminalKeyVisible(key)) {
                 return;
             }
             const fitAddon = this.fitAddons[key];
@@ -898,19 +913,14 @@ const TerminalManager = {
 
     hasVisibleTerminal(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
-        return terminalKeys.some(key => {
-            const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            return Boolean(terminal && !wrapper?.classList.contains('unassigned'));
-        });
+        return terminalKeys.some(key => this.isTerminalKeyVisible(key));
     },
 
     getVisibleTerminalSize(sessionId) {
         const terminalKeys = this.sessionTerminals[sessionId] || [];
         for (const key of terminalKeys) {
             const terminal = this.terminals[key];
-            const wrapper = terminal?.element?.closest?.('.terminal-wrapper');
-            if (terminal && !wrapper?.classList.contains('unassigned')) {
+            if (terminal && this.isTerminalKeyVisible(key)) {
                 return { rows: terminal.rows, cols: terminal.cols };
             }
         }
@@ -979,6 +989,60 @@ const TerminalManager = {
         delete this.sequencedOutputSizes[sessionId];
         delete this.lastOutputSequences[sessionId];
         this.clearSyncedSize(sessionId);
+    },
+
+    queueBackgroundOutput(terminalKey, data, onWritten) {
+        let batch = this.backgroundWrites[terminalKey];
+        if (!batch) {
+            batch = {chunks: [], callbacks: [], size: 0, timer: null};
+            this.backgroundWrites[terminalKey] = batch;
+            batch.timer = setTimeout(() => this.flushBackgroundOutput(terminalKey), 16);
+        }
+        batch.chunks.push(data);
+        batch.callbacks.push(onWritten);
+        batch.size += data.length;
+        if (batch.size >= this.maxBackgroundWriteSize
+                || batch.chunks.length >= this.maxBackgroundWriteEvents) {
+            this.flushBackgroundOutput(terminalKey);
+        }
+    },
+
+    clearBackgroundOutput(terminalKey) {
+        const batch = this.backgroundWrites[terminalKey];
+        if (!batch) return null;
+        clearTimeout(batch.timer);
+        delete this.backgroundWrites[terminalKey];
+        return batch;
+    },
+
+    flushBackgroundOutput(terminalKey) {
+        const batch = this.clearBackgroundOutput(terminalKey);
+        if (!batch) return;
+        const accepted = () => batch.callbacks.forEach(callback => callback?.());
+        const terminal = this.terminals[terminalKey];
+        if (!terminal) {
+            accepted();
+            return;
+        }
+        // Parse every byte in order: bounded raw history cannot reconstruct
+        // terminal modes or a partially received control sequence. Hidden
+        // panes batch parser work and avoid scroll/layout work, but ACK only
+        // once xterm consumes the batch, retaining server-side backpressure.
+        try {
+            this.writeToTerminalWithScroll(
+                terminal, batch.chunks.join(''), accepted,
+                this.isTerminalKeyVisible(terminalKey),
+            );
+        } catch (error) {
+            accepted();
+            throw error;
+        }
+    },
+
+    resumeVisibleOutput(sessionId) {
+        (this.sessionTerminals[sessionId] || []).forEach(key => {
+            if (this.isTerminalKeyVisible(key)) this.flushBackgroundOutput(key);
+        });
     },
 
     setupTouchScroll(container, terminal) {
@@ -1107,6 +1171,7 @@ const TerminalManager = {
         let startScroll = 0;
 
         const updateScrollbar = () => {
+            if (!this.isTerminalKeyVisible(terminalKey)) return;
             const buffer = terminal.buffer.active;
             const totalLines = buffer.length;
             const viewportHeight = terminal.rows;
@@ -1131,10 +1196,15 @@ const TerminalManager = {
         const scrollDisposable = terminal.onScroll(() => updateScrollbar());
         const resizeDisposable = terminal.onResize(() => updateScrollbar());
 
-        // Also update periodically for output-driven changes
+        // Also update periodically for output-driven changes. Hidden panes
+        // skip DOM reads/writes here; scroll/resize events still refresh the
+        // thumb on the next visible interaction.
         const intervalId = setInterval(() => {
             if (!this.terminals[terminalKey]) {
                 clearInterval(intervalId);
+                return;
+            }
+            if (!this.isTerminalKeyVisible(terminalKey)) {
                 return;
             }
             updateScrollbar();
@@ -1223,6 +1293,7 @@ const TerminalManager = {
     },
 
     destroyTerminalKey(terminalKey, sessionId) {
+        this.clearBackgroundOutput(terminalKey);
         const terminal = this.terminals[terminalKey];
         (this.pendingOutput[terminalKey] || []).forEach(entry => {
             entry.onWritten?.();
@@ -1249,6 +1320,7 @@ const TerminalManager = {
 
         if (sessionId && this.sessionTerminals[sessionId]) {
             this.sessionTerminals[sessionId] = this.sessionTerminals[sessionId].filter(key => key !== terminalKey);
+
         }
     },
 

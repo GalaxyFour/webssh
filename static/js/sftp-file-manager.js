@@ -373,11 +373,14 @@ class SFTPFileManager {
             const readiness = typeof ProfileLauncherUtils !== 'undefined'
                 ? ProfileLauncherUtils.getProfileReadiness(profile, {
                     keys: window.ProfileManager?.keys || this.qcKeys || [],
+                    keysLoaded: window.ProfileManager?.keysLoaded,
+                    jumpHostsLoaded: window.JumpHostManager?.loaded,
                     jumpHosts: window.JumpHostManager?.jumpHosts || [],
                 })
                 : { labelKey: 'connection.readinessSaved', label: 'Saved', actionKey: 'connection.actionReview', action: 'Review' };
             return {
                 key: `profile:${profile.id}`,
+                disabled: readiness.pending === true,
                 label: profile.name || `${profile.username}@${profile.host}`,
                 endpoint: `${profile.username}@${profile.host}:${profile.port || 22}`,
                 protocol: 'SFTP',
@@ -1103,7 +1106,7 @@ class SFTPFileManager {
                                 <span class="material-icons">refresh</span>
                             </button>
                             <button class="btn btn-secondary btn-sm" id="fmNewFolder" data-i18n-title="fm.newFolder">
-                                <span class="material-icons">create_new_folder</span>
+                                <span class="material-icons" aria-hidden="true">create_new_folder</span>
                                 <span class="btn-text" data-i18n="fm.newFolder">New Folder</span>
                             </button>
                             <button class="btn btn-secondary btn-sm fm-session-folder-action" id="fmOpenTerminalFolder" type="button" title="Open folder in Files" aria-label="Open folder in Files" data-i18n-title="terminalFiles.openFolder" data-i18n-aria-label="terminalFiles.openFolder">
@@ -1122,15 +1125,15 @@ class SFTPFileManager {
                                 <span class="btn-text" data-i18n="fm.upload">Upload</span>
                             </button>
                             <button class="btn btn-secondary btn-sm" id="fmDownload" data-i18n-title="fm.download">
-                                <span class="material-icons">download</span>
+                                <span class="material-icons" aria-hidden="true">download</span>
                                 <span class="btn-text" data-i18n="fm.download">Download</span>
                             </button>
                             <button class="btn btn-secondary btn-sm" id="fmPreview" data-i18n-title="fm.preview">
-                                <span class="material-icons">preview</span>
+                                <span class="material-icons" aria-hidden="true">preview</span>
                                 <span class="btn-text" data-i18n="fm.preview">Preview</span>
                             </button>
                             <button class="btn btn-secondary btn-sm" id="fmRename" data-i18n-title="fm.rename">
-                                <span class="material-icons">drive_file_rename_outline</span>
+                                <span class="material-icons" aria-hidden="true">drive_file_rename_outline</span>
                                 <span class="btn-text" data-i18n="fm.rename">Rename</span>
                             </button>
                             <button class="btn btn-secondary btn-sm" id="fmMove" data-i18n-title="fm.moveAction" aria-label="Move selected items" data-i18n-aria-label="fm.movePickerTitle">
@@ -1138,7 +1141,7 @@ class SFTPFileManager {
                                 <span class="btn-text" data-i18n="fm.moveAction">Move…</span>
                             </button>
                             <button class="btn btn-danger btn-sm" id="fmDelete" data-i18n-title="fm.delete">
-                                <span class="material-icons">delete</span>
+                                <span class="material-icons" aria-hidden="true">delete</span>
                                 <span class="btn-text" data-i18n="fm.delete">Delete</span>
                             </button>
                         </div>
@@ -1180,20 +1183,20 @@ class SFTPFileManager {
                                     <span class="material-icons" aria-hidden="true">home</span>
                                 </button>
                                 <div class="fm-breadcrumb" id="fmLeftBreadcrumb">
-                                    <input type="text" class="fm-path-input" id="fmLeftPath" value="/" placeholder="/path">
+                                    <input type="text" class="fm-path-input" id="fmLeftPath" aria-label="${this.t('terminalFiles.path', 'Absolute path')}" data-i18n-aria-label="terminalFiles.path" value="/" placeholder="/path">
                                 </div>
                                 <button type="button" class="fm-nav-btn" id="fmLeftRefresh" aria-label="Refresh" title="Refresh" data-i18n-aria-label="fm.refresh" data-i18n-title="fm.refresh">
                                     <span class="material-icons" aria-hidden="true">refresh</span>
                                 </button>
                             </div>
                             <div class="fm-pane-toolbar" data-pane-toolbar="left">
-                                <button type="button" data-pane-action="newfolder"><span class="material-icons">create_new_folder</span><span data-i18n="fm.newFolder">New Folder</span></button>
-                                <button type="button" data-pane-action="upload"><span class="material-icons">upload</span><span data-i18n="fm.upload">Upload</span></button>
-                                <button type="button" data-pane-action="download"><span class="material-icons">download</span><span data-i18n="fm.download">Download</span></button>
-                                <button type="button" data-pane-action="preview"><span class="material-icons">preview</span><span data-i18n="fm.preview">Preview</span></button>
-                                <button type="button" data-pane-action="rename"><span class="material-icons">drive_file_rename_outline</span><span data-i18n="fm.rename">Rename</span></button>
+                                <button type="button" data-pane-action="newfolder"><span class="material-icons" aria-hidden="true">create_new_folder</span><span data-i18n="fm.newFolder">New Folder</span></button>
+                                <button type="button" data-pane-action="upload"><span class="material-icons" aria-hidden="true">upload</span><span data-i18n="fm.upload">Upload</span></button>
+                                <button type="button" data-pane-action="download"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="fm.download">Download</span></button>
+                                <button type="button" data-pane-action="preview"><span class="material-icons" aria-hidden="true">preview</span><span data-i18n="fm.preview">Preview</span></button>
+                                <button type="button" data-pane-action="rename"><span class="material-icons" aria-hidden="true">drive_file_rename_outline</span><span data-i18n="fm.rename">Rename</span></button>
                                 <button type="button" data-pane-action="move" aria-label="Move…" title="Move…" data-i18n-aria-label="fm.moveAction" data-i18n-title="fm.moveAction"><span class="material-icons" aria-hidden="true">drive_file_move</span><span data-i18n="fm.moveAction">Move…</span></button>
-                                <button type="button" class="is-danger" data-pane-action="delete"><span class="material-icons">delete</span><span data-i18n="fm.delete">Delete</span></button>
+                                <button type="button" class="is-danger" data-pane-action="delete"><span class="material-icons" aria-hidden="true">delete</span><span data-i18n="fm.delete">Delete</span></button>
                             </div>
                             <div class="fm-file-list-header">
                                 <input type="checkbox" data-pane-select-all="left" aria-label="Select all files" data-i18n-aria-label="fm.workspace.selectAll">
@@ -1247,20 +1250,20 @@ class SFTPFileManager {
                                     <span class="material-icons" aria-hidden="true">home</span>
                                 </button>
                                 <div class="fm-breadcrumb" id="fmRightBreadcrumb">
-                                    <input type="text" class="fm-path-input" id="fmRightPath" value="/" placeholder="/path">
+                                    <input type="text" class="fm-path-input" id="fmRightPath" aria-label="${this.t('terminalFiles.path', 'Absolute path')}" data-i18n-aria-label="terminalFiles.path" value="/" placeholder="/path">
                                 </div>
                                 <button type="button" class="fm-nav-btn" id="fmRightRefresh" aria-label="Refresh" title="Refresh" data-i18n-aria-label="fm.refresh" data-i18n-title="fm.refresh">
                                     <span class="material-icons" aria-hidden="true">refresh</span>
                                 </button>
                             </div>
                             <div class="fm-pane-toolbar" data-pane-toolbar="right">
-                                <button type="button" data-pane-action="newfolder"><span class="material-icons">create_new_folder</span><span data-i18n="fm.newFolder">New Folder</span></button>
-                                <button type="button" data-pane-action="upload"><span class="material-icons">upload</span><span data-i18n="fm.upload">Upload</span></button>
-                                <button type="button" data-pane-action="download"><span class="material-icons">download</span><span data-i18n="fm.download">Download</span></button>
-                                <button type="button" data-pane-action="preview"><span class="material-icons">preview</span><span data-i18n="fm.preview">Preview</span></button>
-                                <button type="button" data-pane-action="rename"><span class="material-icons">drive_file_rename_outline</span><span data-i18n="fm.rename">Rename</span></button>
+                                <button type="button" data-pane-action="newfolder"><span class="material-icons" aria-hidden="true">create_new_folder</span><span data-i18n="fm.newFolder">New Folder</span></button>
+                                <button type="button" data-pane-action="upload"><span class="material-icons" aria-hidden="true">upload</span><span data-i18n="fm.upload">Upload</span></button>
+                                <button type="button" data-pane-action="download"><span class="material-icons" aria-hidden="true">download</span><span data-i18n="fm.download">Download</span></button>
+                                <button type="button" data-pane-action="preview"><span class="material-icons" aria-hidden="true">preview</span><span data-i18n="fm.preview">Preview</span></button>
+                                <button type="button" data-pane-action="rename"><span class="material-icons" aria-hidden="true">drive_file_rename_outline</span><span data-i18n="fm.rename">Rename</span></button>
                                 <button type="button" data-pane-action="move" aria-label="Move…" title="Move…" data-i18n-aria-label="fm.moveAction" data-i18n-title="fm.moveAction"><span class="material-icons" aria-hidden="true">drive_file_move</span><span data-i18n="fm.moveAction">Move…</span></button>
-                                <button type="button" class="is-danger" data-pane-action="delete"><span class="material-icons">delete</span><span data-i18n="fm.delete">Delete</span></button>
+                                <button type="button" class="is-danger" data-pane-action="delete"><span class="material-icons" aria-hidden="true">delete</span><span data-i18n="fm.delete">Delete</span></button>
                             </div>
                             <div class="fm-file-list-header">
                                 <input type="checkbox" data-pane-select-all="right" aria-label="Select all files" data-i18n-aria-label="fm.workspace.selectAll">
@@ -1289,10 +1292,10 @@ class SFTPFileManager {
                     <div class="fm-queue collapsed" id="fmQueue">
                         <button type="button" class="fm-queue-header" id="fmQueueHeader" aria-expanded="false" aria-controls="fmQueueList">
                             <span class="fm-queue-title">
-                                <span class="material-icons">sync</span>
+                                <span class="material-icons" aria-hidden="true">sync</span>
                                 <span data-i18n="fm.transfers">Transfers</span> <span class="fm-queue-badge" id="fmQueueBadge">0</span>
                             </span>
-                            <span class="fm-queue-toggle material-icons" id="fmQueueToggle">expand_more</span>
+                            <span class="fm-queue-toggle material-icons" id="fmQueueToggle" aria-hidden="true">expand_more</span>
                         </button>
                         <div class="fm-queue-list" id="fmQueueList"></div>
                     </div>
@@ -1318,7 +1321,7 @@ class SFTPFileManager {
                         </div>
                         <label class="fm-source-search">
                             <span class="material-icons" aria-hidden="true">search</span>
-                            <input type="search" id="fmSourceSearch" autocomplete="off" placeholder="Search sources" data-i18n-placeholder="fm.workspace.searchSources">
+                            <input type="search" id="fmSourceSearch" aria-label="${this.t('fm.workspace.searchSources', 'Search sources')}" data-i18n-aria-label="fm.workspace.searchSources" autocomplete="off" placeholder="Search sources" data-i18n-placeholder="fm.workspace.searchSources">
                         </label>
                         <div class="fm-source-groups" id="fmSourceGroups"></div>
                         <div class="fm-source-launcher-actions">
@@ -1992,6 +1995,7 @@ class SFTPFileManager {
     }
 
     handleKeyboardShortcut(e) {
+        if (this.displayMode === 'embedded' && this.embeddedRecovery) return;
         if (!this.isOpen) return;
 
         if (e.key === 'Escape') {
@@ -2227,8 +2231,33 @@ class SFTPFileManager {
         }
     }
 
+    setEmbeddedTransportReady(ready) {
+        if (this.displayMode !== 'embedded') return;
+        const state = this.panes.left;
+        if (!ready) {
+            if (this.embeddedRecovery === 'reconnecting') return;
+            this.embeddedRecovery = 'reconnecting';
+            if (state.loadingTimeout) clearTimeout(state.loadingTimeout);
+            state.loadingTimeout = null;
+            state.pendingDirectoryRequestId = null;
+            state.pendingHomeRequestId = null;
+            state.loading = false;
+            state.loadingMore = false;
+            this.modalBody.inert = true;
+            this.hideActionSheet({ restoreFocus: false });
+            this.closeMovePicker({ restoreFocus: false });
+            this.closeContextMenu();
+            this.onEmbeddedRecoveryChange?.('reconnecting');
+        } else if (this.embeddedRecovery === 'reconnecting') {
+            this.embeddedRecovery = 'refreshing';
+            this.refreshPane('left');
+        }
+    }
+
     async openEmbedded(container, sessionId, session = {}) {
         if (!container || !sessionId) return false;
+        this.embeddedRecovery = null;
+        this.modalBody.inert = false;
         if (this.displayMode === 'modal') {
             this.suspendedEmbeddedTarget = null;
             this.close();
@@ -2319,6 +2348,9 @@ class SFTPFileManager {
 
     detachEmbedded() {
         if (this.displayMode !== 'embedded') return;
+        this.embeddedRecovery = null;
+        this.modalBody.inert = false;
+        this.onEmbeddedRecoveryChange?.('ready');
         this.hideActionSheet({ restoreFocus: false });
         this.closeMovePicker({ restoreFocus: false });
         this.closeContextMenu();
@@ -3048,6 +3080,7 @@ class SFTPFileManager {
     }
 
     async refreshPane(pane) {
+        if (this.displayMode === 'embedded' && this.embeddedRecovery === 'reconnecting') return;
         const state = this.panes[pane];
 
         const sourceId = this.getPaneSourceId(state);
@@ -3113,6 +3146,17 @@ class SFTPFileManager {
         const state = this.panes[pane];
         const container = document.getElementById(`fm${this.capitalize(pane)}List`);
         container.setAttribute?.('aria-busy', String(state.loading || state.loadingMore));
+        if (this.displayMode === 'embedded' && pane === 'left' && this.embeddedRecovery) {
+            if (this.embeddedRecovery === 'reconnecting') return;
+            if (state.loading || state.error) {
+                this.onEmbeddedRecoveryChange?.(state.loading ? 'refreshing' : 'error');
+                return;
+            }
+            this.embeddedRecovery = null;
+            this.modalBody.inert = false;
+            this.onEmbeddedRecoveryChange?.('ready');
+        }
+
 
         if (state.loading) {
             container.innerHTML = `
@@ -4954,6 +4998,7 @@ class SFTPFileManager {
     }
 
     handleDrop(e, targetPane) {
+        if (this.displayMode === 'embedded' && this.embeddedRecovery) return;
         if (this.fileOperationBlocked()) {
             this.clearInternalDragState();
             return;

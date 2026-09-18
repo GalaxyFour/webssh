@@ -97,6 +97,8 @@ const SessionManager = {
                 data.buffered_output,
                 data.output_sequence,
             );
+            if (data.file_source) this.sessions[sessionId].fileSource = data.file_source;
+            this.updateSessionStatus(sessionId, 'connected');
             return;
         }
 
@@ -1098,6 +1100,7 @@ const SessionManager = {
                 pane.appendChild(wrapper);
             }
             TerminalManager.fitTerminal(sessionId);
+            TerminalManager.resumeVisibleOutput?.(sessionId);
             return;
         }
 

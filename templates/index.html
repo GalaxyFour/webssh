@@ -243,7 +243,7 @@
                                     </div>
                                     <div class="notepad-meta" data-i18n="workspaceContext.scratchpad">Personal scratchpad</div>
                                 </div>
-                                <textarea id="sessionNotepad" class="notepad-input" data-i18n-placeholder="workspaceContext.notesPlaceholder" placeholder="Write notes, commands, or snippets here..."></textarea>
+                                <textarea id="sessionNotepad" class="notepad-input" aria-label="Notepad" data-i18n-aria-label="workspaceContext.notepad" data-i18n-placeholder="workspaceContext.notesPlaceholder" placeholder="Write notes, commands, or snippets here..."></textarea>
                             </div>
                         </div>
                     </section>
@@ -953,7 +953,6 @@
                 <button type="button" id="commandLibraryTab" class="command-workspace-tab" role="tab" aria-selected="false" aria-controls="commandLibraryPanel" data-command-workspace-section="library"><span class="material-icons" aria-hidden="true">library_books</span><span data-i18n="commands.library">Command Library</span></button>
             </aside>
             <div class="modal-body command-workspace-body">
-                <div id="commandWorkspaceTarget" class="command-workspace-target" aria-live="polite"></div>
                 <section id="commandLibraryPanel" class="command-workspace-panel hidden" role="tabpanel" aria-labelledby="commandLibraryTab">
                     <div class="management-panel-heading">
                         <h3 data-i18n="commands.library">Command Library</h3>
@@ -978,7 +977,6 @@
                             <button class="os-filter-btn" data-os="bsd">BSD</button>
                             <button class="os-filter-btn" data-os="windows">Windows</button>
                         </div>
-                        <div class="os-detected"><span data-i18n="commands.detected">Detected</span>: <strong id="currentOsDisplay">-</strong></div>
                     </div>
                     <div class="commands-table-wrapper">
                         <div class="commands-table-header">
@@ -991,7 +989,6 @@
                         <div class="commands-table-body" id="commandsList"></div>
                     </div>
                     <div class="command-help">
-                        <p><span class="material-icons" aria-hidden="true">lightbulb</span><strong data-i18n="common.tip">Tip</strong>: <span data-i18n="commands.helpTip">Press F1 to open this library anytime. Use the run action to insert a command into the terminal.</span></p>
                         <p><span class="material-icons" aria-hidden="true">lock</span><span data-i18n="commands.helpSystem">System commands (gray background) are read-only. User commands can be edited or deleted.</span></p>
                     </div>
                 </section>

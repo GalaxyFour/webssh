@@ -17,6 +17,7 @@
     }
     window.socket = io({
         path: APP_ROOT + '/socket.io',
+        autoConnect: false,
         auth: { wire_revision: socketProtocol.WIRE_REVISION },
     });
     const outputFlowReconnect = window.WebSSHSocketReconnect.create(
@@ -1272,6 +1273,8 @@
             socketProtocolMismatch.markCompatible();
             window.socket.emit('get_notepad');
             window.notepadController?.reconnect();
+            window.CommandLibrary?.loadCommands();
+            window.CommandSetManager?.load();
         }
     });
 
@@ -2971,6 +2974,9 @@
         document.getElementById('closeCommandPaletteModal')?.addEventListener('click', () => {
             window.ModalManager.close(document.getElementById('commandPaletteModal'));
         });
+
+        // Register every session consumer before the server sends restoration events.
+        socket.connect();
 
     });
 })();

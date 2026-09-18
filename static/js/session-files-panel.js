@@ -24,6 +24,27 @@
             throw new Error('Embedded SFTP container is required');
         }
 
+        function recoveryStatus(state) {
+            if (!status) return;
+            status.hidden = state === 'ready';
+            status.classList?.toggle('session-files-recovery', state !== 'ready');
+            if (state === 'ready') return;
+            const key = state === 'reconnecting' ? 'workspace.toolsReconnecting'
+                : state === 'refreshing' ? 'workspace.toolsRefreshing' : 'workspace.toolsRefreshFailed';
+            const fallback = state === 'reconnecting' ? 'Reconnecting — displayed data may be out of date.'
+                : state === 'refreshing' ? 'Refreshing — displayed data may be out of date.' : 'Could not refresh. Displayed data is out of date.';
+            status.textContent = translate(key, fallback);
+            if (state === 'error' && status.ownerDocument) {
+                const retry = status.ownerDocument.createElement('button');
+                retry.type = 'button';
+                retry.className = 'btn btn-secondary btn-small';
+                retry.textContent = translate('workspace.toolsRetry', 'Reload');
+                retry.addEventListener('click', () => manager.refreshPane('left'));
+                status.appendChild(retry);
+            }
+        }
+        manager.onEmbeddedRecoveryChange = recoveryStatus;
+
         function targetLabel(session = {}) {
             const endpoint = [session.username, session.host].filter(Boolean).join('@');
             return endpoint || session.host || 'active session';
@@ -42,12 +63,12 @@
             const target = targetLabel(session);
             const checking = ['unknown', 'probing'].includes(nextStatus);
             const resourceShortage = nextStatus === 'resource_shortage';
-            const key = resourceShortage
+            const key = nextStatus === 'reconnecting' ? 'workspace.toolsReconnecting' : resourceShortage
                 ? 'workspace.sftpResourceShortage'
                 : checking
                     ? 'workspace.sftpChecking'
                     : 'workspace.sftpUnavailable';
-            const fallback = resourceShortage
+            const fallback = nextStatus === 'reconnecting' ? 'Reconnecting — displayed data may be out of date.' : resourceShortage
                 ? 'The SSH server has no free channel capacity for SFTP on {target}. WebSSH will retry automatically in about one minute.'
                 : checking
                     ? 'Checking SFTP for {target}...'
@@ -78,6 +99,10 @@
             },
 
             setStatus,
+
+            setTransportReady(ready) {
+                manager.setEmbeddedTransportReady?.(ready);
+            },
 
             setDisconnected(sessionId) {
                 manager.handleEmbeddedDisconnect?.(sessionId);

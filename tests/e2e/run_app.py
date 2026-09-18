@@ -381,6 +381,9 @@ def main():
 
             ssh_manager.create_ssh_connection = guarded_network_connect
 
+        from output_load import register_output_load
+        register_output_load(socketio, app)
+
         socketio.run(
             app,
             host='127.0.0.1',

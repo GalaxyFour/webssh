@@ -422,3 +422,15 @@ test('formatEndpoint normalizes missing values without injecting markup', () => 
         port: null,
     }), '<admin>@<server>:22');
 });
+
+test('unloaded credential lists are pending rather than missing keys', () => {
+    const profile = {host: 'host', username: 'user', auth_type: 'key', key_id: 'key'};
+    assert.equal(getProfileReadiness(profile, {keysLoaded: false}).state, 'loading');
+    assert.equal(getProfileReadiness(profile, {keysLoaded: false}).pending, true);
+    assert.equal(getProfileReadiness(profile, {keysLoaded: true, keys: []}).state, 'key-missing');
+    assert.equal(getProfileReadiness(profile, {keysLoaded: true, keys: [{id: 'key', usable: true}]}).state, 'saved');
+    assert.equal(getProfileReadiness(profile, {keysLoaded: false, connected: true}).state, 'connected');
+    assert.equal(getProfileReadiness({...profile, auth_type: 'password', jump_host_id: 'jump'}, {
+        jumpHostsLoaded: false,
+    }).state, 'loading');
+});

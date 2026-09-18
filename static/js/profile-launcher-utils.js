@@ -64,6 +64,17 @@
     }
 
     function getProfileReadiness(profile, context = {}) {
+        const jumpHost = (context.jumpHosts || []).find(item => item?.id === profile?.jump_host_id);
+        const awaitingJumpHosts = profile?.jump_host_id && context.jumpHostsLoaded === false;
+        const awaitingKeys = context.keysLoaded === false
+            && (profile?.auth_type === 'key' || jumpHost?.auth_type === 'key');
+        if (context.connected !== true && (awaitingJumpHosts || awaitingKeys)) {
+            return {
+                state: 'loading', launchMode: 'loading', pending: true,
+                labelKey: 'connection.readinessLoading', label: 'Checking credentials…',
+                actionKey: '', action: '',
+            };
+        }
         const launchMode = determineLaunchMode(profile, context);
         let state = 'review';
         if (context.connected === true) {

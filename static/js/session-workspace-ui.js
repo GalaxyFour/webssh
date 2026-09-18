@@ -34,6 +34,7 @@
         let lastInventoryState = { status: 'disconnected', sessionId: null, inventory: null };
         let inventorySessionId = null;
         let inventoryConnected = false;
+        let transportReady = socket.connected !== false;
 
         function selectedContext() {
             return root.workspaceLayoutController?.getState?.().activeContext || null;
@@ -72,7 +73,10 @@
         function renderInsights(state) {
             lastInsightsState = state;
             const active = sessionManager.getSession(state.sessionId);
-            diagnosticsController?.render(state, active, lastInventoryState);
+            diagnosticsController?.render(
+                !transportReady && active?.connected ? { ...state, status: 'reconnecting' } : state,
+                active, lastInventoryState,
+            );
             applySessionContextDefault();
             syncContextControllers();
         }
@@ -92,6 +96,7 @@
             chartModule: chartsModule,
             onRefreshInventory() {
                 inventoryController?.refresh();
+                insightsController?.refresh();
             },
             onOpenChange(open) {
                 insightsController?.setDiagnosticsVisible(open);
@@ -104,7 +109,10 @@
             render(state) {
                 lastInventoryState = state;
                 const active = sessionManager.getSession(lastInsightsState.sessionId);
-                diagnosticsController?.render(lastInsightsState, active, lastInventoryState);
+                diagnosticsController?.render(
+                    !transportReady && active?.connected ? { ...lastInsightsState, status: 'reconnecting' } : lastInsightsState,
+                    active, lastInventoryState,
+                );
             },
         });
         insightsController = insightsModule.createController({ socket, render: renderInsights });
@@ -144,14 +152,16 @@
             const activeId = sessionManager.getWorkspaceSession?.()
                 || sessionManager.getActiveSession();
             const activeSession = activeId ? sessionManager.getSession(activeId) : null;
-            const connected = Boolean(activeId && activeSession?.connected);
+            const connected = Boolean(transportReady && activeId && activeSession?.connected);
             coordinator.update({
                 layout: sessionManager.layout,
                 sessionId: activeId,
                 session: activeSession,
+                transportReady,
                 sessionCount: sessionManager.getAllSessions().length,
                 sftpCapability: sftpCapabilityTracker.get(activeId),
             });
+            filesController.setTransportReady?.(transportReady);
             syncContextControllers();
             if (activeId !== inventorySessionId || connected !== inventoryConnected) {
                 inventorySessionId = activeId || null;
@@ -171,6 +181,15 @@
 
         documentRef.addEventListener('workspace-context-change', event => {
             syncContextControllers(event.detail?.activeContext || null);
+        });
+        socket.on('disconnect', () => {
+            transportReady = false;
+            sync();
+        });
+        socket.on('connected', data => {
+            if (data?.status !== 'success') return;
+            transportReady = true;
+            sync();
         });
         root.addEventListener('session-workspace-change', sync);
         root.addEventListener('session-removed', event => {

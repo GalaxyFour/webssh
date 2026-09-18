@@ -607,3 +607,18 @@ test('resyncs an existing restored session without recreating its tab', () => {
         ['resync', 'restored', 'switch# ', 14],
     ]);
 });
+
+
+test('restoring an existing disconnected session updates workspace consumers', () => {
+    const { manager, context } = loadSessionManager();
+    manager.sessions.restored = {id: 'restored', connected: false};
+    context.TerminalManager.resyncRestoredOutput = () => {};
+    const changes = [];
+    manager.updateSessionStatus = (id, status) => {
+        manager.sessions[id].connected = status === 'connected';
+        changes.push([id, status]);
+    };
+    manager.restoreSession({session_id: 'restored', file_source: {id: 'sftp-session:restored'}});
+    assert.equal(manager.sessions.restored.connected, true);
+    assert.deepEqual(changes, [['restored', 'connected']]);
+});

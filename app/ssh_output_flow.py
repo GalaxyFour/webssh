@@ -11,6 +11,13 @@ import config
 from .audit_logger import log_warning
 
 
+# One browser can host many terminals. Keep their shared delivery window small
+# enough that parser-completion ACKs do not overflow Engine.IO polling payloads
+# (16 packets), leaving room for input/control traffic. This is a send window,
+# not a relaxation of any configured byte/event budget or ACK deadline.
+_OUTPUT_DELIVERY_WINDOW = 8
+
+
 class SSHOutputFlowController:
     """Track live output until each browser acknowledges accepting it."""
 
@@ -60,7 +67,8 @@ class SSHOutputFlowController:
             self._socket_bytes.get(socket_sid, 0) + size
             <= config.SSH_OUTPUT_MAX_UNACKED_BYTES_PER_SOCKET
             and self._socket_events.get(socket_sid, 0) + 1
-            <= config.SSH_OUTPUT_MAX_UNACKED_EVENTS_PER_SOCKET
+            <= min(config.SSH_OUTPUT_MAX_UNACKED_EVENTS_PER_SOCKET,
+                   _OUTPUT_DELIVERY_WINDOW)
             and self._user_bytes.get(user_id, 0) + size
             <= config.SSH_OUTPUT_MAX_UNACKED_BYTES_PER_USER
             and self._user_events.get(user_id, 0) + 1
@@ -381,13 +389,12 @@ def emit_ssh_output(
                 break
             if reason != 'timeout':
                 break
-            if not ssh_output_flow.has_pending(socket_sid):
-                # A user/global budget can be occupied by a different browser.
-                # Keep bounded SSH backpressure without blaming this healthy
-                # subscriber; disconnect/ping cleanup elsewhere will wake us.
-                stale_sockets = ssh_output_flow.stale_sockets(
-                    exclude=socket_sid
-                )
+            stale_sockets = ssh_output_flow.stale_sockets()
+            if socket_sid not in stale_sockets:
+                # Waiting for capacity is not an ACK timeout: other readers
+                # can consume each freed slot while this reader waits. Only
+                # evict sockets with genuinely overdue outstanding output.
+                # Healthy contention keeps bounded SSH backpressure in place.
                 if not stale_sockets:
                     continue
                 stale_sid = stale_sockets[0]

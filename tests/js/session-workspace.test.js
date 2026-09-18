@@ -845,3 +845,40 @@ test('SFTP capability tracker exposes manual fallback after bounded probe failur
     assert.equal(tracker.get('appliance'), 'inconclusive');
     assert.equal([...timers.values()].some(timer => timer.delay === 10000), false);
 });
+
+
+test('detects connection changes when SessionManager mutates the same session record', () => {
+    const { coordinator, calls } = createHarness();
+    const session = { host: 'alpha', connected: true };
+    const update = () => coordinator.update({sessionId: 's1', session, sftpCapability: 'available'});
+    update();
+    calls.length = 0;
+    session.connected = false;
+    update();
+    session.connected = true;
+    update();
+    assert.deepEqual(calls.filter(call => call[0] === 'insights.session'), [
+        ['insights.session', 's1', false], ['insights.session', 's1', true],
+    ]);
+});
+
+
+test('transport interruptions keep the same Files panel visible while pausing diagnostics', () => {
+    const { coordinator, calls } = createHarness();
+    const update = transportReady => coordinator.update({
+        sessionId: 's1', session: {connected: true, host: 'alpha'},
+        sftpCapability: 'available', transportReady,
+    });
+    update(true);
+    coordinator.openSftpPanel();
+    calls.length = 0;
+    update(false);
+    assert.equal(coordinator.getState().filesAvailable, true);
+    assert.equal(coordinator.getState().sftpOpen, true);
+    assert.equal(coordinator.getState().sftpProbeNeeded, false);
+    assert.equal(calls.some(call => call[0] === 'files.close'), false);
+    update(true);
+    assert.deepEqual(calls.filter(call => call[0] === 'insights.session'), [
+        ['insights.session', 's1', false], ['insights.session', 's1', true],
+    ]);
+});

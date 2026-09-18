@@ -403,6 +403,15 @@
                 }
             },
 
+            refresh() {
+                if (!connected || !sessionId) return;
+                unsupportedSessions.delete(sessionId);
+                unsupportedDiagnosticsSessions.delete(sessionId);
+                clearPolling();
+                failureCount = 0;
+                startPolling();
+            },
+
             setDiagnosticsVisible(nextVisible) {
                 const normalized = Boolean(nextVisible);
                 if (diagnosticsVisible === normalized) return;

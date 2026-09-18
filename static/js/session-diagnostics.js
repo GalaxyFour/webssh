@@ -11,6 +11,7 @@
 
     const HISTORY_LIMIT = 150;
     const STATUS_LABELS = {
+        reconnecting: ['workspace.toolsReconnecting', 'Reconnecting — displayed data may be out of date.'],
         ready: ['diagnostics.statusLive', 'Live'],
         loading: ['diagnostics.statusSampling', 'Sampling'],
         stale: ['diagnostics.statusStale', 'Stale'],
@@ -794,7 +795,7 @@
             elements.os.hidden = !model.os;
             elements.state.textContent = model.status;
             elements.state.className = `session-insights-state ${model.statusClass}`;
-            elements.refresh.disabled = !model.available || model.inventory.loading;
+            elements.refresh.disabled = !model.available || model.inventory.loading || latestState.status === 'reconnecting';
             elements.refresh.setAttribute('aria-busy', String(model.inventory.loading));
             elements.lastUpdated.textContent = model.inventory.sampledAtLabel
                 ? (model.inventory.stale

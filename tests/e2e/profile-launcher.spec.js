@@ -730,7 +730,7 @@ test('inline key upload and rename actions stay touchable at 375px', async ({ pa
     keyItem = page.locator('#keysList .key-item').filter({
         has: page.locator(`[data-key-id="${keyId}"]`),
     });
-    const renameLayout = await keyItem.evaluate(item => {
+    const measureRenameLayout = () => keyItem.evaluate(item => {
         const bounds = item.getBoundingClientRect();
         const actions = [...item.querySelectorAll('.key-item-actions .btn')];
         return {
@@ -741,6 +741,8 @@ test('inline key upload and rename actions stay touchable at 375px', async ({ pa
             actionHeights: actions.map(action => action.getBoundingClientRect().height),
         };
     });
-    expect(renameLayout.contained).toBe(true);
-    expect(renameLayout.actionHeights.every(height => height >= 44)).toBe(true);
+    await expect.poll(async () => {
+        const layout = await measureRenameLayout();
+        return layout.contained && layout.actionHeights.every(height => height >= 44);
+    }).toBe(true);
 });

@@ -128,6 +128,14 @@ keeps an acknowledgement budget blocked for the configured timeout, WebSSH
 applies SSH backpressure and then disconnects only that browser; the underlying
 SSH or persistent tmux session remains available for reconnect.
 
+All terminals in one browser connection share a delivery window of at most eight
+unacknowledged output events, further constrained by the budgets above. This
+paces SSH readers and keeps bursts of output ACKs below Engine.IO's polling
+packet limit, with room for control traffic. Waiting for a delivery slot does
+not itself mean that an ACK is overdue. The configured timeout still applies
+to each outstanding output event. Opening more terminal tabs does not create
+additional Socket.IO connections.
+
 `memory://` is process-local and counters reset when the process restarts. Use a `redis://` URL for durable, shared counters. Redis does not change the one-worker architecture.
 
 ## File transfers and editor limits
