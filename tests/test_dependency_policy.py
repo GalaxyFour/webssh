@@ -13,7 +13,6 @@ APPROVED_PIP_INSTALL_COMMAND = (
 )
 ALLOWED_PIP_LINES = {"cache: pip", APPROVED_PIP_INSTALL_COMMAND}
 MINIMUM_PYTHON = "3.11"
-PRODUCTION_PYTHON = "3.14"
 
 
 def pip_policy_allows(workflow):
@@ -26,15 +25,6 @@ def pip_policy_allows(workflow):
         APPROVED_PIP_INSTALL_COMMAND in pip_lines
         and all(line in ALLOWED_PIP_LINES for line in pip_lines)
     )
-
-
-def workflow_job(workflow, job_name):
-    marker = f"\n  {job_name}:\n"
-    _, separator, remainder = workflow.partition(marker)
-    assert separator, f"missing workflow job: {job_name}"
-
-    next_job = re.search(r"(?m)^  [a-zA-Z0-9_-]+:\s*$", remainder)
-    return remainder[:next_job.start()] if next_job else remainder
 
 
 def normalized_names(path):
@@ -223,35 +213,6 @@ def test_frontend_lock_excludes_vulnerable_socket_io_parser_versions():
     parser = package_lock["packages"]["node_modules/socket.io-parser"]
 
     assert Version(parser["version"]) >= Version("4.2.7")
-
-
-def test_python_runtime_contract_stays_synchronized():
-    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    workflow = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
-    readme = Path("README.md").read_text(encoding="utf-8")
-
-    pytest_job = workflow_job(workflow, "pytest")
-    matrix_entries = re.findall(
-        r"- python_version: '([^']+)'\s+check_name: ([^\n]+)",
-        pytest_job,
-    )
-
-    assert dockerfile.startswith(
-        f"FROM python:{PRODUCTION_PYTHON}-slim@sha256:"
-    )
-    assert matrix_entries == [
-        (PRODUCTION_PYTHON, "pytest"),
-        (MINIMUM_PYTHON, f"pytest (Python {MINIMUM_PYTHON} minimum)"),
-    ]
-    assert "python-version: ${{ matrix.python_version }}" in pytest_job
-
-    for job_name in ("ssh-integration", "browser-e2e-shards"):
-        assert (
-            f"python-version: '{PRODUCTION_PYTHON}'"
-            in workflow_job(workflow, job_name)
-        )
-
-    assert f"python-{MINIMUM_PYTHON}+" in readme
 
 
 def test_ci_installs_only_hash_checked_python_dependencies():

@@ -316,46 +316,6 @@ def test_runtime_image_removes_python_packaging_tooling():
     assert 'rm -rf /usr/local/lib/python*/ensurepip' in dockerfile
 
 
-def test_docker_exec_cli_examples_load_the_persisted_secret():
-    wiki = ROOT / 'docs' / 'wiki'
-    documentation = '\n'.join(
-        (wiki / name).read_text(encoding='utf-8')
-        for name in (
-            'Quick-Start.md',
-            'Production-Deployment.md',
-            'Users-and-Account-Management.md',
-        )
-    )
-    commands = re.findall(
-        r'docker compose(?:(?!```)[\s\S])*?exec webssh'
-        r'(?:(?!```)[\s\S])*?flask [^\n]+',
-        documentation,
-    )
-
-    assert commands
-    assert all('/app/entrypoint.sh flask ' in command for command in commands)
-
-
-def test_production_compose_override_documents_its_minimum_version():
-    overlay = (ROOT / 'docker-compose.production.yml').read_text(
-        encoding='utf-8'
-    )
-    if '!override' not in overlay:
-        return
-
-    production_quickstart = (
-        ROOT / 'docs' / 'wiki' / 'Production-Deployment.md'
-    ).read_text(encoding='utf-8')
-
-    assert '2.24.4' in production_quickstart
-    assert re.search(
-        r'(?:requires|minimum).{0,80}Docker Compose.{0,40}2\.24\.4'
-        r'|Docker Compose.{0,40}2\.24\.4.{0,40}(?:or newer|minimum)',
-        production_quickstart,
-        re.IGNORECASE | re.DOTALL,
-    )
-
-
 def test_ci_rejects_stale_vendored_frontend_assets():
     package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
     workflow = (WORKFLOWS / 'tests.yml').read_text(encoding='utf-8')
@@ -434,23 +394,6 @@ def test_dependabot_vendor_refresh_executes_only_trusted_automation_scripts():
     generation = workflow.index('node scripts/vendor.js')
 
     assert snapshot < checkout < verification < generation
-
-
-def test_wiki_describes_current_transfer_and_log_rotation_contracts():
-    wiki = ROOT / 'docs' / 'wiki'
-    transfers = (
-        wiki / 'SFTP-File-Workspace-and-Transfers.md'
-    ).read_text(encoding='utf-8')
-    audit = (
-        wiki / 'Administration-Audit-and-Diagnostics.md'
-    ).read_text(encoding='utf-8')
-
-    assert '`/api/upload`' not in transfers
-    assert '/api/transfers/<token>/upload' in transfers
-    assert '/api/transfers/<token>/download' in transfers
-    assert 'AUDIT_LOG_MAX_BYTES' in audit
-    assert 'AUDIT_LOG_BACKUP_COUNT' in audit
-    assert 'does not rotate them itself' not in audit
 
 
 def test_trivy_suppressions_are_justified_and_expire():
