@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import os
@@ -366,6 +367,21 @@ def _publish_archive(temporary_archive, destination):
         ) from exc
     temporary_archive.unlink()
     fsync_parent_directory(destination)
+
+
+def default_backup_directory(data_dir):
+    """Keep the legacy CLI location, with a fallback for restricted containers."""
+    parent = Path(data_dir).parent
+    try:
+        # Probe only destination access. Source/read/publication errors must
+        # still fail visibly instead of redirecting an incomplete operation.
+        with tempfile.TemporaryDirectory(dir=parent, prefix='.webssh-backup-probe-'):
+            pass
+    except OSError as exc:
+        if exc.errno not in {errno.EROFS, errno.EACCES, errno.EPERM}:
+            raise
+        return ensure_backup_temp_dir()
+    return parent
 
 
 def create_backup(data_dir, destination):

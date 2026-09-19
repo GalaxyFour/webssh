@@ -367,16 +367,16 @@ def backup_cli():
 def backup_create(destination, confirm_offline):
     """Create and verify a backup while WebSSH is stopped."""
     from .backup_coordination import operation_lock
-    from .backup_manager import create_backup
+    from .backup_manager import create_backup, default_backup_directory
 
     _require_offline_confirmation(confirm_offline)
-    if destination is None:
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        destination = Path(config.DATA_DIR).parent / (
-            f'webssh-backup-{timestamp}.zip'
-        )
     try:
         with operation_lock():
+            if destination is None:
+                timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                destination = default_backup_directory(config.DATA_DIR) / (
+                    f'webssh-backup-{timestamp}.zip'
+                )
             manifest = create_backup(config.DATA_DIR, destination)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

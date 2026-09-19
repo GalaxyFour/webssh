@@ -1,21 +1,10 @@
 # Public reverse-proxy overlay. Requires Docker Compose 2.24.4 or newer.
 services:
   webssh:
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: ${WEBSSH_PIDS_LIMIT:-512}
-    mem_limit: ${WEBSSH_MEMORY_LIMIT:-2g}
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
-      - /run/webssh:rw,noexec,nosuid,nodev,size=1m,uid=1000,gid=1000,mode=700
     ports: !override
       - "127.0.0.1:5000:5000"
     environment:
       DEPLOYMENT_PROFILE: production
-      XDG_RUNTIME_DIR: /run/webssh
       CORS_ORIGINS: ${WEBSSH_ORIGIN:?Set WEBSSH_ORIGIN to the public HTTPS origin}
       ALLOW_CORS_WILDCARD: "false"
       SESSION_COOKIE_SECURE: "true"

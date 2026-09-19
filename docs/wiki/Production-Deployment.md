@@ -49,6 +49,17 @@ The overlay binds WebSSH to `127.0.0.1:5000` by default. A reverse proxy on the
 same host can use that address. For a containerized proxy, remove public port
 publishing and connect both services to a private Docker network.
 
+## Optional container restrictions
+
+The production overlay preserves existing resource and filesystem settings.
+For the current image, append `-f docker-compose.hardened.yml` to explicitly
+select a read-only root, dropped capabilities, private runtime tmpfs and resource
+limits. Obtain this file from the same release as the other Compose files.
+Review custom write paths, numeric UID/GID and capacity first. See
+[production container boundaries](https://github.com/bifrost0x/webssh/blob/main/docs/production-container.md)
+for configuration and backup behavior. The extra overlay does not replace the
+production HTTPS and authentication settings.
+
 ## Create the administrator
 
 Browser bootstrap and public registration are disabled in production. Create

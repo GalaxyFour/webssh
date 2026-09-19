@@ -64,6 +64,14 @@ flask --app start:app backup restore --help
 
 For a container deployment, execute the command in a one-off container with the same data volume and configuration, while the normal application container is stopped.
 
+Without `--destination`, `backup create --confirm-offline` retains the parent of
+`DATA_DIR` as its default when writable. On a read-only or permission-restricted
+parent, it writes to the private instance directory under `BACKUP_TEMP_DIR` and
+prints the exact archive path. Explicit destinations are never redirected.
+The supplied Compose recovery volume persists fallback archives; custom paths
+must provide their own durability. Copy the result to encrypted off-host storage.
+An archive in a one-off container's writable layer disappears with that container.
+
 ## Safety limits
 
 Default operational limits include:
