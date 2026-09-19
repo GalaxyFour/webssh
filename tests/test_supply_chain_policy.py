@@ -245,12 +245,12 @@ def test_security_workflow_gates_publish_and_preserves_scan_evidence():
         publish,
     )
     assert re.search(
-        r'build-and-push:.*?\n\s+needs:\s+security-scan\b',
+        r'build-and-push:.*?\n\s+needs:\s+release-tests\b',
         publish,
         re.DOTALL,
     )
     assert re.search(
-        r'build-and-push:.*?\n\s+needs:\s+security-scan\s*\n'
+        r'build-and-push:.*?\n\s+needs:\s+release-tests\s*\n'
         r"\s+if:\s+github\.event_name\s+!=\s+'pull_request'",
         publish,
         re.DOTALL,
@@ -263,12 +263,13 @@ def test_publish_records_and_verifies_the_immutable_image_identity():
     publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
 
     assert re.search(
-        r'- name: Build and push Docker image\s+id:\s+build\b',
+        r'- name: Build immutable release candidate\s+id:\s+build\b',
         publish,
     )
     assert 'VCS_REF=${{ github.sha }}' in publish
     assert 'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}' in publish
-    assert 'docker buildx imagetools inspect "$immutable_ref"' in publish
+    assert 'python scripts/release_image.py inspect' in publish
+    assert 'python scripts/release_image.py promote' in publish
     assert 'name: image-release-${{ github.sha }}' in publish
     assert 'path: image-release.json' in publish
 
@@ -530,3 +531,92 @@ def test_slow_test_gates_are_sharded_without_duplicate_redis_unit_runs():
     )
     assert 'test "$SHARD_RESULT" = success' in workflow
     assert 'fullyParallel: true' in playwright
+
+
+def test_release_only_promotes_the_candidate_after_exact_sha_tests_and_scans():
+    publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
+    assert 'uses: ./.github/workflows/tests.yml' in publish
+    assert 'expected_sha: ${{ github.sha }}' in publish
+    assert 'push-by-digest=true,name-canonical=true,push=true' in publish
+    assert publish.count('uses: docker/build-push-action@') == 1
+    build = publish.split('- name: Build immutable release candidate', 1)[1].split('- name:', 1)[0]
+    assert 'tags:' not in build
+    assert 'platforms: linux/amd64,linux/arm64' in build
+    inspect = publish.index('python scripts/release_image.py inspect')
+    promote = publish.index('python scripts/release_image.py promote')
+    for arch in ('AMD64', 'ARM64'):
+        scan = publish.index('image-ref: ${{ env.' + arch + '_REF }}')
+        runtime = publish.index('--image "$' + arch + '_REF"')
+        assert inspect < scan < runtime < promote
+    assert 'continue-on-error:' not in publish
+    assert 'cancel-in-progress: false' in publish
+
+
+def test_reusable_tests_preserve_standalone_and_fail_closed_contracts():
+    from scripts.check_release_gates import REQUIRED
+    workflow = (WORKFLOWS / 'tests.yml').read_text(encoding='utf-8')
+    assert workflow.startswith('name: Tests\n')
+    assert all(trigger + ':' in workflow for trigger in ('push', 'pull_request', 'workflow_call', 'workflow_dispatch'))
+    assert 'github.run_id' in workflow.split('jobs:', 1)[0]
+    assert "[ -n \"$EXPECTED_SHA\" ]" in workflow
+    gate = workflow.split('  all-tests:', 1)[1]
+    needs = re.search(r'needs: \[(.*?)\]', gate).group(1)
+    assert set(needs.split(', ')) == REQUIRED
+    assert 'if: ${{ always() }}' in gate
+    assert 'GATE_RESULTS: ${{ toJSON(needs) }}' in gate
+    assert 'python scripts/check_release_gates.py' in gate
+    assert (ROOT / 'scripts/check_release_promotion.py').is_file()
+
+
+def test_production_compose_preserves_restrictions_and_ldap_mounts():
+    import os
+    import shutil
+    import subprocess
+    import pytest
+
+    docker = shutil.which('docker')
+    if docker is None:
+        pytest.skip('Docker Compose CLI is unavailable')
+    environment = dict(os.environ, WEBSSH_ORIGIN='https://ssh.example.com',
+                       WEBSSH_PIDS_LIMIT='768', WEBSSH_MEMORY_LIMIT='3g')
+    for ldap in (False, True):
+        arguments = [docker, 'compose', '-f', 'docker-compose.yml']
+        if ldap:
+            arguments.extend(['-f', 'docker-compose.ldap.yml'])
+        arguments.extend(['-f', 'docker-compose.production.yml', 'config', '--format', 'json'])
+        result = subprocess.run(arguments, cwd=ROOT, env=environment,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        service = json.loads(result.stdout)['services']['webssh']
+        assert service['read_only'] is True
+        assert service['cap_drop'] == ['ALL']
+        assert service['security_opt'] == ['no-new-privileges:true']
+        assert int(service['pids_limit']) == 768
+        assert int(service['mem_limit']) == 3 * 1024 ** 3
+        assert service['environment']['XDG_RUNTIME_DIR'] == '/run/webssh'
+        assert service['ports'][0]['host_ip'] == '127.0.0.1'
+        assert len(service['ports']) == 1
+        for mount in service['tmpfs']:
+            assert all(option in mount for option in ('noexec', 'nosuid', 'nodev', 'size='))
+        assert any(mount.startswith('/tmp:') for mount in service['tmpfs'])
+        assert any(mount.startswith('/run/webssh:') and 'mode=700' in mount
+                   for mount in service['tmpfs'])
+        volumes = {volume['target']: volume for volume in service['volumes']}
+        assert not volumes['/app/data'].get('read_only', False)
+        assert not volumes['/app/recovery'].get('read_only', False)
+        if ldap:
+            assert service['environment']['LDAP_ENABLED'] == 'true'
+            assert volumes['/run/webssh-auth']['read_only'] is True
+        else:
+            assert '/run/webssh-auth' not in volumes
+
+
+def test_publish_queues_releases_and_guards_only_main_promotion():
+    publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
+    concurrency = publish.split('    concurrency:', 1)[1].split('    permissions:', 1)[0]
+    assert 'queue: max' in concurrency
+    assert 'cancel-in-progress: false' in concurrency
+    step = publish.split('- name: Promote the verified index without rebuilding', 1)[1].split('- name:', 1)[0]
+    assert 'if [ "$GITHUB_REF" = "refs/heads/main" ]; then' in step
+    assert 'promotion_args+=(--require-current-main)' in step
+    assert '\"${promotion_args[@]}\"' in step

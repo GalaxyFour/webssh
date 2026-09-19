@@ -209,7 +209,8 @@ explicit trusted-proxy settings.
 
 Read the [Quick Start](https://github.com/bifrost0x/webssh/wiki/Quick-Start) or
 the complete [Production Deployment](https://github.com/bifrost0x/webssh/wiki/Production-Deployment)
-guide before accepting users.
+guide before accepting users. See [production container boundaries](docs/production-container.md)
+for writable paths, resource budgets, and LDAP/Tailscale constraints.
 
 ## Security Boundary
 

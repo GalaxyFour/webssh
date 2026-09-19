@@ -383,6 +383,8 @@ def main():
 
         from output_load import register_output_load
         register_output_load(socketio, app)
+        from workspace_restore import register_workspace_restore
+        register_workspace_restore(socketio)
 
         socketio.run(
             app,
