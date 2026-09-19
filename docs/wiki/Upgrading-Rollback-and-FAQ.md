@@ -45,7 +45,15 @@ docker compose \
   up -d
 ```
 
-Use all Compose files from the same release or commit.
+Use all Compose files from the same release or commit. The production overlay
+preserves established resource limits, temporary mounts and custom runtime paths.
+Additional restrictions are explicit in `docker-compose.hardened.yml`; append it
+to every command only when that deployment has been configured and tested for it.
+If already using the restrictions introduced with PR #223, include the new
+hardened overlay to retain them when updating Compose files. Otherwise updating
+the production file removes those previously implicit limits on recreation.
+Existing image-only upgrades do not change container settings. Review the merged
+configuration before recreating containers; keep data and recovery volumes intact.
 
 ## Post-upgrade verification
 

@@ -1,3 +1,4 @@
+import errno
 import json
 import hashlib
 import os
@@ -1094,3 +1095,71 @@ def test_restore_rejects_recovery_overlap_before_mutating_destination(tmp_path, 
         restore_backup(archive, destination)
     assert _snapshot(destination) == before
     assert not (destination / 'recovery').exists()
+
+
+@pytest.mark.parametrize('failure', [errno.EROFS, errno.EACCES, errno.EPERM])
+def test_cli_default_backup_uses_private_recovery_when_parent_cannot_be_written(
+    app, tmp_path, monkeypatch, failure,
+):
+    import config
+    from app.backup_coordination import ensure_backup_temp_dir
+
+    data_dir = Path(app.config['DATA_DIR'])
+    recovery = tmp_path / 'durable-recovery'
+    monkeypatch.setattr(config, 'BACKUP_TEMP_DIR', recovery)
+    parent = data_dir.parent
+    before = set(parent.glob('webssh-backup-*.zip'))
+    original = backup_manager.tempfile.TemporaryDirectory
+
+    def inaccessible_parent(*args, **kwargs):
+        if Path(kwargs.get('dir', '.')) == parent:
+            raise OSError(failure, 'parent unavailable')
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(backup_manager.tempfile, 'TemporaryDirectory', inaccessible_parent)
+    result = app.test_cli_runner().invoke(args=['backup', 'create', '--confirm-offline'])
+    assert result.exit_code == 0, result.output
+    archives = list(ensure_backup_temp_dir().glob('webssh-backup-*.zip'))
+    assert len(archives) == 1
+    verify_backup(archives[0])
+    assert str(archives[0]) in result.output
+    assert set(parent.glob('webssh-backup-*.zip')) == before
+
+
+def test_cli_default_backup_preserves_writable_legacy_destination(app):
+    parent = Path(app.config['DATA_DIR']).parent
+    before = set(parent.glob('webssh-backup-*.zip'))
+    result = app.test_cli_runner().invoke(args=['backup', 'create', '--confirm-offline'])
+    assert result.exit_code == 0, result.output
+    created = set(parent.glob('webssh-backup-*.zip')) - before
+    assert len(created) == 1
+    archive = created.pop()
+    try:
+        verify_backup(archive)
+    finally:
+        archive.unlink()
+
+
+@pytest.mark.parametrize(('explicit', 'failure'), [
+    (False, errno.ENOSPC), (False, errno.EACCES),
+    (True, errno.EACCES), (True, errno.EROFS),
+])
+def test_cli_backup_does_not_redirect_storage_errors_or_explicit_paths(
+    app, tmp_path, monkeypatch, explicit, failure,
+):
+    attempted = []
+
+    def fail_backup(source, destination):
+        attempted.append(Path(destination))
+        raise OSError(failure, 'test failure')
+
+    monkeypatch.setattr(backup_manager, 'create_backup', fail_backup)
+    args = ['backup', 'create', '--confirm-offline']
+    destination = tmp_path / 'explicit.zip'
+    if explicit:
+        args += ['--destination', str(destination)]
+    result = app.test_cli_runner().invoke(args=args)
+    assert result.exit_code != 0
+    assert len(attempted) == 1
+    if explicit:
+        assert attempted[0] == destination

@@ -86,6 +86,8 @@ jobs:
             # protocols, pagination, and threaded transport admission.
             pytest_targets: >-
               tests/test_admin_cli.py
+              tests/test_backup_manager.py
+              tests/test_deployment_compatibility.py
               tests/test_auth.py
               tests/test_entrypoint.py
               tests/test_factor_bootstrap.py
@@ -456,7 +458,7 @@ jobs:
           exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$WEBSSH_CI_CONTAINER")"
           test "$exit_code" = "0"
 
-      - name: Verify hardened production startup and recovery
+      - name: Verify production compatibility, hardening and recovery
         shell: bash
         run: python scripts/check_hardened_container.py --image "webssh-ci:${GITHUB_SHA}" --revision "$GITHUB_SHA"
 

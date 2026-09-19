@@ -568,7 +568,7 @@ def test_reusable_tests_preserve_standalone_and_fail_closed_contracts():
     assert (ROOT / 'scripts/check_release_promotion.py').is_file()
 
 
-def test_production_compose_preserves_restrictions_and_ldap_mounts():
+def test_opt_in_hardening_preserves_restrictions_and_ldap_mounts():
     import os
     import shutil
     import subprocess
@@ -583,7 +583,8 @@ def test_production_compose_preserves_restrictions_and_ldap_mounts():
         arguments = [docker, 'compose', '-f', 'docker-compose.yml']
         if ldap:
             arguments.extend(['-f', 'docker-compose.ldap.yml'])
-        arguments.extend(['-f', 'docker-compose.production.yml', 'config', '--format', 'json'])
+        arguments.extend(['-f', 'docker-compose.production.yml',
+                          '-f', 'docker-compose.hardened.yml', 'config', '--format', 'json'])
         result = subprocess.run(arguments, cwd=ROOT, env=environment,
                                 capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result.stderr

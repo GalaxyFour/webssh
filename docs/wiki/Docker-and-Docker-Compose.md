@@ -160,8 +160,11 @@ docker compose \
 
 Always use base and overlay files from the same release or commit. The LDAP
 overlay adds a read-only secret mount to WebSSH and a separate helper profile;
-the production overlay must remain last so its security settings are
-authoritative.
+the production overlay follows it so its security settings are authoritative.
+Optionally append `-f docker-compose.hardened.yml` after production to enable
+additional container restrictions. Check custom writable paths, runtime UID/GID
+and resource budgets before opting in; see
+[container boundaries](https://github.com/bifrost0x/webssh/blob/main/docs/production-container.md).
 
 ## Inspect the effective configuration
 
