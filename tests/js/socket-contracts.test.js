@@ -202,15 +202,6 @@ test('profile and command-set contracts keep their direct and dynamic acknowledg
     }
 });
 
-test('quick_disconnect remains covered by its Socket.IO integration contract', () => {
-    const integrationTest = fs.readFileSync(
-        path.join(ROOT, 'tests', 'integration', 'test_paramiko5_socketio.py'), 'utf8',
-    );
-
-    assert.ok(integrationTest.includes("socket_client.emit('quick_disconnect'"));
-    assert.ok(integrationTest.includes("'quick_disconnect_success'"));
-});
-
 test('transfer control contracts are represented by the browser client', () => {
     const contracts = ownJavascriptContracts();
 

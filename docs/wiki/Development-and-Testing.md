@@ -68,7 +68,46 @@ npm run test:js
 npm run test:e2e
 ```
 
-Playwright assumptions must be updated when a default frontend state changes. Test both the new default and the user's explicit override, and bump template asset query versions when a cached browser asset changes.
+`test:e2e` always runs the complete suite. CI uses two isolated servers with one
+worker each and assigns tests by recorded duration:
+
+```bash
+npm run test:e2e:ci -- --shard=1/2
+npm run test:e2e:ci -- --shard=2/2
+```
+
+The runner discovers the current suite before partitioning it. Every discovered
+test belongs to exactly one shard; new tests receive a fallback weight. Test
+identity is based on file and full title, so moving source lines does not change
+assignment. Shared account and session fixtures require one worker per server;
+increasing workers without isolating that state can invalidate results.
+
+CI uploads `test-results/e2e-timing-*.json` from each shard, including failed runs.
+Download reports from a representative successful run into `test-results/` and
+refresh the checked-in duration baseline with:
+
+```bash
+npm run test:e2e:timings:refresh
+# Or pass the downloaded report paths explicitly:
+npm run test:e2e:timings:refresh -- path/to/shard-1.json path/to/shard-2.json
+```
+
+Review the baseline diff alongside the suite change. Do not mix reports from
+different revisions when refreshing it. Timing weights affect scheduling only;
+they do not decide which tests run.
+
+Success screenshots and animation frames are opt-in:
+
+```bash
+npm run test:captures
+```
+
+This sets `WEBSSH_CAPTURE_ASSETS=1` for the capture suites. Their functional,
+accessibility and geometry assertions also run in normal CI. Failure screenshots
+and traces remain available without the flag.
+
+Playwright assumptions must be updated when a default frontend state changes.
+Test both the new default and the user's explicit override.
 
 ## Container and runtime gates
 
@@ -87,30 +126,44 @@ Always associate CI evidence with the exact commit under review. A green run fro
 
 ## Immutable image publication
 
-Main pushes and version tags first call the complete `Tests` workflow with the
-exact source SHA. Every required job must finish successfully; missing, skipped,
-cancelled, or failed jobs prevent publication. Standalone PR and manual test runs
-remain available, including the Dependabot vendor refresh workflow.
+Main pushes and version tags call the complete `Tests` workflow once, with the
+exact source SHA. `Tests` has no separate main-push trigger. PRs still test their
+own merge revision, and manual exact-SHA runs remain available, including the
+Dependabot vendor refresh workflow. Every required job must finish successfully;
+missing, skipped, cancelled, or failed jobs prevent publication.
 
-The publisher builds one AMD64/ARM64 candidate with SBOM and provenance and pushes
-it by digest without release tags. It verifies the index, platform configs and
-source revision, scans each exact child digest for fixable High/Critical findings,
-and runs the hardened startup, backup/restore and shutdown checks on both images.
-Only then does it copy the complete index, retaining its attestations, to the
-existing branch/version tags (`main`, `latest`, or the version and major.minor
-series). It reads every tag back and requires the original index digest. A failed
-check leaves the candidate unpromoted; publication does not rebuild the image.
+At the same time, independent native AMD64 and ARM64 jobs build digest-only
+candidates on `ubuntu-24.04` and `ubuntu-24.04-arm`. They retain package refreshes,
+SBOM and provenance, verify source and platform identity, scan the exact runtime
+digests for fixable High/Critical findings, and run compatible plus opt-in
+hardened startup, backup/restore and shutdown checks. PR image scans also use
+native runners. Superseded PR scans are cancelled; release runs remain separate.
 
-The workflow retains `image-candidate.json`, per-platform Trivy reports and the
-successful `image-release.json` as artifacts for 90 days. The release record
-contains the tested revision, index digest, platform digests and verified tags.
+Each platform uploads its candidate identity only after its scan and runtime
+checks pass. The handoff is bound to repository, source SHA and workflow run.
+Retrying failed jobs can reuse a successful platform from an earlier attempt of
+the same run; a successfully rebuilt platform replaces its own handoff. Different
+runs, revisions, future attempts and mismatched registry evidence are rejected.
+
+The publication job waits for both platform jobs and the full test gate. It
+rechecks the immutable candidates and assembles their complete manifest
+descriptors, including attestations, under a run-specific `candidate-*` tag.
+Only the validated combined index is copied to the existing branch/version tags
+(`main`, `latest`, or the version and major.minor series). Every destination tag
+must resolve to that original index digest. Promotion never rebuilds the image.
+
+Successful platform handoffs are retained for 14 days. Per-platform scan evidence
+and the successful `image-release.json` are retained for 90 days; the release
+record contains the tested revision, index digest, platform digests and verified
+tags. A retry after handoff expiration needs fresh platform builds.
+
 Registry tag writes are not transactional: a registry/network failure can leave
 some tags updated, so a failed promotion requires checking all tags against the
-candidate digest before retrying. Concurrent publisher jobs are serialized, with up to 100 pending jobs queued.
-Queue order follows completion of the preceding test gates, so a main push also
-rechecks the current remote main SHA immediately before promotion. Superseded
-main candidates fail without updating tags; version-tag releases remain eligible
-independently of the current main SHA.
+candidate digest before retrying. Publisher jobs are serialized, with up to 100
+pending jobs queued. Queue arrival follows validation completion, so a main push
+also rechecks the current remote main SHA immediately before promotion.
+Superseded main candidates fail without updating release tags; version-tag
+releases remain eligible independently of the current main SHA.
 
 PRs also exercise the promotion helper against a disposable loopback-only local
 registry, using tiny synthetic platform images with attestation payloads:
@@ -119,11 +172,26 @@ registry, using tiny synthetic platform images with attestation payloads:
 python scripts/check_release_promotion.py
 ```
 
-This requires Docker and Buildx. It verifies digest-only staging, whole-index
-preservation at each destination tag, and rejection of a different source SHA.
-It creates a uniquely named registry container and removes only that container
-and its anonymous volume after verifying its ownership label. This contract does
-not replace the real candidate scans or application runtime checks.
+This requires Docker and Buildx. It verifies native candidate assembly,
+whole-index preservation at each destination tag, and rejection of a different
+source SHA. It creates a uniquely named registry container and removes only that
+container and its anonymous volume after verifying its ownership label. This
+contract does not replace the real candidate scans or application runtime checks.
+
+### Required-check rollout
+
+Existing PR job names are retained so the current branch rules continue to work.
+The `all-tests` aggregate requires every configured test job, including SMB and
+the release contract; `security-scan / image-security` aggregates both platform
+scans. After these contexts have passed on the deployed workflow, maintainers
+can migrate individual required test/image jobs to those aggregate checks while
+retaining separately required analysis checks. Verify the exact GitHub check
+names on a fresh PR before changing repository rules.
+
+Path-based skipping, including documentation-only changes, is deliberately not
+introduced here. It requires an explicit change classifier and aggregate gates
+that distinguish permitted skips from missing or failed jobs; changing triggers
+first could leave required checks pending or weaken the release gate.
 
 ## Storage and concurrency rules
 

@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
-from release_image import inspect_candidate, promote
+from release_image import assemble, inspect_candidate, inspect_platform, promote
 
 
 REGISTRY = 'registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373'
@@ -89,11 +89,18 @@ def seed(base):
         attestation['annotations'] = {'vnd.docker.reference.type': 'attestation-manifest',
                                       'vnd.docker.reference.digest': runtime['digest']}
         descriptors.append(attestation)
+    native = []
+    for offset in (0, 2):
+        raw = encode({'schemaVersion': 2, 'mediaType': OCI + 'index.v1+json',
+                      'manifests': descriptors[offset:offset + 2]})
+        with request(base + '/manifests/' + digest(raw), 'PUT', raw, OCI + 'index.v1+json'):
+            pass
+        native.append(digest(raw))
     index = encode({'schemaVersion': 2, 'mediaType': OCI + 'index.v1+json',
                     'manifests': descriptors})
     with request(base + '/manifests/' + digest(index), 'PUT', index, OCI + 'index.v1+json'):
         pass
-    return index
+    return index, native
 
 
 def main():
@@ -117,8 +124,7 @@ def main():
                 time.sleep(0.5)
         image = binding + '/contract/image'
         api = base + '/v2/contract/image'
-        original = seed(api)
-        candidate = digest(original)
+        original, native = seed(api)
         try:
             with request(api + '/tags/list') as response:
                 if json.load(response).get('tags'):
@@ -127,6 +133,27 @@ def main():
             # Distribution returns NAME_UNKNOWN before the first tag exists.
             if error.code != 404:
                 raise
+        evidence = [inspect_platform(image, child, REVISION, 'linux/' + arch, '123', '1')
+                    for child, arch in zip(native, ('amd64', 'arm64'))]
+        invalid = [{**item, 'run_attempt': '2'} for item in evidence]
+        try:
+            assemble(image, REVISION, invalid, '123', '1')
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Evidence from another attempt was accepted')
+        assembled = assemble(image, REVISION, evidence, '123', '1')
+        candidate = assembled['digest']
+        if candidate != digest(original):
+            # Buildx can serialize the same complete index in another key order.
+            # Verify all descriptors, then use the exact assembled bytes below.
+            req = Request(api + '/manifests/' + candidate,
+                          headers={'Accept': OCI + 'index.v1+json'})
+            with HTTP.open(req, timeout=10) as response:
+                raw = response.read()
+            if json.loads(raw) != json.loads(original):
+                raise AssertionError('Native assembly changed the index descriptors')
+            original = raw
         inspect_candidate(image, candidate, REVISION)
         for suffixes in (('main', 'latest'), ('2.4.0', '2.4', 'latest')):
             tags = [image + ':' + tag for tag in suffixes]
@@ -147,7 +174,7 @@ def main():
         with request(api + '/tags/list') as response:
             if 'rejected' in json.load(response)['tags']:
                 raise AssertionError('Rejected candidate wrote a tag')
-        print('Immutable promotion contract passed, including attestations and rejected revision')
+        print('Native assembly and immutable promotion passed, including attestations and rejected identity')
     finally:
         if container:
             actual = docker('inspect', '--format', '{{ index .Config.Labels "webssh.promotion" }}', container)

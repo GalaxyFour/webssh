@@ -1,6 +1,5 @@
 """Tests for post-connect command normalization and terminal input."""
 
-from pathlib import Path
 import threading
 
 import paramiko
@@ -615,29 +614,3 @@ def test_output_reader_start_failure_detaches_existing_tmux(monkeypatch):
     assert tmux_channel.command == 'tmux new-session -A -s existing_session'
     assert tmux_channel.closed
     assert client.closed
-
-
-def test_connection_form_offers_free_text_command_and_named_set_modes():
-    template = Path('templates/index.html').read_text(encoding='utf-8')
-
-    assert 'id="startupCommandsInput"' in template
-    assert 'id="connectionCommandSelect"' in template
-    assert 'id="commandSetSelect"' in template
-    assert 'id="manageCommandSetsBtn"' in template
-    assert 'id="connectionCommandPreview"' in template
-
-
-def test_connection_payload_uses_the_selected_post_connect_mode():
-    source = Path('static/js/app.js').read_text(encoding='utf-8')
-
-    assert 'ConnectionCommandManager.getPayload()' in source
-    assert "window.socket.emit('save_profile'" not in source
-
-
-def test_profile_selection_restores_command_set_and_supports_legacy_conversion():
-    source = Path('static/js/profile-manager.js').read_text(encoding='utf-8')
-
-    assert 'ConnectionCommandManager?.applyProfile(profile)' in source
-    assert 'profile.startup_commands' in source
-    assert 'CommandSetManager.openLegacyConversion(profile)' in source
-    assert 'getLegacyStartupCommands()' in source

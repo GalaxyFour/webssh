@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [main]
 
+# A new PR revision supersedes its scans. Release runs use separate groups;
+# only the publication job below serializes writes to public image tags.
+concurrency:
+  group: image-validation-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -26,8 +32,136 @@ jobs:
     permissions:
       contents: read
 
+  build-candidate:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "IMAGE_REF=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract candidate metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE_REF }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build immutable native candidate
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          pull: true
+          outputs: type=image,name=${{ env.IMAGE_REF }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            OS_PACKAGE_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
+          sbom: true
+          provenance: mode=max
+          cache-from: |
+            type=gha,scope=security-${{ matrix.arch }}
+            type=gha,scope=publish-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=publish-${{ matrix.arch }}
+
+      - name: Validate native candidate identity
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          CANDIDATE_PLATFORM: linux/${{ matrix.arch }}
+        shell: bash
+        run: |
+          python scripts/release_image.py inspect-platform \
+            --image "$IMAGE_REF" --digest "$IMAGE_DIGEST" \
+            --revision "$GITHUB_SHA" --platform "$CANDIDATE_PLATFORM" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output image-candidate.json
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          candidate = json.load(open('image-candidate.json'))
+          digest, = candidate['platforms'].values()
+          print(f"RUNTIME_REF={candidate['repository']}@{digest}")
+          PY
+
+      - name: Scan exact native candidate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.RUNTIME_REF }}
+          format: json
+          output: candidate-trivy.json
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln
+          trivyignores: .trivyignore.yaml
+
+      - name: Verify compatible and hardened runtime of exact native candidate
+        env:
+          CANDIDATE_PLATFORM: linux/${{ matrix.arch }}
+        run: |
+          python scripts/check_hardened_container.py --image "$RUNTIME_REF" \
+            --revision "$GITHUB_SHA" --platform "$CANDIDATE_PLATFORM"
+
+      # This success-only artifact is the handoff: failed scans/runtime checks
+      # never produce promotable evidence. Each matrix leg owns a distinct name.
+      # A successful rerun replaces it; failed-job retries may reuse prior success.
+      - name: Upload verified native identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-${{ github.sha }}-${{ github.run_id }}-${{ matrix.arch }}
+          path: image-candidate.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload native scan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-checks-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          path: |
+            image-candidate.json
+            candidate-trivy.json
+          if-no-files-found: warn
+          retention-days: 90
+
   build-and-push:
-    needs: release-tests
+    needs: [release-tests, build-candidate]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     concurrency:
@@ -50,9 +184,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           echo "IMAGE_REF=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
@@ -62,6 +193,32 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download this run's verified AMD64 identity
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-${{ github.sha }}-${{ github.run_id }}-amd64
+          path: candidates/amd64
+
+      - name: Download this run's verified ARM64 identity
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-${{ github.sha }}-${{ github.run_id }}-arm64
+          path: candidates/arm64
+
+      - name: Assemble and validate complete candidate index
+        shell: bash
+        run: |
+          python scripts/release_image.py assemble \
+            --image "$IMAGE_REF" --revision "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --evidence candidates/amd64/image-candidate.json candidates/arm64/image-candidate.json \
+            --output image-candidate.json
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          candidate = json.load(open('image-candidate.json'))
+          print(f"IMAGE_DIGEST={candidate['digest']}")
+          PY
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -74,75 +231,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build immutable release candidate
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          outputs: type=image,name=${{ env.IMAGE_REF }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VCS_REF=${{ github.sha }}
-            OS_PACKAGE_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
-          sbom: true
-          provenance: mode=max
-          cache-from: |
-            type=gha,scope=security-amd64
-            type=gha,scope=security-arm64
-            type=gha,scope=publish
-          cache-to: type=gha,mode=max,scope=publish
-
-      - name: Validate candidate platforms and source revisions
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          python scripts/release_image.py inspect \
-            --image "$IMAGE_REF" --digest "$IMAGE_DIGEST" \
-            --revision "$GITHUB_SHA" --output image-candidate.json
-          python - <<'PY' >> "$GITHUB_ENV"
-          import json
-          candidate = json.load(open('image-candidate.json'))
-          for arch in ('amd64', 'arm64'):
-              print(f"{arch.upper()}_REF={candidate['repository']}@{candidate['platforms']['linux/' + arch]}")
-          PY
-
-      - name: Scan exact AMD64 candidate
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.AMD64_REF }}
-          format: json
-          output: candidate-trivy-amd64.json
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
-          scanners: vuln
-          trivyignores: .trivyignore.yaml
-
-      - name: Scan exact ARM64 candidate
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.ARM64_REF }}
-          format: json
-          output: candidate-trivy-arm64.json
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
-          scanners: vuln
-          trivyignores: .trivyignore.yaml
-
-      - name: Verify hardened runtime of both immutable candidates
-        shell: bash
-        run: |
-          python scripts/check_hardened_container.py --image "$AMD64_REF" --revision "$GITHUB_SHA" --platform linux/amd64
-          python scripts/check_hardened_container.py --image "$ARM64_REF" --revision "$GITHUB_SHA" --platform linux/arm64
-
       - name: Promote the verified index without rebuilding
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           RELEASE_TAGS: ${{ steps.meta.outputs.tags }}
         shell: bash
         run: |
@@ -156,21 +246,10 @@ jobs:
             --revision "$GITHUB_SHA" --tags-file release-tags.txt \
             --output image-release.json "${promotion_args[@]}"
 
-      - name: Upload candidate scan evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: candidate-checks-${{ github.sha }}
-          path: |
-            image-candidate.json
-            candidate-trivy-*.json
-          if-no-files-found: warn
-          retention-days: 90
-
       - name: Upload immutable image identity
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-release-${{ github.sha }}
+          name: image-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: image-release.json
           if-no-files-found: error
           retention-days: 90

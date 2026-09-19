@@ -30,6 +30,7 @@ jobs:
           pull: true
           tags: webssh-security:${{ github.sha }}
           build-args: |
+            VCS_REF=${{ github.sha }}
             OS_PACKAGE_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=security-amd64
           cache-to: type=gha,mode=max,scope=security-amd64
@@ -40,7 +41,7 @@ jobs:
           image: webssh-security:${{ github.sha }}
           format: spdx-json
           output-file: webssh.spdx.json
-          artifact-name: webssh-${{ github.sha }}.spdx.json
+          artifact-name: webssh-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}.spdx.json
           upload-artifact-retention: 14
           upload-release-assets: false
 
@@ -62,21 +63,18 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: trivy-amd64-${{ github.sha }}
+          name: trivy-amd64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: trivy-results-amd64.json
           if-no-files-found: error
           retention-days: 14
 
   image-security-arm64:
     name: Image security (ARM64)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -89,6 +87,7 @@ jobs:
           pull: true
           outputs: type=docker,dest=/tmp/webssh-arm64.tar
           build-args: |
+            VCS_REF=${{ github.sha }}
             OS_PACKAGE_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=security-arm64
           cache-to: type=gha,mode=max,scope=security-arm64
@@ -111,7 +110,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: trivy-arm64-${{ github.sha }}
+          name: trivy-arm64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: trivy-results-arm64.json
           if-no-files-found: error
           retention-days: 14

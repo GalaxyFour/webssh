@@ -57,6 +57,7 @@ function readPngSize(filePath) {
 }
 
 async function captureDesktopStill(page, filename, testInfo) {
+    if (!captureAssetsEnabled()) return;
     const filePath = captureOutputPath(testInfo, filename);
     await page.screenshot({
         path: filePath,
@@ -193,6 +194,7 @@ async function seedCommandSetAnimationCatalog(page) {
 }
 
 async function captureCssFrame(page, frameDirectory, filename) {
+    if (!captureAssetsEnabled()) return;
     const filePath = path.join(frameDirectory, filename);
     await page.screenshot({
         path: filePath,
@@ -719,11 +721,13 @@ test('captures a populated dual-pane File Manager without remote file actions', 
 });
 
 test('captures six current file preview and editing frames without remote actions', async ({ page }, testInfo) => {
-    const frameDirectory = captureAssetsEnabled()
-        ? path.resolve(__dirname, '..', '..', '.test-run.tmp', 'file-editing-frames')
-        : testInfo.outputPath('file-editing-frames');
-    fs.rmSync(frameDirectory, { recursive: true, force: true });
-    fs.mkdirSync(frameDirectory, { recursive: true });
+    const frameDirectory = path.resolve(
+        __dirname, '..', '..', '.test-run.tmp', 'file-editing-frames',
+    );
+    if (captureAssetsEnabled()) {
+        fs.rmSync(frameDirectory, { recursive: true, force: true });
+        fs.mkdirSync(frameDirectory, { recursive: true });
+    }
 
     await installCaptureNetworkGuard(page);
     await login(page);
@@ -872,16 +876,20 @@ test('captures six current file preview and editing frames without remote action
     await expect(page.locator('#filePreviewModal')).not.toContainText('.local');
     await expectCurrentCaptureTerminology(page);
     expect(await page.evaluate(() => window.__captureFileManagerSocketEvents)).toEqual([]);
-    expect(fs.readdirSync(frameDirectory).filter(name => name.endsWith('.png'))).toHaveLength(6);
+    if (captureAssetsEnabled()) {
+        expect(fs.readdirSync(frameDirectory).filter(name => name.endsWith('.png'))).toHaveLength(6);
+    }
     await assertCaptureNetworkClean(page);
 });
 
 test('captures six current Command Sets animation frames without remote actions', async ({ page }, testInfo) => {
-    const frameDirectory = captureAssetsEnabled()
-        ? path.resolve(__dirname, '..', '..', '.test-run.tmp', 'command-sets-frames')
-        : testInfo.outputPath('command-sets-frames');
-    fs.rmSync(frameDirectory, { recursive: true, force: true });
-    fs.mkdirSync(frameDirectory, { recursive: true });
+    const frameDirectory = path.resolve(
+        __dirname, '..', '..', '.test-run.tmp', 'command-sets-frames',
+    );
+    if (captureAssetsEnabled()) {
+        fs.rmSync(frameDirectory, { recursive: true, force: true });
+        fs.mkdirSync(frameDirectory, { recursive: true });
+    }
 
     await installCaptureNetworkGuard(page);
     await login(page);
@@ -950,7 +958,9 @@ test('captures six current Command Sets animation frames without remote actions'
     await expectCurrentCaptureTerminology(page);
     await captureCssFrame(page, frameDirectory, '06-connection-assignment.png');
 
-    expect(fs.readdirSync(frameDirectory).filter(name => name.endsWith('.png'))).toHaveLength(6);
+    if (captureAssetsEnabled()) {
+        expect(fs.readdirSync(frameDirectory).filter(name => name.endsWith('.png'))).toHaveLength(6);
+    }
     await assertCaptureNetworkClean(page);
 });
 
@@ -1050,13 +1060,15 @@ test.describe('mobile product capture', () => {
         expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
         expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
 
-        const filePath = captureOutputPath(testInfo, 'mobile-workspace.png');
-        await page.screenshot({
-            path: filePath,
-            animations: 'disabled',
-            caret: 'hide',
-        });
-        expect(readPngSize(filePath)).toEqual(MOBILE_CAPTURE_SIZE);
+        if (captureAssetsEnabled()) {
+            const filePath = captureOutputPath(testInfo, 'mobile-workspace.png');
+            await page.screenshot({
+                path: filePath,
+                animations: 'disabled',
+                caret: 'hide',
+            });
+            expect(readPngSize(filePath)).toEqual(MOBILE_CAPTURE_SIZE);
+        }
         await assertCaptureNetworkClean(page);
     });
 });

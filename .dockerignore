@@ -25,6 +25,7 @@ __pycache__/
 *.so
 .Python
 .pytest_cache/
+test-results/
 .coverage
 htmlcov/
 

@@ -15,6 +15,10 @@ PINNED_ACTIONS = {
         '3d3c42e5aac5ba805825da76410c181273ba90b1',
         'v7',
     ),
+    'actions/download-artifact': (
+        '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+        'v8.0.1',
+    ),
     'actions/deploy-pages': (
         'cd2ce8fcbc39b97be8ca5fce6e763baed58fa128',
         'v5',
@@ -204,7 +208,8 @@ def test_security_workflow_gates_publish_and_preserves_scan_evidence():
     assert 'schedule:' in security
     assert re.search(r'permissions:\s*\n\s+contents:\s+read\b', security)
     assert not re.search(r'^\s+\w[\w-]*:\s+write\b', security, re.MULTILINE)
-    assert 'docker/setup-qemu-action@' in security
+    assert 'docker/setup-qemu-action@' not in security
+    assert 'runs-on: ubuntu-24.04-arm' in security
     assert 'image-security-amd64:' in security
     assert 'image-security-arm64:' in security
     assert re.search(
@@ -245,12 +250,12 @@ def test_security_workflow_gates_publish_and_preserves_scan_evidence():
         publish,
     )
     assert re.search(
-        r'build-and-push:.*?\n\s+needs:\s+release-tests\b',
+        r'build-and-push:.*?\n\s+needs:\s+\[release-tests, build-candidate\]',
         publish,
         re.DOTALL,
     )
     assert re.search(
-        r'build-and-push:.*?\n\s+needs:\s+release-tests\s*\n'
+        r'build-and-push:.*?\n\s+needs:\s+\[release-tests, build-candidate\]\s*\n'
         r"\s+if:\s+github\.event_name\s+!=\s+'pull_request'",
         publish,
         re.DOTALL,
@@ -263,14 +268,15 @@ def test_publish_records_and_verifies_the_immutable_image_identity():
     publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
 
     assert re.search(
-        r'- name: Build immutable release candidate\s+id:\s+build\b',
+        r'- name: Build immutable native candidate\s+id:\s+build\b',
         publish,
     )
     assert 'VCS_REF=${{ github.sha }}' in publish
     assert 'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}' in publish
-    assert 'python scripts/release_image.py inspect' in publish
+    assert 'python scripts/release_image.py inspect-platform' in publish
+    assert 'python scripts/release_image.py assemble' in publish
     assert 'python scripts/release_image.py promote' in publish
-    assert 'name: image-release-${{ github.sha }}' in publish
+    assert 'name: image-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}' in publish
     assert 'path: image-release.json' in publish
 
 
@@ -492,10 +498,15 @@ def test_graph_pages_toolchain_versions_are_explicit():
 
 
 def test_workflows_use_an_explicit_runner_release():
+    allowed = {'ubuntu-24.04', 'ubuntu-24.04-arm'}
     for workflow, text in _workflow_texts().items():
         assert 'ubuntu-latest' not in text, workflow
-        for runner in re.findall(r'runs-on:\s*(\S+)', text):
-            assert runner == 'ubuntu-24.04', f'{workflow}: {runner}'
+        for runner in re.findall(r'runs-on:\s*([^\n]+)', text):
+            if runner.strip() == '${{ matrix.runner }}':
+                values = re.findall(r'^\s+runner:\s*(\S+)', text, re.MULTILINE)
+                assert values and set(values) <= allowed, workflow
+            else:
+                assert runner.strip() in allowed, f'{workflow}: {runner}'
 
 
 def test_browser_ci_runs_javascript_units_before_playwright():
@@ -524,7 +535,7 @@ def test_slow_test_gates_are_sharded_without_duplicate_redis_unit_runs():
         'test_real_redis_does_not_store_denied_requests'
     ) == 1
     assert 'name: browser-e2e (${{ matrix.shard }}/2)' in workflow
-    assert 'npm run test:e2e -- --shard=${{ matrix.shard }}/2' in workflow
+    assert 'npm run test:e2e:ci -- --shard=${{ matrix.shard }}/2' in workflow
     assert re.search(
         r'\n  browser-e2e:\s*\n\s+needs:\s+browser-e2e-shards\b',
         workflow,
@@ -537,26 +548,38 @@ def test_release_only_promotes_the_candidate_after_exact_sha_tests_and_scans():
     publish = (WORKFLOWS / 'docker-publish.yml').read_text(encoding='utf-8')
     assert 'uses: ./.github/workflows/tests.yml' in publish
     assert 'expected_sha: ${{ github.sha }}' in publish
-    assert 'push-by-digest=true,name-canonical=true,push=true' in publish
+    candidate = publish.split('\n  build-candidate:', 1)[1].split('\n  build-and-push:', 1)[0]
+    publisher = publish.split('\n  build-and-push:', 1)[1]
+    # Candidate work can overlap tests, but no public tag write can bypass either gate.
+    assert not re.search(r'^    needs:', candidate, re.MULTILINE)
+    assert 'needs: [release-tests, build-candidate]' in publisher
+    assert 'push-by-digest=true,name-canonical=true,push=true' in candidate
     assert publish.count('uses: docker/build-push-action@') == 1
-    build = publish.split('- name: Build immutable release candidate', 1)[1].split('- name:', 1)[0]
+    build = candidate.split('- name: Build immutable native candidate', 1)[1].split('- name:', 1)[0]
     assert 'tags:' not in build
-    assert 'platforms: linux/amd64,linux/arm64' in build
-    inspect = publish.index('python scripts/release_image.py inspect')
-    promote = publish.index('python scripts/release_image.py promote')
-    for arch in ('AMD64', 'ARM64'):
-        scan = publish.index('image-ref: ${{ env.' + arch + '_REF }}')
-        runtime = publish.index('--image "$' + arch + '_REF"')
-        assert inspect < scan < runtime < promote
+    assert 'platforms: linux/${{ matrix.arch }}' in build
+    for arch, runner in (('amd64', 'ubuntu-24.04'), ('arm64', 'ubuntu-24.04-arm')):
+        assert re.search(r'arch: ' + arch + r'\s+runner: ' + re.escape(runner) + r'\s', candidate)
+    inspect = candidate.index('python scripts/release_image.py inspect-platform')
+    scan = candidate.index('image-ref: ${{ env.RUNTIME_REF }}')
+    runtime = candidate.index('python scripts/check_hardened_container.py')
+    handoff = candidate.index('- name: Upload verified native identity')
+    assert inspect < scan < runtime < handoff
+    identity_step = candidate[handoff:].split('- name:', 2)[1]
+    assert 'if: always()' not in identity_step
+    assert 'image-candidate.json' in identity_step
+    assert publisher.index('python scripts/release_image.py assemble') < publisher.index('python scripts/release_image.py promote')
+    assert 'docker/build-push-action@' not in publisher
     assert 'continue-on-error:' not in publish
-    assert 'cancel-in-progress: false' in publish
+    assert 'cancel-in-progress: false' in publisher
 
 
 def test_reusable_tests_preserve_standalone_and_fail_closed_contracts():
     from scripts.check_release_gates import REQUIRED
     workflow = (WORKFLOWS / 'tests.yml').read_text(encoding='utf-8')
     assert workflow.startswith('name: Tests\n')
-    assert all(trigger + ':' in workflow for trigger in ('push', 'pull_request', 'workflow_call', 'workflow_dispatch'))
+    assert all(trigger + ':' in workflow for trigger in ('pull_request', 'workflow_call', 'workflow_dispatch'))
+    assert not re.search(r'^  push:', workflow, re.MULTILINE)
     assert 'github.run_id' in workflow.split('jobs:', 1)[0]
     assert "[ -n \"$EXPECTED_SHA\" ]" in workflow
     gate = workflow.split('  all-tests:', 1)[1]

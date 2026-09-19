@@ -154,3 +154,147 @@ def test_version_tag_promotion_does_not_require_current_main():
     registry.main_revision = '2' * 40
     promote(IMAGE, DIGEST, REVISION, [IMAGE + ':2.4.0'], runner=registry)
     assert all(call[0] == 'docker' for call in registry.calls)
+
+
+class NativeRegistry(Registry):
+    """Registry fixture with one immutable attested index per native build."""
+
+    def __init__(self):
+        super().__init__()
+        self.native = {
+            'sha256:' + '6' * 64: {**deepcopy(INDEX), 'manifests': [deepcopy(INDEX['manifests'][i]) for i in (0, 2)]},
+            'sha256:' + '7' * 64: {**deepcopy(INDEX), 'manifests': [deepcopy(INDEX['manifests'][i]) for i in (1, 3)]},
+        }
+        self.drop_attestation = False
+        self.change_attestation = False
+
+    def __call__(self, args, **kwargs):
+        if args[:3] == ['docker', 'buildx', 'imagetools'] and args[3] == 'inspect':
+            reference = args[-1]
+            candidate_digest = reference.partition('@')[2]
+            if candidate_digest in self.native:
+                self.calls.append(args)
+                if '--raw' in args:
+                    return SimpleNamespace(stdout=json.dumps(self.native[candidate_digest]))
+                return SimpleNamespace(stdout=candidate_digest)
+        if args[:4] == ['docker', 'buildx', 'imagetools', 'create']:
+            if ':candidate-' in ' '.join(args):
+                self.index['manifests'] = [deepcopy(d) for index in self.native.values() for d in index['manifests']]
+                if self.drop_attestation:
+                    self.index['manifests'].pop()
+                if self.change_attestation:
+                    self.index['manifests'][-1]['digest'] = 'sha256:' + '8' * 64
+        return super().__call__(args, **kwargs)
+
+
+def native_evidence(registry):
+    from scripts import release_image
+    return [release_image.inspect_platform(
+        IMAGE, digest, REVISION, 'linux/' + arch, '123', '2', runner=registry,
+    ) for digest, arch in zip(registry.native, ('amd64', 'arm64'))]
+
+
+def test_native_platform_evidence_binds_full_index_child_commit_and_attempt():
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    assert evidence[0]['platforms'] == {'linux/amd64': AMD64}
+    assert evidence[0]['run_id'] == '123'
+    assert evidence[0]['run_attempt'] == '2'
+    assert evidence[0]['digest'] == next(iter(registry.native))
+    assert evidence[0]['revision'] == REVISION
+    assert all(call[3] == 'inspect' for call in registry.calls)
+
+
+def test_assembly_preserves_exact_native_descriptors_before_promotion():
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    combined = release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+    assert combined['digest'] == DIGEST
+    assert combined['platforms'] == {'linux/amd64': AMD64, 'linux/arm64': ARM64}
+    creates = [call for call in registry.calls if call[3] == 'create']
+    assert creates == [[
+        'docker', 'buildx', 'imagetools', 'create', '--tag', IMAGE + ':candidate-123-2',
+        *[item['immutable_ref'] for item in evidence],
+    ]]
+    promote(IMAGE, combined['digest'], REVISION, [IMAGE + ':main'], runner=registry)
+    assert registry.index['manifests'] == [d for index in registry.native.values() for d in index['manifests']]
+
+
+@pytest.mark.parametrize('field,value', [
+    ('repository', 'ghcr.io/another/image'), ('revision', '2' * 40),
+    ('run_id', '456'), ('run_attempt', '3'), ('digest', AMD64),
+    ('immutable_ref', IMAGE + ':main'), ('platforms', {'linux/amd64': ARM64}),
+])
+def test_mismatched_platform_evidence_cannot_write_even_a_candidate_tag(field, value):
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    evidence[0][field] = value
+    with pytest.raises(ValueError):
+        release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+    assert not any(call[3] == 'create' for call in registry.calls)
+
+
+@pytest.mark.parametrize('change', ['missing', 'duplicate', 'extra', 'missing-attestation', 'wrong-revision'])
+def test_incomplete_native_candidates_are_rejected_before_assembly(change):
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    if change == 'missing':
+        evidence.pop()
+    elif change == 'duplicate':
+        evidence[1] = evidence[0]
+    elif change == 'extra':
+        evidence.append(evidence[0])
+    elif change == 'missing-attestation':
+        registry.native[evidence[1]['digest']]['manifests'].pop()
+    else:
+        registry.revisions['arm64'] = '2' * 40
+    with pytest.raises(ValueError):
+        release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+    assert not any(call[3] == 'create' for call in registry.calls)
+
+
+def test_assembly_that_loses_attestation_cannot_be_promoted():
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    registry.drop_attestation = True
+    with pytest.raises(ValueError, match='attestation'):
+        combined = release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+        promote(IMAGE, combined['digest'], REVISION, [IMAGE + ':main'], runner=registry)
+    creates = [call for call in registry.calls if call[3] == 'create']
+    assert len(creates) == 1
+    assert IMAGE + ':main' not in creates[0]
+
+
+@pytest.mark.parametrize('run_id,attempt', [('123/main', '2'), ('123', '0'), ('', '1')])
+def test_invalid_run_identity_cannot_create_candidate_tags(run_id, attempt):
+    from scripts import release_image
+    registry = NativeRegistry()
+    with pytest.raises(ValueError):
+        release_image.assemble(IMAGE, REVISION, native_evidence(registry), run_id, attempt, runner=registry)
+    assert not any(call[3] == 'create' for call in registry.calls)
+
+
+def test_retry_can_reuse_successful_native_build_from_prior_attempt_of_same_run():
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    evidence[0]['run_attempt'] = '1'
+    combined = release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+    assert combined['platforms'] == {'linux/amd64': AMD64, 'linux/arm64': ARM64}
+
+
+def test_assembly_cannot_substitute_another_attestation_for_a_checked_descriptor():
+    from scripts import release_image
+    registry = NativeRegistry()
+    evidence = native_evidence(registry)
+    registry.change_attestation = True
+    with pytest.raises(ValueError, match='descriptors'):
+        combined = release_image.assemble(IMAGE, REVISION, evidence, '123', '2', runner=registry)
+        promote(IMAGE, combined['digest'], REVISION, [IMAGE + ':main'], runner=registry)
+    creates = [call for call in registry.calls if call[3] == 'create']
+    assert len(creates) == 1
+    assert IMAGE + ':main' not in creates[0]

@@ -95,12 +95,13 @@ test('stacks asset manager cards without horizontal overflow on mobile', async (
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
 });
 
-test('exposes every modal close control as a keyboard-focusable button', async ({ page }) => {
+test('exposes modal close controls as focusable Material Icon buttons', async ({ page }) => {
     const readSemantics = () => page.locator('.modal-header .close')
         .evaluateAll(elements => elements.map(element => ({
             tag: element.tagName,
             type: element.getAttribute('type'),
             tabIndex: element.tabIndex,
+            fontFamily: getComputedStyle(element).fontFamily,
         })));
     const workspaceSemantics = await readSemantics();
 
@@ -113,17 +114,6 @@ test('exposes every modal close control as a keyboard-focusable button', async (
         expect(control.tag).toBe('BUTTON');
         expect(control.type).toBe('button');
         expect(control.tabIndex).toBeGreaterThanOrEqual(0);
-    }
-});
-
-test('renders modal close controls with the Material Icons font', async ({ page }) => {
-    const fontFamilies = await page.locator('.modal-header .close.material-icons')
-        .evaluateAll(elements => elements.map(
-            element => getComputedStyle(element).fontFamily,
-        ));
-
-    expect(fontFamilies.length).toBeGreaterThan(0);
-    for (const fontFamily of fontFamilies) {
-        expect(fontFamily).toContain('Material Icons');
+        expect(control.fontFamily).toContain('Material Icons');
     }
 });

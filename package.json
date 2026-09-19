@@ -10,7 +10,10 @@
     "i18n:auth:check": "node scripts/build-auth-i18n.js --check",
     "lint:js": "eslint static/js",
     "test:js": "npm run i18n:auth:check && node --test tests/js/*.test.js",
-    "test:e2e": "playwright test --forbid-only"
+    "test:e2e": "playwright test --forbid-only",
+    "test:e2e:ci": "node scripts/run-e2e-ci.js",
+    "test:e2e:timings:refresh": "node scripts/refresh-e2e-timing.js",
+    "test:captures": "node scripts/run-e2e-captures.js"
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "11.12.0",
