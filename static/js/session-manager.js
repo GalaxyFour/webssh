@@ -1100,11 +1100,7 @@ const SessionManager = {
                 pane.appendChild(wrapper);
             }
             TerminalManager.fitTerminal(sessionId);
-            if (TerminalManager.consumeDeferredReplay?.(sessionId)) {
-                TerminalManager.replayDeferredOutput?.(sessionId);
-            } else {
-                TerminalManager.resumeVisibleOutput?.(sessionId);
-            }
+            TerminalManager.resumeVisibleOutput?.(sessionId);
             TerminalManager.repaintVisibleTerminal?.(sessionId);
             return;
         }

@@ -81,7 +81,6 @@ function resetManager(manager) {
     manager.clipboardDisposers = {};
     manager.osc52ClipboardAllowed = {};
     manager.scrollbarDisposers = {};
-    manager.pendingReplay = {};
     manager.fitSyncTimer = null;
     manager.syncedSizes = {};
 }
@@ -118,46 +117,6 @@ test('repaintVisibleTerminal skips hidden keys', () => {
     flushRaf(rafQueue);
     flushRaf(rafQueue);
     assert.equal(peer.hooks.refreshes, undefined);
-});
-
-test('resync skips xterm rebuild for hidden keys but accepts pending output', () => {
-    const {manager} = loadTerminalManager();
-    resetManager(manager);
-    const peer = xtermMock(true);
-    manager.terminals = {k: peer.terminal};
-    manager.sessionTerminals = {s: ['k']};
-    manager.terminalReady = {k: true};
-    let acknowledgements = 0;
-    manager.pendingOutput = {k: [{data: 'held', onWritten: () => acknowledgements++}]};
-    manager.pendingOutputSizes = {k: 4};
-
-    manager.resyncRestoredOutput('s', 'snapshot', 0);
-
-    assert.equal(peer.hooks.resets || 0, 0);
-    assert.equal(peer.hooks.writes, undefined);
-    assert.equal(acknowledgements, 1);
-    assert.equal(manager.pendingReplay.s, true);
-    assert.equal(manager.terminalReady.k, true);
-});
-
-test('replayDeferredOutput rebuilds visible keys once and clears the flag', () => {
-    const {manager} = loadTerminalManager();
-    resetManager(manager);
-    const peer = xtermMock(false);
-    manager.terminals = {k: peer.terminal};
-    manager.sessionTerminals = {s: ['k']};
-    manager.terminalReady = {k: true};
-    manager.transcripts = {s: ['screen']};
-    manager.transcriptSizes = {s: 6};
-    manager.pendingReplay = {s: true};
-    const activated = [];
-    manager.activateOsc52ClipboardHandler = (key) => activated.push(key);
-
-    manager.replayDeferredOutput('s');
-
-    assert.equal(peer.hooks.resets, 1);
-    assert.deepEqual(peer.hooks.writes.filter(chunk => chunk !== ''), ['screen']);
-    assert.deepEqual(activated, ['k']);
 });
 
 test('scheduleFitAndSyncVisibleTerminals coalesces bursts into one pass', async () => {
@@ -224,45 +183,11 @@ function loadSessionManager(termStub) {
     return {manager: context.__SessionManager, panes, wrappers};
 }
 
-test('renderPane replays deferred output and repaints on unhide', () => {
-    const calls = {fit: [], resume: [], replay: [], repaint: [], consumed: []};
-    const {manager, panes, wrappers} = loadSessionManager({
-        fitTerminal: sessionId => calls.fit.push(sessionId),
-        resumeVisibleOutput: sessionId => calls.resume.push(sessionId),
-        consumeDeferredReplay: sessionId => {
-            calls.consumed.push(sessionId);
-            return true;
-        },
-        replayDeferredOutput: sessionId => calls.replay.push(sessionId),
-        repaintVisibleTerminal: sessionId => calls.repaint.push(sessionId),
-    });
-    const removed = [];
-    wrappers.set('term-s1', {
-        classList: {remove: name => removed.push(name)},
-    });
-    panes.set(0, {
-        innerHTML: 'stale',
-        appendChild() {},
-    });
-    manager.sessions = {s1: {id: 's1', terminalId: 'term-s1'}};
-    manager.paneAssignments = ['s1'];
-
-    manager.renderPane(0);
-
-    assert.deepEqual(removed, ['unassigned']);
-    assert.deepEqual(calls.fit, ['s1']);
-    assert.deepEqual(calls.consumed, ['s1']);
-    assert.deepEqual(calls.replay, ['s1']);
-    assert.deepEqual(calls.resume, []);
-    assert.deepEqual(calls.repaint, ['s1']);
-});
-
-test('renderPane resumes live output when no replay is deferred', () => {
+test('renderPane resumes live output and repaints without rebuilding the parser', () => {
     const calls = {resume: [], replay: [], repaint: []};
     const {manager, panes, wrappers} = loadSessionManager({
         fitTerminal() {},
         resumeVisibleOutput: sessionId => calls.resume.push(sessionId),
-        consumeDeferredReplay: () => false,
         replayDeferredOutput: sessionId => calls.replay.push(sessionId),
         repaintVisibleTerminal: sessionId => calls.repaint.push(sessionId),
     });

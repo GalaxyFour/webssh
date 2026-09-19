@@ -14,7 +14,6 @@ const TerminalManager = {
     backgroundWrites: {},
     maxBackgroundWriteSize: 65536,
     maxBackgroundWriteEvents: 128,
-    pendingReplay: {},
     fitSyncTimer: null,
     syncedSizes: {},
     scrollbarDisposers: {},
@@ -777,7 +776,6 @@ const TerminalManager = {
             // Hold output that arrives during resync so the authoritative
             // snapshot remains ordered before the new live stream.
             this.terminalReady[key] = false;
-            const pendingOutput = this.pendingOutput[key] || [];
             this.pendingOutput[key] = [];
             this.pendingOutputSizes[key] = 0;
 
@@ -795,16 +793,9 @@ const TerminalManager = {
             this.clipboardDisposers[key]?.dispose?.();
             delete this.clipboardDisposers[key];
 
-            // Hidden sessions keep accepting live output and rebuild once on
-            // first visible, instead of paying a reset + rewrite per session
-            // during cold restore.
-            if (!this.isTerminalKeyVisible(key)) {
-                this.terminalReady[key] = true;
-                pendingOutput.forEach(entry => entry.onWritten?.());
-                this.markReplayDeferred(sessionId);
-                return;
-            }
-
+            // Hidden terminals must rebuild at the reconnect boundary too.
+            // Later tab switches retain the parser state: bounded history cannot
+            // reconstruct modes or control sequences after transcript eviction.
             const rebuildTerminal = () => {
                 if (this.terminals[key] !== terminal) return;
 
@@ -1001,7 +992,6 @@ const TerminalManager = {
         delete this.sequencedOutput[sessionId];
         delete this.sequencedOutputSizes[sessionId];
         delete this.lastOutputSequences[sessionId];
-        delete this.pendingReplay[sessionId];
         this.clearSyncedSize(sessionId);
     },
 
@@ -1083,56 +1073,6 @@ const TerminalManager = {
         } else {
             setTimeout(repaint, 0);
         }
-    },
-
-    markReplayDeferred(sessionId) {
-        this.pendingReplay[sessionId] = true;
-    },
-
-    consumeDeferredReplay(sessionId) {
-        if (!this.pendingReplay[sessionId]) {
-            return false;
-        }
-        delete this.pendingReplay[sessionId];
-        return true;
-    },
-
-    replayDeferredOutput(sessionId) {
-        const replayOutput = this.getTranscript(sessionId);
-        (this.sessionTerminals[sessionId] || []).forEach(key => {
-            const terminal = this.terminals[key];
-            if (!terminal || !this.terminalReady[key]) {
-                return;
-            }
-            if (!this.isTerminalKeyVisible(key)) {
-                return;
-            }
-            this.terminalReady[key] = false;
-            this.clearBackgroundOutput(key);
-            this.clipboardDisposers[key]?.dispose?.();
-            delete this.clipboardDisposers[key];
-            const rebuild = () => {
-                if (this.terminals[key] !== terminal) return;
-                if (typeof terminal.reset === 'function') {
-                    terminal.reset();
-                } else {
-                    terminal.clear?.();
-                }
-                this.terminalReady[key] = true;
-                if (!replayOutput) {
-                    this.activateOsc52ClipboardHandler(key, terminal);
-                    return;
-                }
-                this.writeOutputToTerminal(key, replayOutput, () => {
-                    this.activateOsc52ClipboardHandler(key, terminal);
-                });
-            };
-            try {
-                terminal.write('', rebuild);
-            } catch {
-                rebuild();
-            }
-        });
     },
 
     scheduleFitAndSyncVisibleTerminals(options = {}) {
