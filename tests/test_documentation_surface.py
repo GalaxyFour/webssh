@@ -406,3 +406,14 @@ def test_supported_python_versions_are_documented():
     development = wiki_text("Development-and-Testing.md")
     assert "Python 3.11" in development
     assert "Python 3.14" in development
+
+
+def load_tests(loader, tests, pattern):
+    """Run the same documentation contracts without application dependencies."""
+    import unittest
+
+    return unittest.TestSuite(
+        unittest.FunctionTestCase(value)
+        for name, value in sorted(globals().items())
+        if name.startswith('test_') and callable(value)
+    )

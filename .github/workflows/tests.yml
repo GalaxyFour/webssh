@@ -24,6 +24,8 @@ concurrency:
 
 jobs:
   dispatch-integrity:
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -39,8 +41,22 @@ jobs:
             test "$GITHUB_SHA" = "$EXPECTED_SHA"
           fi
 
+      - name: Checkout exact tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Classify changes
+        id: scope
+        env:
+          CI_FORCE_FULL: ${{ inputs.expected_sha != '' }}
+        run: python scripts/ci_change_scope.py
+      - name: Validate documentation contracts
+        run: python -m unittest discover -s tests -p test_documentation_surface.py -v
+
   dependency-locks:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -65,6 +81,7 @@ jobs:
 
   pytest:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     name: ${{ matrix.check_name }}
     runs-on: ubuntu-24.04
     permissions:
@@ -76,7 +93,7 @@ jobs:
           - python_version: '3.14'
             check_name: pytest
             pytest_targets: tests/
-            pytest_ignores: --ignore=tests/integration
+            pytest_ignores: --ignore=tests/integration --ignore=tests/test_documentation_surface.py
           - python_version: '3.11'
             check_name: pytest (Python 3.11 minimum)
             # The production runtime runs the complete suite above.  The
@@ -136,6 +153,7 @@ jobs:
 
   redis-rate-limiter:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     name: Redis rate limiter (${{ matrix.redis-version }})
     runs-on: ubuntu-24.04
     permissions:
@@ -191,6 +209,7 @@ jobs:
 
   ssh-integration:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -223,6 +242,7 @@ jobs:
 
   smb-integration:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -241,6 +261,7 @@ jobs:
 
   browser-e2e-shards:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     name: browser-e2e (${{ matrix.shard }}/2)
     runs-on: ubuntu-24.04
     permissions:
@@ -329,8 +350,8 @@ jobs:
           retention-days: 7
 
   browser-e2e:
-    needs: browser-e2e-shards
-    if: ${{ always() }}
+    needs: [dispatch-integrity, browser-e2e-shards]
+    if: ${{ always() && needs.dispatch-integrity.outputs.mode == 'full' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -343,6 +364,7 @@ jobs:
 
   container-threading-smoke:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -504,6 +526,7 @@ jobs:
 
   release-contract:
     needs: dispatch-integrity
+    if: needs.dispatch-integrity.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
