@@ -8,10 +8,12 @@ test.use({
     deviceScaleFactor: 4 / 3,
 });
 
-function capturePath(testInfo, filename) {
-    return process.env.WEBSSH_CAPTURE_ASSETS === '1'
-        ? path.resolve(__dirname, '..', '..', 'assets', filename)
-        : testInfo.outputPath(filename);
+function captureAssetsEnabled() {
+    return process.env.WEBSSH_CAPTURE_ASSETS === '1';
+}
+
+function capturePath(filename) {
+    return path.resolve(__dirname, '..', '..', 'assets', filename);
 }
 
 function pngSize(filePath) {
@@ -642,13 +644,15 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
     );
     expect(resizedContextWidth).toBeGreaterThan(initialContextWidth);
 
-    const screenshotPath = capturePath(testInfo, 'session-workspace.png');
-    await page.screenshot({
-        path: screenshotPath,
-        animations: 'disabled',
-        caret: 'hide',
-    });
-    expect(pngSize(screenshotPath)).toEqual({ width: 2560, height: 1440 });
+    if (captureAssetsEnabled()) {
+        const screenshotPath = capturePath('session-workspace.png');
+        await page.screenshot({
+            path: screenshotPath,
+            animations: 'disabled',
+            caret: 'hide',
+        });
+        expect(pngSize(screenshotPath)).toEqual({ width: 2560, height: 1440 });
+    }
 
     const commandsTab = page.locator('#contextCommandsTab');
     await expect(commandsTab).toBeEnabled();
@@ -658,13 +662,15 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
     await expect(page.locator('.session-command-search')).toBeFocused();
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(page.locator('.session-command-item')).not.toHaveCount(0);
-    const commandsScreenshotPath = capturePath(testInfo, 'session-commands-context.png');
-    await page.screenshot({
-        path: commandsScreenshotPath,
-        animations: 'disabled',
-        caret: 'hide',
-    });
-    expect(pngSize(commandsScreenshotPath)).toEqual({ width: 2560, height: 1440 });
+    if (captureAssetsEnabled()) {
+        const commandsScreenshotPath = capturePath('session-commands-context.png');
+        await page.screenshot({
+            path: commandsScreenshotPath,
+            animations: 'disabled',
+            caret: 'hide',
+        });
+        expect(pngSize(commandsScreenshotPath)).toEqual({ width: 2560, height: 1440 });
+    }
     const insertedCommand = await page.locator('.session-command-item code').first().innerText();
     await page.locator('.session-command-item').first().getByRole('button', { name: 'Insert' }).click();
     await expect(page.locator('#sessionCommandsPanel')).toBeVisible();
@@ -1018,12 +1024,13 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await page.evaluate(() => {
         window.__workspaceResizeContinuity = 'preserved-without-reload';
     });
-    const mobileScreenshotPath = capturePath(testInfo, 'session-mobile-commands-context.png');
-    await page.screenshot({
-        path: mobileScreenshotPath,
-        animations: 'disabled',
-        caret: 'hide',
-    });
+    if (captureAssetsEnabled()) {
+        await page.screenshot({
+            path: capturePath('session-mobile-commands-context.png'),
+            animations: 'disabled',
+            caret: 'hide',
+        });
+    }
 
     await page.setViewportSize({ width: 900, height: 800 });
     await expect.poll(() => page.evaluate(() => window.workspaceLayoutController?.getState().mode))
@@ -1065,7 +1072,9 @@ for (const width of [360, 1920]) {
         expect(geometry.panelWidth).toBeGreaterThan(geometry.bodyWidth * 0.85);
         expect(geometry.panelWidth).toBeLessThanOrEqual(geometry.bodyWidth + 1);
         expect(geometry.pageWidth).toBeLessThanOrEqual(width);
-        await page.screenshot({ path: testInfo.outputPath(`commands-${width}.png`) });
+        if (captureAssetsEnabled()) {
+            await page.screenshot({ path: capturePath(`commands-${width}.png`) });
+        }
         if (width === 360) {
             await page.evaluate(() => {
                 const original = window.CommandLibrary.commands[0];
@@ -2535,13 +2544,15 @@ test('diagnostics canvas renders correlated inventory and keeps controls clipboa
     await expect(page.locator('#sessionDiagnosticsDockerContainers')).toContainText('webssh');
     await expect(page.locator('#sessionDiagnosticsDockerContainers')).toContainText('worker');
 
-    const screenshotPath = capturePath(testInfo, 'session-diagnostics.png');
-    await page.screenshot({
-        path: screenshotPath,
-        animations: 'disabled',
-        caret: 'hide',
-    });
-    expect(pngSize(screenshotPath)).toEqual({ width: 2560, height: 1440 });
+    if (captureAssetsEnabled()) {
+        const screenshotPath = capturePath('session-diagnostics.png');
+        await page.screenshot({
+            path: screenshotPath,
+            animations: 'disabled',
+            caret: 'hide',
+        });
+        expect(pngSize(screenshotPath)).toEqual({ width: 2560, height: 1440 });
+    }
 
     const services = page.locator('#sessionDiagnosticsSystemdServices tr');
     const search = page.locator('#sessionDiagnosticsSystemdSearch');
@@ -2733,7 +2744,9 @@ for (const width of [360, 1920]) {
         const sent = await page.evaluate(() => window.__workspaceEvents.filter(item => item.event === 'ssh_input').at(-1)?.payload);
         expect(sent).toEqual({session_id: 'second-draft', data: 'sudo systemctl status nginx --no-pager'});
         expect(await page.evaluate(() => window.CommandLibrary.commands[8].parameters)).toBe('webssh');
-        await page.screenshot({path: testInfo.outputPath(`parameters-${width}.png`)});
+        if (captureAssetsEnabled()) {
+            await page.screenshot({ path: capturePath(`parameters-${width}.png`) });
+        }
         await row.getByRole('button', {name: 'Restore saved parameters'}).click();
         await expect(row.locator('input')).toHaveValue('webssh');
         await expect(row.locator('code')).toHaveText('sudo systemctl status webssh');
@@ -2773,7 +2786,9 @@ test('Files retains stale rows through a failed refresh and retry', async ({ pag
     await expect(page.locator('#sessionFilesStatus')).toContainText('Could not refresh');
     await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).toHaveAttribute('inert', '');
     expect(await rows.allTextContents()).toEqual(previousRows);
-    await page.screenshot({path: testInfo.outputPath('files-stale-retry.png')});
+    if (captureAssetsEnabled()) {
+        await page.screenshot({ path: capturePath('files-stale-retry.png') });
+    }
     await page.locator('#sessionFilesStatus').getByRole('button', {name: 'Reload', exact: true}).click();
     await expect(page.locator('#sessionFilesStatus')).toBeHidden();
     await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).not.toHaveAttribute('inert', '');

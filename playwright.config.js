@@ -7,6 +7,11 @@ const python = process.env.PYTHON
         : 'python');
 const e2ePort = process.env.WEBSSH_E2E_PORT || '4173';
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
+const outputDir = process.env.CI
+    ? 'test-results'
+    : path.join(os.tmpdir(), 'webssh-playwright-results');
+const timingOutput = process.env.WEBSSH_E2E_TIMING_FILE
+    || path.join(outputDir, 'e2e-timing-full.json');
 
 module.exports = {
     testDir: './tests/e2e',
@@ -15,12 +20,11 @@ module.exports = {
     workers: 1,
     forbidOnly: true,
     retries: process.env.CI ? 1 : 0,
-    outputDir: process.env.CI
-        ? 'test-results'
-        : path.join(os.tmpdir(), 'webssh-playwright-results'),
+    outputDir,
     reporter: [
         ['line'],
         ['./tests/e2e/no-skipped-reporter.js'],
+        ['./tests/e2e/timing-reporter.js', { outputFile: timingOutput }],
     ],
     use: {
         baseURL: e2eBaseUrl,

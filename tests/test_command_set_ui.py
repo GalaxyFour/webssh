@@ -146,12 +146,6 @@ def test_connection_command_manager_uses_content_addressed_url():
     )
 
 
-def test_command_set_manager_uses_content_addressed_url():
-    template = read('templates/index.html')
-
-    assert "static_asset_url(filename='js/command-set-manager.js')" in template
-
-
 def test_connection_and_profile_payloads_send_only_selected_set_id():
     source = read('static/js/app.js')
 

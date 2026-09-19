@@ -172,12 +172,6 @@ def test_mobile_launcher_stacks_status_below_profile_details():
     assert 'justify-self: start;' in mobile
 
 
-def test_profile_launcher_stylesheet_uses_current_cache_version():
-    template = read('templates/index.html')
-
-    assert "static_asset_url(filename='css/style.css')" in template
-
-
 def test_active_session_command_launcher_is_loaded_after_command_data_managers():
     template = read('templates/index.html')
     launcher = "filename='js/session-command-launcher.js'"

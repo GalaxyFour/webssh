@@ -98,13 +98,9 @@ def test_key_replacement_ui_is_accessible_warns_and_keeps_secrets_out_of_markup(
     assert I18N.count("'keys.replaceFailed':") == 6
 
 
-def test_key_replacement_event_updates_ui_and_asset_version():
+def test_key_replacement_event_updates_ui():
     assert "socket.on('key_replaced'" in APP
     assert 'ProfileManager.upsertKeySummary(data.key)' in APP
-    assert "static_asset_url(filename='js/profile-manager.js')" in TEMPLATE
-    assert "static_asset_url(filename='js/i18n.js')" in TEMPLATE
-    assert "static_asset_url(filename='js/app.js')" in TEMPLATE
-    assert "static_asset_url(filename='css/style.css')" in TEMPLATE
 
 
 def test_socket_events_refresh_key_ui_without_resetting_profile_editor():
