@@ -14,6 +14,7 @@ const TerminalManager = {
     backgroundWrites: {},
     maxBackgroundWriteSize: 65536,
     maxBackgroundWriteEvents: 128,
+    fitSyncTimer: null,
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -792,6 +793,9 @@ const TerminalManager = {
             this.clipboardDisposers[key]?.dispose?.();
             delete this.clipboardDisposers[key];
 
+            // Hidden terminals must rebuild at the reconnect boundary too.
+            // Later tab switches retain the parser state: bounded history cannot
+            // reconstruct modes or control sequences after transcript eviction.
             const rebuildTerminal = () => {
                 if (this.terminals[key] !== terminal) return;
 
@@ -1043,6 +1047,44 @@ const TerminalManager = {
         (this.sessionTerminals[sessionId] || []).forEach(key => {
             if (this.isTerminalKeyVisible(key)) this.flushBackgroundOutput(key);
         });
+    },
+
+    repaintVisibleTerminal(sessionId) {
+        const repaint = () => {
+            (this.sessionTerminals[sessionId] || []).forEach(key => {
+                const terminal = this.terminals[key];
+                if (!terminal || !this.isTerminalKeyVisible(key)) {
+                    return;
+                }
+                try {
+                    if (typeof terminal.refresh === 'function') {
+                        terminal.refresh(0, terminal.rows - 1);
+                    }
+                } catch {
+                    // A repaint must never break tab switching.
+                }
+            });
+        };
+        // The pane move + fit run before layout settles, so an idle session
+        // with no new output keeps a stale blank canvas. Repaint behind a
+        // double rAF like attachTerminal does, once layout is final.
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => requestAnimationFrame(repaint));
+        } else {
+            setTimeout(repaint, 0);
+        }
+    },
+
+    scheduleFitAndSyncVisibleTerminals(options = {}) {
+        if (this.fitSyncTimer !== null) {
+            return;
+        }
+        // Cold restore assigns many panes in one burst; coalesce the forced
+        // fit pass so N sessions pay one layout round instead of N.
+        this.fitSyncTimer = setTimeout(() => {
+            this.fitSyncTimer = null;
+            this.fitAndSyncVisibleTerminals({force: true, ...options});
+        }, 120);
     },
 
     setupTouchScroll(container, terminal) {

@@ -753,8 +753,7 @@ test('session pane activation delegates forced PTY synchronization to TerminalMa
         source.indexOf('    focusActivePane() {'),
     );
 
-    assert.match(setActivePane, /fitAndSyncVisibleTerminals/);
-    assert.match(setActivePane, /force:\s*true/);
+    assert.match(setActivePane, /scheduleFitAndSyncVisibleTerminals/);
     assert.doesNotMatch(setActivePane, /socket\.emit\('ssh_resize'/);
 });
 
@@ -1041,6 +1040,7 @@ test('resync rebuilds ready terminals without accepting stale socket output', ()
     const events = [];
     const terminal = {
         buffer: {active: {viewportY: 0, baseY: 0}},
+        element: {closest: () => ({classList: {contains: () => false}})},
         reset() { events.push('reset'); },
         write(data, callback) {
             writes.push(data);

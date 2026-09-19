@@ -1101,6 +1101,7 @@ const SessionManager = {
             }
             TerminalManager.fitTerminal(sessionId);
             TerminalManager.resumeVisibleOutput?.(sessionId);
+            TerminalManager.repaintVisibleTerminal?.(sessionId);
             return;
         }
 
@@ -1227,16 +1228,13 @@ const SessionManager = {
         }
 
         if (sessionId && !launcherOpen) {
-            setTimeout(() => {
-                TerminalManager.fitAndSyncVisibleTerminals({
-                    socket: window.socket,
-                    isConnected: candidateId => (
-                        candidateId === sessionId
-                        && Boolean(this.sessions[sessionId]?.connected)
-                    ),
-                    force: true,
-                });
-            }, 50);
+            TerminalManager.scheduleFitAndSyncVisibleTerminals?.({
+                socket: window.socket,
+                isConnected: candidateId => (
+                    candidateId === sessionId
+                    && Boolean(this.sessions[sessionId]?.connected)
+                ),
+            });
         }
         this.notifyWorkspaceChange();
     },

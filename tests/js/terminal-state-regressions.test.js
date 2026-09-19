@@ -29,6 +29,74 @@ const accept = data => new Promise(resolve => manager.writeOutput('s', data, nul
 const resume = () => manager.resumeVisibleOutput('s');
 const drained = terminal => new Promise(resolve => terminal.write('', resolve));
 
+function showRestored(peer) {
+    peer.hide(false);
+    if (manager.consumeDeferredReplay?.('s')) manager.replayDeferredOutput('s');
+    else manager.resumeVisibleOutput('s');
+}
+
+async function flushParser(terminal) {
+    await drained(terminal);
+    manager.flushBackgroundOutput('k');
+    await drained(terminal);
+}
+
+test('showing a restored hidden terminal acknowledges its queued live batch once', async () => {
+    const peer = setup();
+    try {
+        peer.hide(true);
+        manager.resyncRestoredOutput('s', 'snapshot', 0);
+        await flushParser(peer.terminal);
+        let acknowledgements = 0;
+        manager.writeOutput('s', '-live', 1, () => acknowledgements++);
+        showRestored(peer);
+        await flushParser(peer.terminal);
+        assert.equal(peer.terminal.buffer.active.getLine(0).translateToString(true), 'snapshot-live');
+        assert.equal(acknowledgements, 1);
+        assert.equal(manager.terminalWriteCallbacks.k.size, 0);
+    } finally {
+        manager.destroyTerminal('s');
+    }
+});
+
+test('live output arriving as a restored terminal becomes visible is parsed and acknowledged', async () => {
+    const peer = setup();
+    try {
+        peer.hide(true);
+        manager.resyncRestoredOutput('s', 'snapshot', 0);
+        showRestored(peer);
+        let acknowledgements = 0;
+        manager.writeOutput('s', '-new', 1, () => acknowledgements++);
+        await flushParser(peer.terminal);
+        assert.equal(peer.terminal.buffer.active.getLine(0).translateToString(true), 'snapshot-new');
+        assert.equal(acknowledgements, 1);
+        assert.equal((manager.pendingOutput.k || []).length, 0);
+    } finally {
+        manager.destroyTerminal('s');
+    }
+});
+
+test('restored hidden terminal preserves protocol modes after transcript eviction', async () => {
+    const peer = setup();
+    try {
+        const modes = '\x1b[?1049h\x1b[?2004h\x1b[?1h';
+        await accept(modes);
+        peer.hide(true);
+        manager.resyncRestoredOutput('s', modes, 0);
+        await flushParser(peer.terminal);
+        await accept('x'.repeat(110000));
+        await accept('y'.repeat(110000));
+        assert.equal(manager.getTranscript('s').includes(modes), false);
+        showRestored(peer);
+        await flushParser(peer.terminal);
+        assert.equal(peer.terminal.buffer.active.type, 'alternate');
+        assert.equal(peer.terminal.modes.bracketedPasteMode, true);
+        assert.equal(peer.terminal.modes.applicationCursorKeysMode, true);
+    } finally {
+        manager.destroyTerminal('s');
+    }
+});
+
 test('background transcript eviction preserves terminal protocol modes', async () => {
     const peer = setup();
     try {
@@ -77,7 +145,7 @@ test('background batching preserves escape sequences split across writes', async
     }
 });
 
-test('resync cancels queued old-transport writes without accepting their ACKs', async () => {
+test('hidden resync retires old transport callbacks and rebuilds before showing', async () => {
     const peer = setup();
     try {
         peer.hide(true);
@@ -88,6 +156,9 @@ test('resync cancels queued old-transport writes without accepting their ACKs', 
         manager.flushBackgroundOutput('k');
         await drained(peer.terminal);
         assert.equal(staleAcknowledgements, 0);
+        assert.equal(peer.terminal.buffer.active.getLine(0).translateToString(true), 'snapshot');
+        showRestored(peer);
+        await drained(peer.terminal);
         assert.equal(peer.terminal.buffer.active.getLine(0).translateToString(true), 'snapshot');
     } finally {
         manager.destroyTerminalKey('k', 's');
