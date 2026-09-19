@@ -1372,6 +1372,7 @@ def test_saved_jump_host_id_is_resolved_live_before_network(app, monkeypatch):
         })
 
     assert connector_calls[0]['proxy_jump_host'] == 'live-bastion.example'
+    assert connector_calls[0]['jump_host_id'] == jump_host['id']
     assert connector_calls[0]['proxy_jump_port'] == 2222
     assert connector_calls[0]['proxy_jump_username'] == 'live-user'
     assert connector_calls[0]['proxy_jump_password'] == (

@@ -297,6 +297,7 @@
     };
 
     let selectedConnectionProfileState = null;
+    const pendingReconnectSessionMap = new Map();
 
     function refreshConnectionProfileJumpResolution() {
         const resolution = document.getElementById('connectionProfileJumpResolution');
@@ -311,6 +312,13 @@
 
     window.clearConnectionProfileState = () => {
         selectedConnectionProfileState = null;
+        SessionManager.pendingReconnectSessionId = null;
+        SessionManager.pendingReconnectTmux = null;
+        const jumpSelect = document.getElementById('jumpHostSelect');
+        if (jumpSelect) jumpSelect.value = '';
+        const jumpPassword = document.getElementById('jumpHostPasswordInput');
+        if (jumpPassword) jumpPassword.value = '';
+        window.JumpHostManager?.updatePasswordVisibility();
         window.ConnectionCommandManager?.clear();
         ProfileManager.clearLegacyCommands();
         window.setConnectionAdvancedExpanded(false);
@@ -325,6 +333,29 @@
         const directConfirm = document.getElementById('connectionProfileDirectConfirm');
         if (directConfirm) directConfirm.checked = false;
         document.getElementById('connectionProfileJumpResolution')?.classList.add('hidden');
+    };
+
+    window.prepareSessionReconnectJump = (session, {applyToForm = false} = {}) => {
+        const requiredId = session.jumpHostId || '';
+        const manager = window.JumpHostManager;
+        const jump = manager?.loaded === true && requiredId ? manager.getById(requiredId) : null;
+        const unresolved = Boolean((requiredId && !jump) || (session.viaJump && !requiredId)
+            || session.reconnectRouteKnown === false);
+        if (applyToForm) {
+            selectedConnectionProfileState = {missingJumpHost: unresolved};
+            const select = document.getElementById('jumpHostSelect');
+            if (select) select.value = jump ? requiredId : '';
+            manager?.updatePasswordVisibility();
+            window.setConnectionAdvancedExpanded(Boolean(jump || unresolved));
+            refreshConnectionProfileJumpResolution();
+            if (jump?.auth_type === 'password') {
+                document.getElementById('jumpHostPasswordInput')?.focus();
+            }
+        }
+        return {
+            requiresForm: unresolved || jump?.auth_type === 'password',
+            proxyJump: jump ? {jump_host_id: requiredId} : null,
+        };
     };
 
     let connectionHistoryStorage = null;
@@ -526,6 +557,8 @@
         currentEditRequestId: null,
         currentSaveRequestId: null,
         requestSequence: 0,
+        saveRequests: new Map(),
+        lastSavedSequence: 0,
         editMode: false,
         dirty: false,
         editEncoding: 'utf-8',
@@ -661,11 +694,15 @@
             if (!this.currentSourceId) return;
             this.currentPath = path;
             this.currentFilename = filename;
+            this.clearPendingSave();
+            this.saveRequests.clear();
             this.currentPreviewRequestId = this.nextRequestId('open');
             this.currentEditRequestId = null;
             this.currentSaveRequestId = null;
 
             // Start every open in a clean (non-edit) state.
+            this._previewFullContent = null;
+            this.pendingSaveContent = null;
             this.editMode = false;
             this.dirty = false;
             this.detachBeforeUnload();
@@ -809,6 +846,7 @@
             }
             if (data?.operation === 'save_file'
                     && this.matchesResponse(data, this.currentSaveRequestId)) {
+                this.clearPendingSave();
                 const status = document.getElementById('editorStatus');
                 if (data.code === 'SMB_RECOVERABLE_REPLACE_REQUIRED') {
                     if (this.recoverableReplaceSources.has(this.currentSourceId)) {
@@ -904,6 +942,8 @@
             // single trailing newline so the file's terminator isn't rendered
             // (and numbered) as a spurious empty last line.
             this._previewFullContent = content;
+            const copyButton = document.getElementById('previewCopyBtn');
+            if (copyButton) copyButton.disabled = false;
             const display = content.replace(/\n$/, '');
             codeEl.textContent = display;
 
@@ -923,16 +963,14 @@
             }
         },
 
-        copyToClipboard() {
-            const codeEl = document.getElementById('previewCode');
-            if (!codeEl) return;
-
-            const text = this._previewFullContent != null ? this._previewFullContent : codeEl.textContent;
-            navigator.clipboard.writeText(text).then(() => {
+        async copyToClipboard() {
+            if (this._previewFullContent == null) return;
+            try {
+                await TerminalManager.writeTextToClipboard(this._previewFullContent);
                 showNotification('Copied to clipboard', 'success');
-            }).catch(() => {
+            } catch {
                 showNotification('Failed to copy', 'error');
-            });
+            }
         },
 
         downloadFile() {
@@ -952,6 +990,8 @@
         },
 
         showPreviewActions() {
+            const copyButton = document.getElementById('previewCopyBtn');
+            if (copyButton) copyButton.disabled = this._previewFullContent == null;
             ['previewCopyBtn', 'previewDownloadBtn', 'previewRefreshBtn'].forEach(id => {
                 document.getElementById(id)?.classList.remove('hidden');
             });
@@ -1037,8 +1077,30 @@
             showNotification(msg, 'error');
         },
 
+        clearPendingSave(preserveResponse = false) {
+            clearTimeout(this.saveTimer);
+            if (!preserveResponse) this.saveRequests.delete(this.currentSaveRequestId);
+            this.saveTimer = null;
+            this.pendingSaveContent = null;
+            this.currentSaveRequestId = null;
+        },
+
+        interruptSave() {
+            if (this.pendingSaveContent == null) return;
+            // The write may already have completed remotely. Keep its identity
+            // so a delayed acknowledgement can reconcile the revision.
+            this.clearPendingSave(true);
+            this.markDirty();
+            showNotification(window.i18n ? i18n.t('editor.saveFailed') : 'Failed to save file', 'error');
+        },
+
         saveEdit(replaceStrategy = null, saveChallenge = null) {
             if (!this.editMode || !this.currentSourceId || !this.currentPath) return;
+            if (this.pendingSaveContent != null) return;
+            if (socket.connected !== true) {
+                showNotification(window.i18n ? i18n.t('editor.saveFailed') : 'Failed to save file', 'error');
+                return;
+            }
             const textarea = document.getElementById('editorContent');
             if (!textarea) return;
 
@@ -1061,6 +1123,12 @@
                 replace_strategy: selectedStrategy,
                 request_id: this.currentSaveRequestId,
             };
+            this.pendingSaveContent = textarea.value;
+            this.saveRequests.set(this.currentSaveRequestId, {
+                content: textarea.value,
+                sequence: this.requestSequence,
+            });
+            this.saveTimer = setTimeout(() => this.interruptSave(), 30000);
             if (typeof saveChallenge === 'string' && saveChallenge) {
                 payload.save_challenge = saveChallenge;
             }
@@ -1068,11 +1136,24 @@
         },
 
         handleFileSaved(data) {
-            if (!this.matchesResponse(data, this.currentSaveRequestId)
+            const saved = this.saveRequests.get(data?.request_id);
+            if (!saved || !this.editMode || data.source_id !== this.currentSourceId
                     || data.path !== this.currentPath) return;
-            this.dirty = false;
-            this.detachBeforeUnload();
+            const isCurrent = data.request_id === this.currentSaveRequestId;
+            this.saveRequests.delete(data.request_id);
+            if (isCurrent) this.clearPendingSave();
+            if (saved.sequence <= this.lastSavedSequence) return;
+            this.lastSavedSequence = saved.sequence;
             this.editRevision = data.revision || this.editRevision;
+            const keepEditing = !isCurrent
+                || document.getElementById('editorContent')?.value !== saved.content;
+            if (keepEditing) {
+                this.markDirty();
+                this.attachBeforeUnload();
+            } else {
+                this.dirty = false;
+                this.detachBeforeUnload();
+            }
             if (data.warning_code === 'SMB_RECOVERY_BACKUP_RETAINED') {
                 const leaves = Array.isArray(data.recovery_leaves)
                     ? data.recovery_leaves.join(', ')
@@ -1086,6 +1167,7 @@
                 showNotification(message, 'warning');
                 return;
             }
+            if (keepEditing) return;
             showNotification(window.i18n ? i18n.t('editor.saved') : 'File saved', 'success');
             // Leave edit mode and reload the preview to reflect the saved file.
             this.exitEditMode();
@@ -1103,6 +1185,8 @@
         },
 
         exitEditMode() {
+            this.clearPendingSave();
+            this.saveRequests.clear();
             this.editMode = false;
             this.dirty = false;
             this.editRevision = null;
@@ -1137,6 +1221,9 @@
             this.currentSourceId = null;
             this.currentPath = null;
             this.currentFilename = null;
+            this._previewFullContent = null;
+            this.clearPendingSave();
+            this.saveRequests.clear();
             this.currentPreviewRequestId = null;
             this.currentEditRequestId = null;
             this.currentSaveRequestId = null;
@@ -1283,6 +1370,7 @@
     });
 
     socket.on('disconnect', (reason) => {
+        FilePreview.interruptSave();
         closeAuthBannerPrompt();
         showNotification(
             window.i18n
@@ -1302,6 +1390,7 @@
             SessionManager.clearPendingConnection(requestId);
         });
         pendingRequestPaneMap.clear();
+        pendingReconnectSessionMap.clear();
         cancelledConnectRequestIds.clear();
         cancellingConnectRequestIds.clear();
         completedWhileCancellingRequestIds.clear();
@@ -1364,6 +1453,8 @@
         if (isCurrentRequest) {
             stopConnectTimer();
             setConnectLoading(false);
+            SessionManager.pendingReconnectTmux = null;
+            SessionManager.pendingDisplayName = null;
             currentConnectRequestId = null;
             if (connectionModalRequestId === requestId) {
                 connectionModalRequestId = null;
@@ -1372,6 +1463,20 @@
         }
 
         const sessionId = SessionManager.createSession(data);
+        const replacedSessionId = pendingReconnectSessionMap.get(requestId);
+        pendingReconnectSessionMap.delete(requestId);
+        if (SessionManager.pendingReconnectSessionId === replacedSessionId) {
+            SessionManager.pendingReconnectSessionId = null;
+        }
+        if (replacedSessionId && replacedSessionId !== sessionId
+                && SessionManager.sessions[replacedSessionId]) {
+            // A newly attached tmux client must survive closing the old transport.
+            socket.emit('ssh_disconnect', {
+                session_id: replacedSessionId, preserve_tmux: true,
+                replacement_session_id: sessionId,
+            });
+            SessionManager.removeSessionUI(replacedSessionId);
+        }
 
         let targetPane = null;
         if (requestId && pendingRequestPaneMap.has(requestId)) {
@@ -1404,6 +1509,7 @@
         const requestId = typeof data?.client_request_id === 'string'
             ? data.client_request_id
             : null;
+        pendingReconnectSessionMap.delete(requestId);
         if (requestId && cancelledConnectRequestIds.delete(requestId)) {
             closeAuthBannerPrompt(requestId);
             pendingRequestPaneMap.delete(requestId);
@@ -1583,7 +1689,7 @@
         );
     }
 
-    function startConnection(connectionData, paneIndex) {
+    function startConnection(connectionData, paneIndex, replacedSessionId = null) {
         if (currentConnectRequestId) return false;
 
         closeProfileManagementModal();
@@ -1600,6 +1706,7 @@
             client_request_id: requestId,
         };
         currentConnectRequestId = requestId;
+        if (replacedSessionId) pendingReconnectSessionMap.set(requestId, replacedSessionId);
         pendingPaneIndex = paneIndex;
         SessionManager.createPendingConnection(
             requestId,
@@ -1732,6 +1839,7 @@
     }
 
     function finishConnectionCancellation(requestId) {
+        pendingReconnectSessionMap.delete(requestId);
         rememberTransientId(cancelledConnectRequestIds, requestId);
         closeAuthBannerPrompt(requestId);
         pendingRequestPaneMap.delete(requestId);
@@ -1851,6 +1959,9 @@
     }
 
     function dismissConnectionModal() {
+        SessionManager.pendingReconnectSessionId = null;
+        SessionManager.pendingReconnectTmux = null;
+        SessionManager.pendingDisplayName = null;
         const modalRequestId = connectionModalRequestId;
         const targetPane = pendingPaneIndex;
         const shouldReactivatePane = Number.isInteger(targetPane)
@@ -2109,18 +2220,27 @@
         const mobileInput = document.getElementById('mobileInput');
         const mobileSendBtn = document.getElementById('mobileSendBtn');
 
-        const sendMobileInput = () => {
+        let mobileSendPending = false;
+        const sendMobileInput = async () => {
             const active = SessionManager.getActiveSession();
-            if (!active || !mobileInput.value) return;
-            if (window.socket) {
-                const data = mobileInput.value + '\r';
-                if (window.SSHInput) {
-                    window.SSHInput.send(active, data);
-                } else {
-                    window.socket.emit('ssh_input', { session_id: active, data });
+            if (mobileSendPending || !active || !mobileInput.value) return;
+            const submitted = mobileInput.value;
+            mobileSendPending = true;
+            try {
+                let sent = false;
+                if (window.socket?.connected === true) {
+                    const data = submitted + '\r';
+                    if (window.SSHInput) {
+                        sent = await window.SSHInput.send(active, data);
+                    } else {
+                        window.socket.emit('ssh_input', { session_id: active, data });
+                        sent = true;
+                    }
                 }
+                if (sent && mobileInput.value === submitted) mobileInput.value = '';
+            } finally {
+                mobileSendPending = false;
             }
-            mobileInput.value = '';
         };
 
         if (mobileInput) {
@@ -2586,12 +2706,10 @@
                 }
             }
 
-            const started = startConnection(connectionData, targetPane);
+            const started = startConnection(connectionData, targetPane, SessionManager.pendingReconnectSessionId);
             if (!started) return;
             connectionModalRequestId = currentConnectRequestId;
 
-            SessionManager.pendingReconnectTmux = null;
-            SessionManager.pendingDisplayName = null;
             const connectLabel = document.querySelector('#connectBtn .btn-label');
             const connectingText = seconds => (
                 window.i18n

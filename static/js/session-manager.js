@@ -109,6 +109,9 @@ const SessionManager = {
             username: data.username,
             auth_type: data.auth_type,
             via_jump: data.via_jump,
+            jump_host_id: data.jump_host_id,
+            reconnect_route_known: data.reconnect_route_known,
+            key_id: data.key_id,
             display_name: data.display_name,
             file_source: data.file_source,
             use_tmux: data.use_tmux,
@@ -162,7 +165,9 @@ const SessionManager = {
             terminalId,
             os: 'all',
             displayName: display_name || null,
-            viaJump: null,
+            viaJump: data.via_jump || null,
+            jumpHostId: data.jump_host_id || null,
+            reconnectRouteKnown: data.reconnect_route_known === true,
             useTmux: true,
             tmuxSessionName: tmux_session_name,
             isPersistentCandidate: true,
@@ -243,6 +248,8 @@ const SessionManager = {
             os: 'all',
             displayName: storedName || null,
             viaJump: sessionData.via_jump || null,
+            jumpHostId: sessionData.jump_host_id || null,
+            reconnectRouteKnown: sessionData.reconnect_route_known,
             useTmux: sessionData.use_tmux || false,
             tmuxSessionName: sessionData.tmux_session_name || null,
             keyId: sessionData.key_id || null,
@@ -386,6 +393,7 @@ const SessionManager = {
     },
 
     removeSessionUI(sessionId) {
+        window.SSHInput?.cancelSession?.(sessionId);
         if (!this.sessions[sessionId]) {
             return;
         }
@@ -455,6 +463,13 @@ const SessionManager = {
             return;
         }
 
+        const route = this.reconnectRoute(session);
+        if (route.requiresForm || ((session.viaJump || session.jumpHostId)
+                && !session.keyId && session.authType !== 'tailscale')) {
+            this.prefillConnectionForm(sessionId, true);
+            return;
+        }
+
         const label = this.getDisplayLabel(sessionId, session.username, session.host);
 
         // Persistent key and Tailscale sessions can reconnect directly. A
@@ -515,6 +530,7 @@ const SessionManager = {
                         if (authType === 'key') {
                             connectionData.key_id = keyId;
                         }
+                        if (route.proxyJump) connectionData.proxy_jump = route.proxyJump;
                         window.socket.emit('ssh_connect', connectionData);
                         const message = window.i18n
                             ? i18n.t('session.reconnecting').replace('{label}', label)
@@ -1071,12 +1087,12 @@ const SessionManager = {
         this.paneAssignments.forEach((sessionId, index) => {
             if (!this.paneAssignments[index]
                     || this.connectionLauncherSessions.has(index)) {
-                this.renderPane(index);
+                this.renderPane(index, {preserveLauncherSearch: true});
             }
         });
     },
 
-    renderPane(paneIndex) {
+    renderPane(paneIndex, {preserveLauncherSearch = false} = {}) {
         const grid = this.ensureTerminalGrid();
         if (!grid) {
             return;
@@ -1085,6 +1101,13 @@ const SessionManager = {
         if (!pane) {
             return;
         }
+        const previousSearch = preserveLauncherSearch
+            ? pane.querySelector('.profile-launcher-search') : null;
+        const searchQuery = previousSearch?.value || '';
+        const restoreSearchFocus = previousSearch && document.activeElement === previousSearch;
+        const searchSelection = restoreSearchFocus
+            ? [previousSearch.selectionStart, previousSearch.selectionEnd, previousSearch.selectionDirection]
+            : null;
         pane.innerHTML = '';
 
         const sessionId = this.paneAssignments[paneIndex];
@@ -1118,20 +1141,28 @@ const SessionManager = {
         }
 
         const empty = typeof ProfileManager !== 'undefined'
-            ? ProfileManager.createEmptyPaneContent(paneIndex, launcherSessionId ? {
-                returnLabel: this.getDisplayLabel(
-                    launcherSessionId,
-                    this.sessions[launcherSessionId]?.username,
-                    this.sessions[launcherSessionId]?.host,
-                ),
-                onReturn: () => this.restoreConnectionLauncher(paneIndex),
-            } : {})
+            ? ProfileManager.createEmptyPaneContent(paneIndex, {
+                searchQuery,
+                ...(launcherSessionId ? {
+                    returnLabel: this.getDisplayLabel(
+                        launcherSessionId,
+                        this.sessions[launcherSessionId]?.username,
+                        this.sessions[launcherSessionId]?.host,
+                    ),
+                    onReturn: () => this.restoreConnectionLauncher(paneIndex),
+                } : {}),
+            })
             : document.createElement('div');
         if (!empty.className) {
             empty.className = 'pane-empty';
             empty.textContent = window.i18n ? i18n.t('panes.emptyPane') : 'Empty pane';
         }
         pane.appendChild(empty);
+        if (restoreSearchFocus) {
+            const search = empty.querySelector('.profile-launcher-search');
+            search?.focus({preventScroll: true});
+            if (searchSelection) search?.setSelectionRange(...searchSelection);
+        }
     },
 
     assignSessionToPane(sessionId, paneIndex) {
@@ -1437,7 +1468,15 @@ const SessionManager = {
         }
     },
 
-    prefillConnectionForm(sessionId) {
+    reconnectRoute(session) {
+        if (window.prepareSessionReconnectJump) {
+            return window.prepareSessionReconnectJump(session);
+        }
+        return {requiresForm: Boolean(session.viaJump || session.jumpHostId
+            || session.reconnectRouteKnown === false)};
+    },
+
+    prefillConnectionForm(sessionId, forceForm = false) {
         const session = this.sessions[sessionId];
         if (!session) {
             return;
@@ -1447,7 +1486,7 @@ const SessionManager = {
 
         // Key and Tailscale persistent sessions can reconnect directly without
         // opening the connection modal.
-        if (session.isPersistentCandidate && session.useTmux
+        if (!forceForm && session.isPersistentCandidate && session.useTmux
                 && (session.keyId || authType === 'tailscale')) {
             this.directReconnect(sessionId);
             return;
@@ -1466,6 +1505,8 @@ const SessionManager = {
         }
 
         window.clearConnectionProfileState();
+        this.pendingReconnectSessionId = session.connected && !session.isPersistentCandidate
+            ? sessionId : null;
         const hostInput = document.getElementById('hostInput');
         const portInput = document.getElementById('portInput');
         const userInput = document.getElementById('usernameInput');
@@ -1512,6 +1553,8 @@ const SessionManager = {
             this.pendingReconnectTmux = null;
         }
 
+        window.prepareSessionReconnectJump?.(session, {applyToForm: true});
+
         const modal = document.getElementById('connectionModal');
         if (window.ModalManager && modal) {
             window.ModalManager.open(modal);
@@ -1523,6 +1566,11 @@ const SessionManager = {
     directReconnect(sessionId) {
         const session = this.sessions[sessionId];
         if (!session || !session.isPersistentCandidate) {
+            return;
+        }
+        const route = this.reconnectRoute(session);
+        if (route.requiresForm) {
+            this.prefillConnectionForm(sessionId, true);
             return;
         }
 
@@ -1561,6 +1609,7 @@ const SessionManager = {
             if (authType === 'key') {
                 connectionData.key_id = keyId;
             }
+            if (route.proxyJump) connectionData.proxy_jump = route.proxyJump;
             window.socket.emit('ssh_connect', connectionData);
             const label = `${username}@${host}`;
             const message = window.i18n

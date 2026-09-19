@@ -18,7 +18,8 @@ function setup(overrides = {}, systems = ['linux']) {
         ModalManager: {open() {}},
     };
     const document = {
-        getElementById: id => elements[id] ||= {value: values[id]},
+        getElementById: id => elements[id] ||= {value: values[id], appendChild(child) { this.textContent = child.textContent; }},
+        createElement: () => ({}),
         querySelectorAll: () => systems.map(value => ({value})),
     };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../static/js/command-library.js'), 'utf8'), {
@@ -78,4 +79,38 @@ test('delete confirmation translates the prompt and preserves the literal comman
     state.library.deleteCommand('one');
     assert.deepEqual(state.confirmations, ['Löschen: $& command?']);
     assert.equal(state.emitted.length, 0);
+});
+
+test('library OS filter keeps the shared catalog and combines search across catalog refreshes', () => {
+    const state = setup();
+    state.library.renderCommandsList = () => {};
+    const commands = [
+        {id: 'linux', name: 'Linux status', os: ['linux']},
+        {id: 'win', name: 'Windows status', os: ['Windows']},
+        {id: 'all', name: 'Common status', os: ['all']},
+    ].map(command => ({command: '', parameters: '', description: '', category: 'custom', ...command}));
+    state.library.currentOs = 'windows';
+    state.library.setCommands(commands);
+    assert.deepEqual(Array.from(state.library.commands, command => command.id), ['linux', 'win', 'all']);
+    assert.deepEqual(Array.from(state.library.filteredCommands, command => command.id), ['win', 'all']);
+    state.library.searchCommands('Windows');
+    state.library.setCommands(commands);
+    assert.deepEqual(Array.from(state.library.filteredCommands, command => command.id), ['win']);
+    state.library.searchCommands('');
+    assert.deepEqual(Array.from(state.library.filteredCommands, command => command.id), ['win', 'all']);
+    state.library.loadCommands();
+    assert.equal(state.emitted.at(-1)[1].os_filter, null);
+});
+
+test('empty library uses existing translations in all six languages', () => {
+    const state = setup();
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../static/js/i18n.js'), 'utf8'), {
+        window: state.window, document: {addEventListener() {}},
+    });
+    const expected = {en: 'No commands found', de: 'Keine Befehle gefunden', vi: 'Không tìm thấy lệnh', fr: 'Aucune commande trouvée', es: 'No se encontraron comandos', zh: '未找到命令'};
+    for (const [language, text] of Object.entries(expected)) {
+        state.window.i18n.currentLang = language;
+        state.library.renderCommandsList();
+        assert.equal(state.elements.commandsList.textContent, text);
+    }
 });

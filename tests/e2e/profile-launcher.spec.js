@@ -746,3 +746,22 @@ test('inline key upload and rename actions stay touchable at 375px', async ({ pa
         return layout.contained && layout.actionHeights.every(height => height >= 44);
     }).toBe(true);
 });
+
+test('launcher preserves active search through background key and profile refreshes', async ({ page }) => {
+    const pane = page.locator('.terminal-pane[data-pane-index="0"]');
+    const search = pane.locator('.profile-launcher-search');
+    await search.fill('passworduser');
+    await expect(pane.locator('.profile-launcher-card')).toHaveCount(1);
+    for (const update of ['keys', 'profiles']) {
+        await page.evaluate(kind => {
+            if (kind === 'keys') window.ProfileManager.setKeys(window.ProfileManager.keys);
+            else window.ProfileManager.setProfiles(window.ProfileManager.profiles);
+        }, update);
+        await expect(search).toHaveValue('passworduser');
+        await expect(search).toBeFocused();
+        await expect(pane.locator('.profile-launcher-card')).toHaveCount(1);
+        await expect(pane.locator('.profile-launcher-card')).toContainText('passworduser');
+    }
+    await page.evaluate(() => SessionManager.renderPane(0));
+    await expect(search).toHaveValue('');
+});

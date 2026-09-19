@@ -548,8 +548,25 @@ def _directory_entries(sftp, remote_path, *, member_budget=None):
                     yield entry
 
             iterator = budgeted_entries()
+
+    def validated_entries():
+        for entry in iterator:
+            name = getattr(entry, 'filename', None)
+            if name in ('.', '..'):
+                continue
+            # SFTP names are POSIX components; a backslash is literal here.
+            # Cross-platform transfers enforce their stricter name policy.
+            if (
+                not isinstance(name, str)
+                or not name
+                or '/' in name
+                or '\x00' in name
+            ):
+                raise SFTPOperationError('unsafe directory entry name')
+            yield entry
+
     try:
-        yield iterator
+        yield validated_entries()
     finally:
         close = getattr(iterator, 'close', None)
         if callable(close):

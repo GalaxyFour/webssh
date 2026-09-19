@@ -581,3 +581,18 @@ test('restores isolated session history and removes only the closed session stat
     runtime.controller.setSession('session-b', true);
     assert.equal(runtime.renders.at(-1).metricHistory.length, 1);
 });
+
+test('CPU totals count guest time only once through user and nice counters', () => {
+    assert.equal(insights.calculateCpuPercent(Array(10).fill(0), [40, 10, 0, 50, 0, 0, 0, 0, 40, 10]), 50);
+});
+
+test('CPU counters support older layouts and reject invalid values and resets', () => {
+    assert.equal(insights.calculateCpuPercent([0, 0, 0, 0], [25, 0, 25, 50]), 50);
+    assert.equal(insights.calculateCpuPercent([0, 0, 0, 0, 0], [25, 0, 25, 40, 10]), 50);
+    for (const value of [null, '', -1, NaN, Infinity, '10']) {
+        assert.equal(insights.calculateCpuPercent([0, 0, 0, 0], [value, 0, 0, 100]), null);
+    }
+    assert.equal(insights.calculateCpuPercent([-1, 0, 0, 0], [25, 0, 0, 100]), null);
+    assert.equal(insights.calculateCpuPercent([20, 0, 0, 0], [10, 0, 0, 100]), null);
+    assert.equal(insights.calculateCpuPercent([0, 0, 0, 0], [0, 0, 0, 0]), null);
+});

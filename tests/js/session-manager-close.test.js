@@ -477,10 +477,13 @@ test('emits a session-removed event exactly once for each actual UI removal', ()
     manager.updateSessionMeta = () => {};
     manager.notifyWorkspaceChange = () => {};
     const removedIds = [];
+    const cancelledInput = [];
+    context.window.SSHInput = {cancelSession: id => cancelledInput.push(id)};
     context.window.addEventListener('session-removed', event => removedIds.push(event.detail.sessionId));
 
     manager.removeSessionUI('sessionA');
     assert.deepEqual(removedIds, ['sessionA']);
+    assert.deepEqual(cancelledInput, ['sessionA']);
     manager.removeSessionUI('missing-session');
     assert.deepEqual(removedIds, ['sessionA']);
 });

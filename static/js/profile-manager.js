@@ -370,6 +370,7 @@ const ProfileManager = {
             const search = document.createElement('input');
             search.type = 'search';
             search.className = 'form-control profile-launcher-search';
+            search.value = typeof options.searchQuery === 'string' ? options.searchQuery : '';
             search.placeholder = this.t(
                 'profiles.searchPlaceholder',
                 'Search by name, host, user, or group',

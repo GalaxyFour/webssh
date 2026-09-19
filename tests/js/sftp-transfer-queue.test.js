@@ -5180,3 +5180,115 @@ test('embedded transport recovery preserves rows and cancels stale responses bef
     assert.equal(refreshes, 1);
     assert.deepEqual(states, ['reconnecting']);
 });
+
+for (const name of ['../outside', '/absolute', 'nested/file', 'bad\0name', '', '.', '..']) {
+    test(`transfer actions reject unsafe directory entry ${JSON.stringify(name)} before joining`, async () => {
+        const manager = Object.create(SFTPFileManager.prototype);
+        Object.assign(manager, {
+            activePane: 'left',
+            panes: {
+                left: filePane(manager, 'sftp-session:a', {path: '/source', files: [{name}], selected: new Set([0])}),
+                right: filePane(manager, 'sftp-session:b', {path: '/target'}),
+            },
+            workspaceOperationBetweenPanes: () => 'copy',
+            fileOperationBlocked: () => false,
+            showNotification() {}, t: (_key, fallback) => fallback,
+            joinPath() { assert.fail('unsafe entry reached a path join'); },
+        });
+        await manager.executeTransfer();
+        manager.downloadSelected();
+        await manager.moveItemsWithinSource('sftp-session:a', '/source', '/target', [{name}], ['left']);
+        manager.panes.left.files = [{name, is_dir: true}];
+        await manager.moveSelectedToDirectory('left', 0, [{name: 'safe'}]);
+    });
+}
+
+test('transfer entry validation preserves literal Unicode spaces and dotfiles', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    manager.showNotification = () => assert.fail('safe name rejected');
+    for (const name of ['résumé 日本語.txt', 'space name', '.hidden', '%2e%2e%2fx']) {
+        assert.equal(manager.validateTransferEntryNames([{name}]), true);
+        assert.equal(manager.joinPath('/selected', name), `/selected/${name}`);
+    }
+});
+
+test('literal POSIX backslashes remain downloadable and movable within SFTP', async () => {
+    for (const sourceId of ['sftp-session:a', 'sftp-quick:a']) {
+        const manager = Object.create(SFTPFileManager.prototype);
+        const item = {name: 'report\\2026.txt', is_dir: false};
+        const calls = [];
+        Object.assign(manager, {
+            activePane: 'left',
+            panes: {
+                left: filePane(manager, sourceId, {path: '/src', files: [item], selected: new Set([0])}),
+                right: filePane(manager, sourceId, {path: '/dest'}),
+            },
+            workspaceOperationBetweenPanes: () => 'move',
+            fileOperationBlocked: () => false,
+            showNotification() {}, t: (_key, fallback) => fallback,
+            downloadFileToBrowser: (...args) => calls.push(['download', ...args]),
+            retainTransferSources() {}, releaseTransferSources() {}, updateWorkspaceActions() {},
+            refreshPane() {}, flushPendingQuickDisconnects() {}, nextRequestId: () => 'move-1',
+            socket: {emit(event, payload, ack) { calls.push([event, payload]); ack({...payload, success: true}); }},
+        });
+        manager.downloadSelected();
+        assert.equal(await manager.executeTransfer(), 'complete');
+        assert.equal(calls[0][2], '/src/report\\2026.txt');
+        assert.equal(calls[1][0], 'rename_file');
+        assert.equal(calls[1][1].new_path, '/dest/report\\2026.txt');
+        manager.panes.left.files.push({name: 'folder\\2026', is_dir: true});
+        assert.equal(await manager.moveSelectedToDirectory('left', 1, [item]), 'complete');
+        assert.equal(calls[2][1].new_path, '/src/folder\\2026/report\\2026.txt');
+        const picker = {sourceId, sourceKind: 'sftp', validTarget: true,
+            sourcePath: '/src', targetPath: '/dest', selectedItems: [item]};
+        assert.equal(manager.movePickerTargetReason(picker), null);
+    }
+});
+
+test('cross-source copies and SMB operations still reject backslash components', async () => {
+    for (const sourceId of ['sftp-session:a', 'smb-quick:a']) {
+        const manager = Object.create(SFTPFileManager.prototype);
+        const item = {name: 'nested\\file'};
+        Object.assign(manager, {
+            activePane: 'left', panes: {
+                left: filePane(manager, sourceId, {path: '/src', files: [item], selected: new Set([0])}),
+                right: filePane(manager, 'sftp-session:b', {path: '/dest'}),
+            },
+            workspaceOperationBetweenPanes: () => 'copy', fileOperationBlocked: () => false,
+            showNotification() {}, t: (_key, fallback) => fallback,
+            joinPath() { assert.fail('backslash crossed a non-POSIX operation boundary'); },
+        });
+        assert.equal(await manager.executeTransfer(), 'unavailable');
+        if (sourceId.startsWith('smb-')) {
+            manager.downloadSelected();
+            assert.equal(await manager.moveItemsWithinSource(sourceId, '/src', '/dest', [item], []), 'unavailable');
+        }
+    }
+});
+
+test('Move picker selects and lists literal SFTP backslashes without admitting traversal', () => {
+    const manager = Object.create(SFTPFileManager.prototype);
+    const sourceId = 'sftp-session:a';
+    const previousDocument = global.document;
+    global.document = {body: {appendChild() {}}, activeElement: null};
+    Object.assign(manager, {
+        activePane: 'left', panes: {left: filePane(manager, sourceId, {
+            path: '/src', files: [{name: 'report\\2026.txt'}], selected: new Set([0]),
+        })},
+        closeMovePicker() {}, closeContextMenu() {},
+        createMovePickerDialog: () => ({querySelector: () => null}),
+        requestMovePickerDirectory() {}, renderMovePicker() {}, restoreMovePickerContinuationView() {},
+    });
+    try {
+        assert.equal(manager.openMovePicker(), true);
+        assert.deepEqual(manager.movePicker.selectedItems, [{name: 'report\\2026.txt', is_dir: false}]);
+        Object.assign(manager.movePicker, {loading: true, pendingPath: '/dest', pendingRequestId: 'list-1'});
+        assert.equal(manager.consumeMovePickerListing({source_id: sourceId, request_id: 'list-1', path: '/dest',
+            files: ['folder\\2026', '../escape', 'nested/file', 'bad\0name', '.', '..'].map(name => ({name, is_dir: true})),
+        }), true);
+        assert.deepEqual(manager.movePicker.directories, [{name: 'folder\\2026', path: '/dest/folder\\2026'}]);
+        assert.equal(manager.movePickerTargetReason(), null);
+    } finally {
+        global.document = previousDocument;
+    }
+});

@@ -2,6 +2,7 @@ const CommandLibrary = {
     commands: [],
     filteredCommands: [],
     currentOs: 'all',
+    searchQuery: '',
     editingCommandId: null,
     renderCursor: 0,
     chunkSize: 40,
@@ -88,7 +89,7 @@ const CommandLibrary = {
                 document.querySelectorAll('#commandLibraryPanel .os-filter-btn').forEach(b => b.classList.remove('active'));
                 e.currentTarget.classList.add('active');
                 this.currentOs = e.currentTarget.dataset.os;
-                this.loadCommands();
+                this.searchCommands(this.searchQuery);
             });
         });
     },
@@ -96,27 +97,21 @@ const CommandLibrary = {
     loadCommands() {
         if (window.socket) {
             window.socket.emit('list_commands', {
-                os_filter: this.currentOs === 'all' ? null : this.currentOs
+                os_filter: null
             });
         }
     },
 
     setCommands(commands) {
         this.commands = commands;
-        this.filteredCommands = commands;
-        this.renderCommandsList();
+        this.searchCommands(this.searchQuery);
         window.CommandSetManager?.onCommandsChanged();
         window.ConnectionCommandManager?.onDataChanged();
     },
 
     openLibrary() {
         this.returnToModalId = null;
-        const activeSessionId = SessionManager.getActiveSession();
-
-        if (!activeSessionId) {
-            this.currentOs = 'all';
-            this.loadCommands();
-        }
+        this.loadCommands();
 
         window.CommandWorkspace.open('library', {primary: true});
 
@@ -138,8 +133,7 @@ const CommandLibrary = {
         const returnModalId = this.returnToModalId;
         window.CommandWorkspace.close();
         document.getElementById('commandSearchInput').value = '';
-        this.filteredCommands = this.commands;
-        this.renderCommandsList();
+        this.searchCommands('');
         if (returnModalId && window.ModalManager) {
             const returnModal = document.getElementById(returnModalId);
             if (returnModal?.classList.contains('show')) {
@@ -154,11 +148,14 @@ const CommandLibrary = {
     },
 
     searchCommands(query) {
+        this.searchQuery = query || '';
+        const commands = this.commands.filter(command => this.currentOs === 'all'
+            || (command.os || ['all']).some(os => os.toLowerCase() === 'all' || os.toLowerCase() === this.currentOs.toLowerCase()));
         if (!query) {
-            this.filteredCommands = this.commands;
+            this.filteredCommands = commands;
         } else {
             const lowerQuery = query.toLowerCase();
-            this.filteredCommands = this.commands.filter(cmd => {
+            this.filteredCommands = commands.filter(cmd => {
                 const matchesEnglish = (
                     cmd.name.toLowerCase().includes(lowerQuery) ||
                     cmd.command.toLowerCase().includes(lowerQuery) ||
@@ -189,7 +186,11 @@ const CommandLibrary = {
         const container = document.getElementById('commandsList');
 
         if (this.filteredCommands.length === 0) {
-            container.innerHTML = '<p class="no-items">No commands found</p>';
+            container.innerHTML = '';
+            const empty = document.createElement('p');
+            empty.className = 'no-items';
+            empty.textContent = window.i18n?.t('commands.noCommands') || 'No commands found';
+            container.appendChild(empty);
             return;
         }
 

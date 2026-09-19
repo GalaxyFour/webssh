@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const {TextDecoder, TextEncoder} = require('node:util');
 
 function loadSSHInput(socket = {emit() {}}, maxEventBytes = 64 * 1024) {
+    if (socket.connected === undefined) socket.connected = true;
     const window = {
         socket,
         setTimeout,
@@ -142,4 +143,109 @@ test('client chunks at the effective server limit below 64 KiB', () => {
 
     assert.equal(transport.CHUNK_BYTES, 4 * 1024);
     assert.ok(chunks.every(chunk => encoder.encode(chunk).length <= 4 * 1024));
+});
+
+function connectedSocket(emit) {
+    const handlers = new Map();
+    return {
+        connected: true,
+        emit,
+        on(event, handler) { handlers.set(event, handler); },
+        off(event) { handlers.delete(event); },
+        disconnect() {
+            this.connected = false;
+            handlers.get('disconnect')?.();
+        },
+    };
+}
+
+test('disconnected Socket.IO never buffers interactive input', async () => {
+    const io = require('../../static/vendor/socketio/socket.io.min.js');
+    const socket = io('http://127.0.0.1:1', {autoConnect: false, reconnection: false});
+    const transport = loadSSHInput(socket);
+    assert.equal(await transport.send('session-1', 'echo offline\r'), false);
+    assert.equal(socket.sendBuffer.length, 0);
+    socket.disconnect();
+});
+
+test('partial paste failure cancels dependent Enter but permits fresh input and other sessions', async () => {
+    const delivered = [];
+    const transport = loadSSHInput(connectedSocket((_event, payload, ack) => {
+        if (payload.data === 'efgh') ack({success: false, error: 'Remote input rejected'});
+        else { delivered.push([payload.session_id, payload.data]); ack?.({success: true}); }
+    }), 4);
+    const paste = transport.send('session-1', 'abcdefgh');
+    const enter = transport.send('session-1', '\r');
+    const dependent = transport.send('session-1', 'x');
+    assert.equal(await transport.send('session-2', 'ok'), true);
+    assert.equal(await paste, false);
+    assert.equal(await enter, false);
+    assert.equal(await dependent, false);
+    assert.equal(await transport.send('session-1', 'new'), true);
+    assert.deepEqual(delivered, [['session-1', 'abcd'], ['session-2', 'ok'], ['session-1', 'new']]);
+});
+
+test('disconnect cancels unacknowledged paste and queued input even after immediate reconnect', async () => {
+    const delivered = [];
+    let delayedAck;
+    const socket = connectedSocket((_event, payload, ack) => {
+        delivered.push(payload.data);
+        if (payload.data === 'abcd') delayedAck = ack;
+        else ack?.({success: true});
+    });
+    const transport = loadSSHInput(socket, 4);
+    const paste = transport.send('session-1', 'abcdefgh');
+    const enter = transport.send('session-1', '\r');
+    socket.disconnect();
+    socket.connected = true;
+    delayedAck({success: true});
+    assert.equal(await paste, false);
+    assert.equal(await enter, false);
+    assert.equal(await transport.send('session-1', 'new'), true);
+    assert.deepEqual(delivered, ['abcd', 'new']);
+});
+
+
+test('disconnect settles a pending acknowledgement without waiting for its timeout', async () => {
+    const socket = connectedSocket(() => {});
+    const transport = loadSSHInput(socket, 4);
+    const paste = transport.send('session-1', 'abcdefgh');
+    socket.disconnect();
+    assert.equal(await Promise.race([paste, new Promise(resolve => setImmediate(() => resolve('pending')))]), false);
+});
+
+test('disconnect cancels backpressure retry timers', async () => {
+    const delivered = [];
+    const socket = connectedSocket((_event, payload, ack) => {
+        delivered.push(payload.data);
+        ack?.({success: false, code: 'ssh_input_backpressure', retry_after_ms: 5000});
+    });
+    const transport = loadSSHInput(socket, 4);
+    const paste = transport.send('session-1', 'abcdefgh');
+    await Promise.resolve();
+    socket.disconnect();
+    socket.connected = true;
+    assert.equal(await Promise.race([paste, new Promise(resolve => setImmediate(() => resolve('pending')))]), false);
+    assert.deepEqual(delivered, ['abcd']);
+});
+
+test('ending one session cancels its paste without cancelling another session', async () => {
+    const delivered = [];
+    const acks = new Map();
+    const socket = connectedSocket((_event, payload, ack) => {
+        delivered.push([payload.session_id, payload.data]);
+        if (payload.data === 'abcd') acks.set(payload.session_id, ack);
+        else ack?.({success: true});
+    });
+    const transport = loadSSHInput(socket, 4);
+    const first = transport.send('session-1', 'abcdefgh');
+    const second = transport.send('session-2', 'abcdefgh');
+    const enter = transport.send('session-1', '\r');
+    transport.cancelSession('session-1');
+    acks.get('session-1')({success: true});
+    acks.get('session-2')({success: true});
+    assert.equal(await first, false);
+    assert.equal(await enter, false);
+    assert.equal(await second, true);
+    assert.deepEqual(delivered, [['session-1', 'abcd'], ['session-2', 'abcd'], ['session-2', 'efgh']]);
 });

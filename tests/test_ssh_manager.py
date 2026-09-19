@@ -604,6 +604,9 @@ def test_password_tmux_preserves_remote_locale(monkeypatch):
         'username': 'alice',
         'connected': True,
         'via_jump': None,
+        'jump_host_id': None,
+        'reconnect_route_known': True,
+        'auth_type': 'password',
         'use_tmux': True,
         'tmux_session_name': 'existing_session',
         'tmux_reconnect': True,
@@ -667,11 +670,14 @@ def test_proxy_jump_password_opens_direct_tcpip_channel(monkeypatch):
         proxy_jump_port=2222,
         proxy_jump_username='jump-user',
         proxy_jump_password='jump-password',
+        jump_host_id='saved-bastion',
     )
 
     assert error is None
     assert session_id in ssh_manager.sessions
     bastion, target = clients
+    assert ssh_manager.get_session(session_id)['jump_host_id'] == 'saved-bastion'
+    assert ssh_manager.get_session(session_id)['via_jump'] == 'bastion.example'
     assert bastion.connect_kwargs == {
         'hostname': 'bastion.example',
         'port': 2222,

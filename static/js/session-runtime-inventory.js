@@ -121,7 +121,14 @@
         }
 
         function renderFailure() {
-            renderCurrent(cachedState(sessionId)?.inventory ? 'stale' : 'unavailable');
+            const cached = cachedState(sessionId);
+            if (cached) cached.stale = true;
+            renderCurrent(cached?.inventory ? 'stale' : 'unavailable');
+        }
+
+        function cachedStatus() {
+            const cached = cachedState(sessionId);
+            return cached?.inventory ? (cached.stale ? 'stale' : 'ready') : 'loading';
         }
 
         function requestInventory() {
@@ -174,7 +181,7 @@
                 clearPending();
                 sessionId = typeof nextSessionId === 'string' && nextSessionId ? nextSessionId : null;
                 connected = Boolean(isConnected && sessionId);
-                renderCurrent(connected ? (cachedState(sessionId)?.inventory ? 'ready' : 'loading') : 'disconnected');
+                renderCurrent(connected ? cachedStatus() : 'disconnected');
                 requestInventory();
             },
 
@@ -184,7 +191,7 @@
                     clearPending();
                     return;
                 }
-                renderCurrent(connected ? (cachedState(sessionId)?.inventory ? 'ready' : 'loading') : 'disconnected');
+                renderCurrent(connected ? cachedStatus() : 'disconnected');
                 requestInventory();
             },
 

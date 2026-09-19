@@ -49,7 +49,7 @@ def test_all_session_manager_form_prefills_clear_command_set_state_first():
     password_reconnect = source[source.index('// No key_id'):source.index(
         '        }\n', source.index('// No key_id')
     )]
-    prefill = source[source.index('    prefillConnectionForm(sessionId)'):source.index(
+    prefill = source[source.index('    prefillConnectionForm(sessionId,'):source.index(
         '    directReconnect(sessionId)'
     )]
 
