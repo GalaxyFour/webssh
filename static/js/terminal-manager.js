@@ -14,6 +14,8 @@ const TerminalManager = {
     backgroundWrites: {},
     maxBackgroundWriteSize: 65536,
     maxBackgroundWriteEvents: 128,
+    pendingReplay: {},
+    fitSyncTimer: null,
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -775,6 +777,7 @@ const TerminalManager = {
             // Hold output that arrives during resync so the authoritative
             // snapshot remains ordered before the new live stream.
             this.terminalReady[key] = false;
+            const pendingOutput = this.pendingOutput[key] || [];
             this.pendingOutput[key] = [];
             this.pendingOutputSizes[key] = 0;
 
@@ -791,6 +794,16 @@ const TerminalManager = {
             // disabled until xterm has finished rebuilding the screen.
             this.clipboardDisposers[key]?.dispose?.();
             delete this.clipboardDisposers[key];
+
+            // Hidden sessions keep accepting live output and rebuild once on
+            // first visible, instead of paying a reset + rewrite per session
+            // during cold restore.
+            if (!this.isTerminalKeyVisible(key)) {
+                this.terminalReady[key] = true;
+                pendingOutput.forEach(entry => entry.onWritten?.());
+                this.markReplayDeferred(sessionId);
+                return;
+            }
 
             const rebuildTerminal = () => {
                 if (this.terminals[key] !== terminal) return;
@@ -988,6 +1001,7 @@ const TerminalManager = {
         delete this.sequencedOutput[sessionId];
         delete this.sequencedOutputSizes[sessionId];
         delete this.lastOutputSequences[sessionId];
+        delete this.pendingReplay[sessionId];
         this.clearSyncedSize(sessionId);
     },
 
@@ -1043,6 +1057,94 @@ const TerminalManager = {
         (this.sessionTerminals[sessionId] || []).forEach(key => {
             if (this.isTerminalKeyVisible(key)) this.flushBackgroundOutput(key);
         });
+    },
+
+    repaintVisibleTerminal(sessionId) {
+        const repaint = () => {
+            (this.sessionTerminals[sessionId] || []).forEach(key => {
+                const terminal = this.terminals[key];
+                if (!terminal || !this.isTerminalKeyVisible(key)) {
+                    return;
+                }
+                try {
+                    if (typeof terminal.refresh === 'function') {
+                        terminal.refresh(0, terminal.rows - 1);
+                    }
+                } catch {
+                    // A repaint must never break tab switching.
+                }
+            });
+        };
+        // The pane move + fit run before layout settles, so an idle session
+        // with no new output keeps a stale blank canvas. Repaint behind a
+        // double rAF like attachTerminal does, once layout is final.
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => requestAnimationFrame(repaint));
+        } else {
+            setTimeout(repaint, 0);
+        }
+    },
+
+    markReplayDeferred(sessionId) {
+        this.pendingReplay[sessionId] = true;
+    },
+
+    consumeDeferredReplay(sessionId) {
+        if (!this.pendingReplay[sessionId]) {
+            return false;
+        }
+        delete this.pendingReplay[sessionId];
+        return true;
+    },
+
+    replayDeferredOutput(sessionId) {
+        const replayOutput = this.getTranscript(sessionId);
+        (this.sessionTerminals[sessionId] || []).forEach(key => {
+            const terminal = this.terminals[key];
+            if (!terminal || !this.terminalReady[key]) {
+                return;
+            }
+            if (!this.isTerminalKeyVisible(key)) {
+                return;
+            }
+            this.terminalReady[key] = false;
+            this.clearBackgroundOutput(key);
+            this.clipboardDisposers[key]?.dispose?.();
+            delete this.clipboardDisposers[key];
+            const rebuild = () => {
+                if (this.terminals[key] !== terminal) return;
+                if (typeof terminal.reset === 'function') {
+                    terminal.reset();
+                } else {
+                    terminal.clear?.();
+                }
+                this.terminalReady[key] = true;
+                if (!replayOutput) {
+                    this.activateOsc52ClipboardHandler(key, terminal);
+                    return;
+                }
+                this.writeOutputToTerminal(key, replayOutput, () => {
+                    this.activateOsc52ClipboardHandler(key, terminal);
+                });
+            };
+            try {
+                terminal.write('', rebuild);
+            } catch {
+                rebuild();
+            }
+        });
+    },
+
+    scheduleFitAndSyncVisibleTerminals(options = {}) {
+        if (this.fitSyncTimer !== null) {
+            return;
+        }
+        // Cold restore assigns many panes in one burst; coalesce the forced
+        // fit pass so N sessions pay one layout round instead of N.
+        this.fitSyncTimer = setTimeout(() => {
+            this.fitSyncTimer = null;
+            this.fitAndSyncVisibleTerminals({force: true, ...options});
+        }, 120);
     },
 
     setupTouchScroll(container, terminal) {

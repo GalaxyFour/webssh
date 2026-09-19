@@ -77,7 +77,7 @@ test('background batching preserves escape sequences split across writes', async
     }
 });
 
-test('resync cancels queued old-transport writes without accepting their ACKs', async () => {
+test('resync defers rebuild for hidden terminals until first visible', async () => {
     const peer = setup();
     try {
         peer.hide(true);
@@ -88,6 +88,10 @@ test('resync cancels queued old-transport writes without accepting their ACKs', 
         manager.flushBackgroundOutput('k');
         await drained(peer.terminal);
         assert.equal(staleAcknowledgements, 0);
+        assert.equal(manager.pendingReplay.s, true);
+        peer.hide(false);
+        manager.replayDeferredOutput('s');
+        await drained(peer.terminal);
         assert.equal(peer.terminal.buffer.active.getLine(0).translateToString(true), 'snapshot');
     } finally {
         manager.destroyTerminalKey('k', 's');
