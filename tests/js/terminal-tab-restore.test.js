@@ -137,6 +137,43 @@ test('scheduleFitAndSyncVisibleTerminals coalesces bursts into one pass', async 
     assert.equal(manager.fitSyncTimer, null);
 });
 
+test('rapid tab switches synchronize the latest visible session rather than the first', async () => {
+    const {manager} = loadTerminalManager();
+    resetManager(manager);
+    const first = xtermMock(false);
+    const last = xtermMock(true);
+    manager.terminals = {first: first.terminal, last: last.terminal};
+    manager.sessionTerminals = {first: ['first'], last: ['last']};
+    const sent = [];
+    const socket = {connected: true, emit: (event, data) => sent.push([event, data])};
+
+    manager.scheduleFitAndSyncVisibleTerminals({socket, isConnected: id => id === 'first'});
+    first.wrapper.setUnassigned(true);
+    last.wrapper.setUnassigned(false);
+    manager.scheduleFitAndSyncVisibleTerminals({socket, isConnected: id => id === 'last'});
+    await new Promise(resolve => setTimeout(resolve, 160));
+
+    assert.deepEqual(sent, [['ssh_resize', {session_id: 'last', rows: 24, cols: 80}]]);
+});
+
+test('disconnected resizes are not buffered or recorded as synchronized', () => {
+    const {manager} = loadTerminalManager();
+    resetManager(manager);
+    const peer = xtermMock(false);
+    manager.terminals = {k: peer.terminal};
+    manager.sessionTerminals = {s: ['k']};
+    manager.syncedSizes.s = {rows: 20, cols: 60};
+    const sent = [];
+    const socket = {connected: false, emit: (event, data) => sent.push([event, data])};
+
+    manager.fitAndSyncVisibleTerminals({socket, force: true});
+    assert.deepEqual(sent, []);
+    assert.deepEqual(manager.syncedSizes.s, {rows: 20, cols: 60});
+    socket.connected = true;
+    manager.fitAndSyncVisibleTerminals({socket});
+    assert.deepEqual(sent, [['ssh_resize', {session_id: 's', rows: 24, cols: 80}]]);
+});
+
 function loadSessionManager(termStub) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', '..', 'static', 'js', 'session-manager.js'),

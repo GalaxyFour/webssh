@@ -479,7 +479,9 @@ def test_transfer_lane_owns_and_closes_a_fresh_sftp_channel(monkeypatch):
     assert fresh.closed is True
 
 
-def test_probe_sftp_capability_verifies_directory_access(monkeypatch):
+@pytest.mark.parametrize('filename', ['probe.txt', r'report\draft.txt'])
+def test_probe_sftp_capability_verifies_directory_access(monkeypatch, filename):
+    from types import SimpleNamespace
     import app.sftp_handler as sftp_handler
 
     class ClosingIterator:
@@ -494,7 +496,7 @@ def test_probe_sftp_capability_verifies_directory_access(monkeypatch):
             if self.used:
                 raise StopIteration
             self.used = True
-            return object()
+            return SimpleNamespace(filename=filename)
 
         def close(self):
             self.closed = True
@@ -581,6 +583,7 @@ def test_probe_sftp_capability_explains_remote_channel_resource_shortage(
 
 
 def test_probe_sftp_capability_uses_a_fresh_bounded_client(monkeypatch):
+    from types import SimpleNamespace
     import app.sftp_handler as sftp_handler
 
     class FakeSFTP:
@@ -588,7 +591,7 @@ def test_probe_sftp_capability_uses_a_fresh_bounded_client(monkeypatch):
             self.closed = False
 
         def listdir_iter(self, _path):
-            return iter([object()])
+            return iter([SimpleNamespace(filename='probe.txt')])
 
         def close(self):
             self.closed = True
@@ -908,3 +911,133 @@ def test_editor_limit_uses_fstat_from_the_open_object(monkeypatch):
 
     assert result is None
     assert error == 'File too large to edit (0MB). Maximum: 0MB'
+
+@pytest.mark.parametrize('name', ['../outside', '/absolute', 'nested/file', r'nested\file', 'bad\x00name', '', 'résumé 日本語.txt', 'space name', '.hidden'])
+@pytest.mark.parametrize('backend', ['wire', 'iter', 'attr'])
+@pytest.mark.parametrize('with_budget', [False, True])
+def test_directory_entry_boundary_rejects_untrusted_names(name, backend, with_budget):
+    from types import SimpleNamespace
+    import paramiko
+    from paramiko.message import Message
+    from paramiko.sftp import CMD_CLOSE, CMD_HANDLE, CMD_NAME, CMD_OPENDIR, CMD_READDIR
+    import app.sftp_handler as handler
+
+    closed = []
+
+    def entries():
+        try:
+            yield SimpleNamespace(filename=name)
+        finally:
+            closed.append(True)
+
+    class WireSFTP(paramiko.SFTPClient):
+        def __init__(self):
+            self.requests = []
+            self.served = False
+        def _adjust_cwd(self, path):
+            return path
+        def _log(self, *_args):
+            pass
+        def _request(self, command, *_args):
+            self.requests.append(command)
+            message = Message()
+            if command == CMD_OPENDIR:
+                message.add_string('handle')
+                response = CMD_HANDLE
+            elif command == CMD_READDIR:
+                if self.served:
+                    raise EOFError()
+                self.served = True
+                message.add_int(1)
+                message.add_string(name)
+                message.add_string(name)
+                message.add_int(0)
+                response = CMD_NAME
+            else:
+                assert command == CMD_CLOSE
+                closed.append(True)
+                response = 0
+            message.rewind()
+            return response, message
+
+    sftp = WireSFTP() if backend == 'wire' else (
+        SimpleNamespace(listdir_iter=lambda _path: entries()) if backend == 'iter'
+        else SimpleNamespace(listdir_attr=lambda _path: entries())
+    )
+    budget = handler._TransferMemberBudget(10) if with_budget else None
+    if name in ['résumé 日本語.txt', 'space name', '.hidden', r'nested\file']:
+        with handler._directory_entries(sftp, '/selected', member_budget=budget) as listing:
+            assert [entry.filename for entry in listing] == [name]
+    else:
+        with pytest.raises(handler.SFTPOperationError, match='unsafe directory entry name'):
+            with handler._directory_entries(sftp, '/selected', member_budget=budget) as listing:
+                list(listing)
+    assert closed == [True]
+    if budget:
+        assert budget.used == 1
+
+
+@pytest.mark.parametrize('backend', ['iter', 'attr'])
+def test_directory_entry_boundary_preserves_safe_names_and_counts_dot_entries(backend):
+    from types import SimpleNamespace
+    import app.sftp_handler as handler
+    names = ['.', '..', 'résumé 日本語.txt', 'space name', '.hidden']
+    originals = [SimpleNamespace(filename=name) for name in names]
+    sftp = SimpleNamespace(**{f'listdir_{backend}': lambda _path: iter(originals)})
+    budget = handler._TransferMemberBudget(10)
+    with handler._directory_entries(sftp, '/selected', member_budget=budget) as listing:
+        assert list(listing) == originals[2:]
+    assert budget.used == len(names)
+
+@pytest.mark.parametrize('unsafe_name', ['../outside', '/absolute', 'bad\x00name'])
+def test_directory_pagination_rejects_unsafe_continuation_and_closes(monkeypatch, unsafe_name):
+    import stat
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    import app.sftp_handler as handler
+    closed = []
+    def entries():
+        try:
+            for name in ['résumé.txt', '.hidden', unsafe_name]:
+                yield SimpleNamespace(filename=name, st_mode=stat.S_IFREG | 0o600, st_size=1, st_mtime=0)
+        finally:
+            closed.append('iterator')
+    @contextmanager
+    def session(*_args, **_kwargs):
+        try:
+            yield SimpleNamespace(listdir_iter=lambda _path: entries()), 'session'
+        finally:
+            closed.append('session')
+    monkeypatch.setattr(handler, 'sftp_session', session)
+    listing, error = handler.open_directory_listing('session', '/selected')
+    assert error is None
+    page, error, more = listing.read_page(1)
+    assert [item['name'] for item in page] == ['résumé.txt']
+    assert error is None and more is True
+    assert listing.read_page(1) == (None, 'unsafe directory entry name', False)
+    assert closed == ['iterator', 'session']
+
+@pytest.mark.parametrize('name', [r'report\draft.txt', r'folder\report.txt'])
+def test_posix_backslash_listing_does_not_relax_transfer_destinations(name):
+    from threading import Event
+    from types import SimpleNamespace
+    from app.remote_transfer import RemoteTransferError, TransferBudget, copy_remote_entry
+    from app.smb_backend import SMBBackend
+    import app.sftp_handler as handler
+
+    assert handler.sanitize_path('/source/' + name) == '/source/' + name
+    assert handler._is_safe_transfer_entry_name(name) is False
+    smb = object.__new__(SMBBackend)
+    assert smb.normalize_path('/target/' + name) is None
+    source = SimpleNamespace(
+        source_id='sftp-session:source',
+        backend=SimpleNamespace(normalize_path=handler.sanitize_path),
+    )
+    destination = SimpleNamespace(source_id='smb-quick:target', backend=smb)
+    # Invalid SMB targets are rejected before any source stat/read or write.
+    with pytest.raises(RemoteTransferError, match='Invalid remote path'):
+        copy_remote_entry(
+            source, '/source/' + name, destination, '/target/' + name,
+            conflict_policy='error', budget=TransferBudget(max_bytes=1024, max_members=10),
+            cancel_event=Event(), progress=lambda *_args: None,
+        )

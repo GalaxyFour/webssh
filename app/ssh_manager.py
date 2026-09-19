@@ -148,7 +148,8 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                           auth_type='password', startup_commands='',
                           auth_banner_decision=None,
                           tailscale_authorization=None,
-                          cancel_event=None, client_request_id=None):
+                          cancel_event=None, client_request_id=None,
+                          jump_host_id=None):
     """
     Create a new SSH connection and return session ID.
 
@@ -507,6 +508,7 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                 'last_activity': time.time(),
                 'bastion_client': bastion_client,
                 'proxy_jump_host': proxy_jump_host,
+                'jump_host_id': jump_host_id,
                 'auth_type': auth_type,
                 'use_tmux': use_tmux,
                 'tmux_session_name': tmux_session_name,
@@ -965,6 +967,9 @@ def get_session(session_id):
                 'username': session['username'],
                 'connected': session['connected'],
                 'via_jump': session.get('proxy_jump_host'),
+                'jump_host_id': session.get('jump_host_id'),
+                'reconnect_route_known': True,
+                'auth_type': session.get('auth_type', 'password'),
                 'use_tmux': session.get('use_tmux', False),
                 'tmux_session_name': session.get('tmux_session_name'),
                 'tmux_reconnect': session.get('tmux_reconnect', False),

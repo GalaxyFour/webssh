@@ -174,3 +174,28 @@ test('scopes permission failures, isolates caches, removes one cache, and cleans
     assert.equal(runtime.handlers.has('session_runtime_inventory'), false);
     assert.equal(runtime.timers.size, 0);
 });
+
+for (const failure of ['timeout', 'response']) {
+    test(`stale inventory survives reopen and session switches after ${failure}`, () => {
+        const runtime = fakeRuntime();
+        const respond = data => runtime.handlers.get('session_runtime_inventory')({...runtime.emitted.at(-1).payload, ...data});
+        runtime.controller.setSession('session-a', true);
+        runtime.controller.setOpen(true);
+        respond({success: true, sampled_at: 123, systemd: {services: []}});
+        runtime.controller.refresh();
+        if (failure === 'timeout') [...runtime.timers.values()].at(-1).callback();
+        else respond({success: false});
+        assert.equal(runtime.controller.getState().status, 'stale');
+        runtime.controller.setOpen(false);
+        runtime.controller.setOpen(true);
+        assert.equal(runtime.controller.getState().status, 'stale');
+        runtime.controller.setSession('session-b', true);
+        runtime.controller.setSession('session-a', true);
+        assert.equal(runtime.controller.getState().status, 'stale');
+        assert.equal(runtime.controller.getState().sampledAt, 123);
+        respond({success: true, sampled_at: 456, systemd: {services: []}});
+        assert.equal(runtime.controller.getState().status, 'ready');
+        assert.equal(runtime.controller.getState().sampledAt, 456);
+        runtime.controller.destroy();
+    });
+}

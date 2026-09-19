@@ -1430,6 +1430,9 @@ def restore_user_sessions(user_id, socket_sid):
                 'username': db_session.username,
                 'auth_type': session.get('auth_type', db_session.auth_type),
                 'via_jump': session.get('via_jump'),
+                'jump_host_id': session.get('jump_host_id'),
+                'reconnect_route_known': session.get('reconnect_route_known', False),
+                'key_id': db_session.key_id,
                 'use_tmux': session.get('use_tmux', False),
                 'tmux_session_name': session.get('tmux_session_name'),
                 'display_name': db_session.display_name,
@@ -1463,6 +1466,9 @@ def restore_user_sessions(user_id, socket_sid):
                 'username': db_session.username,
                 'key_id': db_session.key_id,
                 'auth_type': db_session.auth_type,
+                'jump_host_id': db_session.jump_host_id,
+                'via_jump': db_session.via_jump,
+                'reconnect_route_known': db_session.reconnect_route_known,
                 'tmux_session_name': db_session.tmux_session_name,
                 'display_name': db_session.display_name
             }, to=socket_sid)
@@ -1791,6 +1797,7 @@ def handle_ssh_connect(data, current_user=None):
                     app=app,
                     user_id=current_user.id,
                     proxy_jump_host=bastion_host,
+                    jump_host_id=saved_jump_host_id,
                     proxy_jump_port=bastion_port,
                     proxy_jump_username=bastion_username,
                     proxy_jump_password=local_bastion_password,
@@ -1895,8 +1902,11 @@ def handle_ssh_connect(data, current_user=None):
                         port=port,
                         username=username,
                         is_persistent=actual_use_tmux,
-                        key_id=key_id if actual_use_tmux else None,
+                        key_id=key_id,
                         auth_type=auth_type,
+                        jump_host_id=saved_jump_host_id,
+                        via_jump=bastion_host,
+                        reconnect_route_known=True,
                         tmux_session_name=created_tmux_name,
                         display_name=display_name if actual_use_tmux else None,
                     )
@@ -1917,8 +1927,10 @@ def handle_ssh_connect(data, current_user=None):
                     'username': username,
                     'client_request_id': client_request_id,
                     'via_jump': bastion_host,
+                    'jump_host_id': saved_jump_host_id,
+                    'reconnect_route_known': True,
                     'use_tmux': actual_use_tmux,
-                    'key_id': key_id if actual_use_tmux else None,
+                    'key_id': key_id,
                     'auth_type': auth_type,
                     'tmux_session_name': created_tmux_name,
                     'display_name': display_name,
@@ -2242,9 +2254,24 @@ def handle_ssh_disconnect(data, current_user=None):
         ssh_session = SSHSession.query.filter_by(session_id=session_id).first()
         host = ssh_session.host if ssh_session else 'unknown'
         port = ssh_session.port if ssh_session else 0
+        preserve_tmux = data.get('preserve_tmux') is True
         if ssh_session:
             try:
-                if ssh_session.is_persistent:
+                replacement_id = data.get('replacement_session_id')
+                replacement = None
+                if (preserve_tmux and ssh_session.is_persistent
+                        and isinstance(replacement_id, str)
+                        and replacement_id != session_id):
+                    replacement = SSHSession.query.filter_by(
+                        session_id=replacement_id, user_id=current_user.id,
+                        host=ssh_session.host, port=ssh_session.port,
+                        username=ssh_session.username, connected=True,
+                        is_persistent=True,
+                        tmux_session_name=ssh_session.tmux_session_name,
+                        jump_host_id=ssh_session.jump_host_id,
+                        via_jump=ssh_session.via_jump,
+                    ).first()
+                if ssh_session.is_persistent and (not preserve_tmux or replacement):
                     db.session.delete(ssh_session)
                 else:
                     ssh_session.connected = False
@@ -2254,7 +2281,9 @@ def handle_ssh_disconnect(data, current_user=None):
                 log_error("Failed to update SSH session in database",
                           error=str(db_err), session_id=session_id)
 
-        success = ssh_manager.close_session(session_id, kill_tmux=True)
+        success = ssh_manager.close_session(
+            session_id, kill_tmux=not preserve_tmux
+        )
         if success:
             room = f'user_{current_user.id}'
             socketio.emit('ssh_disconnected', {

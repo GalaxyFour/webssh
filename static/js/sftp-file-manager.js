@@ -3876,6 +3876,7 @@ class SFTPFileManager {
         const comparableTarget = fold(targetPath);
         if (comparableSource === comparableTarget) return 'same-folder';
         for (const item of picker.selectedItems || []) {
+            if (!this.isSafeEntryName(item?.name, picker.sourceId)) return 'unavailable';
             if (item?.is_dir !== true || typeof item.name !== 'string') continue;
             const itemPath = this.canonicalMovePath(
                 this.joinPath(sourcePath, item.name),
@@ -4024,11 +4025,7 @@ class SFTPFileManager {
             .map(index => state.files[index])
             .filter(item => (
                 item
-                && typeof item.name === 'string'
-                && item.name !== '.'
-                && item.name !== '..'
-                && !item.name.includes('/')
-                && !item.name.includes('\0')
+                && this.isSafeEntryName(item.name, this.getPaneSourceId(state))
             ))
             .map(item => ({ name: item.name, is_dir: item.is_dir === true }));
         if (!sourcePath || selectedItems.length === 0) {
@@ -4251,11 +4248,7 @@ class SFTPFileManager {
         const directories = (Array.isArray(data.files) ? data.files : [])
             .filter(item => (
                 item?.is_dir === true
-                && typeof item.name === 'string'
-                && item.name !== '.'
-                && item.name !== '..'
-                && !item.name.includes('/')
-                && !item.name.includes('\0')
+                && this.isSafeEntryName(item.name, picker.sourceId)
             ))
             .map(item => ({
                 name: item.name,
@@ -4529,12 +4522,12 @@ class SFTPFileManager {
             this.showNotification(this.t('fm.noValidItems', 'No valid items selected'), 'warning');
             return;
         }
-
         if (operation === 'move') {
             return this.moveSelectedBetweenPanes(
                 sourcePane, targetPane, selectedItems,
             );
         }
+        if (!this.validateTransferEntryNames(selectedItems)) return 'unavailable';
 
         this.showNotification(`${this.t('fm.startingTransfer', 'Starting transfer of')} ${selectedItems.length} ${this.t('fm.items', 'item(s)')}...`, 'info');
         const sourceId = this.getPaneSourceId(source);
@@ -4643,6 +4636,7 @@ class SFTPFileManager {
             || !Array.isArray(selectedItems)
             || selectedItems.length === 0
         ) return 'unavailable';
+        if (!this.validateTransferEntryNames([directory, ...selectedItems], sourceId)) return 'unavailable';
         if (selectedItems.some(item => item?.name === directory.name)) {
             this.showNotification(
                 this.t(
@@ -4677,6 +4671,7 @@ class SFTPFileManager {
             || !Array.isArray(selectedItems)
             || selectedItems.length === 0
         ) return 'unavailable';
+        if (!this.validateTransferEntryNames(selectedItems, sourceId)) return 'unavailable';
 
         const retainedSourceIds = [sourceId];
         this.retainTransferSources(retainedSourceIds);
@@ -5668,6 +5663,7 @@ class SFTPFileManager {
 
         const sourceId = this.getPaneSourceId(state);
         const items = Array.from(state.selected).map(i => state.files[i]).filter(f => f);
+        if (!this.validateTransferEntryNames(items, sourceId)) return;
 
         this.showNotification(`${this.t('fm.downloading', 'Downloading')} ${items.length} ${this.t('fm.items', 'item(s)')}...`, 'info');
 
@@ -6147,6 +6143,23 @@ class SFTPFileManager {
         const masks = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001];
         const symbols = ['r', 'w', 'x', 'r', 'w', 'x', 'r', 'w', 'x'];
         return type + masks.map((mask, index) => (mode & mask) ? symbols[index] : '-').join('');
+    }
+
+    isSafeEntryName(name, sourceId = null) {
+        // A backslash is literal on SFTP. Copies between sources retain the
+        // stricter portable policy by omitting the single-source identity.
+        const posixSource = typeof sourceId === 'string'
+            && /^sftp-(?:session|quick):.+$/.test(sourceId);
+        return typeof name === 'string'
+            && name !== '' && name !== '.' && name !== '..'
+            && !name.includes('/') && !name.includes('\0')
+            && (posixSource || !name.includes('\\'));
+    }
+
+    validateTransferEntryNames(items, sourceId = null) {
+        if (items.every(item => this.isSafeEntryName(item?.name, sourceId))) return true;
+        this.showNotification(this.t('fm.invalidName', 'Invalid name'), 'error');
+        return false;
     }
 
     joinPath(basePath, filename) {

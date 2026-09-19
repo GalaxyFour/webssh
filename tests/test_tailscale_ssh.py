@@ -471,7 +471,20 @@ def test_auth_type_migration_backfills_persistent_key_sessions(app):
         )).all()
 
         assert 'auth_type' in columns
+        assert {'jump_host_id', 'via_jump', 'reconnect_route_known'} <= columns
+        assert db.session.execute(text(
+            'SELECT jump_host_id, via_jump, reconnect_route_known '
+            'FROM ssh_sessions ORDER BY id'
+        )).all() == [(None, None, 0), (None, None, 0)]
         assert rows == [('password-session', 'password'), ('key-session', 'key')]
+        ensure_ssh_session_columns()
+        assert db.session.execute(text(
+            'SELECT session_id, host, username, key_id '
+            'FROM ssh_sessions ORDER BY id'
+        )).all() == [
+            ('password-session', 'one', 'root', None),
+            ('key-session', 'two', 'root', 'key-1'),
+        ]
 
 
 def test_tailscale_tmux_reconnect_survives_webssh_restart(app, monkeypatch):

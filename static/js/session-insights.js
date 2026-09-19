@@ -17,10 +17,13 @@
     function calculateCpuPercent(previous, current) {
         if (!Array.isArray(previous) || !Array.isArray(current)) return null;
         if (previous.length < 4 || current.length < 4) return null;
-        const length = Math.min(previous.length, current.length);
+        // Guest counters are already included in user and nice in /proc/stat.
+        const length = Math.min(previous.length, current.length, 8);
         let totalDelta = 0;
         for (let index = 0; index < length; index += 1) {
-            const delta = Number(current[index]) - Number(previous[index]);
+            if (!Number.isFinite(previous[index]) || !Number.isFinite(current[index])
+                || previous[index] < 0 || current[index] < 0) return null;
+            const delta = current[index] - previous[index];
             if (!Number.isFinite(delta) || delta < 0) return null;
             totalDelta += delta;
         }

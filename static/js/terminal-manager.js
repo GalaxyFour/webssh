@@ -15,6 +15,7 @@ const TerminalManager = {
     maxBackgroundWriteSize: 65536,
     maxBackgroundWriteEvents: 128,
     fitSyncTimer: null,
+    pendingFitSyncOptions: null,
     syncedSizes: {},
     scrollbarDisposers: {},
     compositionDisposers: {},
@@ -951,7 +952,7 @@ const TerminalManager = {
             )) {
                 return;
             }
-            if (!socket?.emit) {
+            if (!socket?.emit || socket.connected === false) {
                 return;
             }
             socket.emit('ssh_resize', {
@@ -1076,14 +1077,19 @@ const TerminalManager = {
     },
 
     scheduleFitAndSyncVisibleTerminals(options = {}) {
+        // A tab may change again before this pass runs. Use the latest target
+        // and transport without postponing the already scheduled layout pass.
+        this.pendingFitSyncOptions = {...options};
         if (this.fitSyncTimer !== null) {
             return;
         }
         // Cold restore assigns many panes in one burst; coalesce the forced
         // fit pass so N sessions pay one layout round instead of N.
         this.fitSyncTimer = setTimeout(() => {
+            const latestOptions = this.pendingFitSyncOptions;
+            this.pendingFitSyncOptions = null;
             this.fitSyncTimer = null;
-            this.fitAndSyncVisibleTerminals({force: true, ...options});
+            this.fitAndSyncVisibleTerminals({force: true, ...latestOptions});
         }, 120);
     },
 

@@ -802,6 +802,9 @@ class SSHSession(db.Model):
     auth_type = db.Column(db.String(16), nullable=False, default='password')
     tmux_session_name = db.Column(db.String(256), nullable=True)
     display_name = db.Column(db.String(128), nullable=True)
+    jump_host_id = db.Column(db.String(64), nullable=True)
+    via_jump = db.Column(db.String(256), nullable=True)
+    reconnect_route_known = db.Column(db.Boolean, nullable=False, default=False)
 
     def __repr__(self):
         return f'<SSHSession id={self.session_id[:8]}... {self.username}@{self.host}:{self.port}>'
@@ -829,6 +832,12 @@ def ensure_ssh_session_columns():
         additions.append("ALTER TABLE ssh_sessions ADD COLUMN tmux_session_name VARCHAR(256)")
     if 'display_name' not in existing:
         additions.append("ALTER TABLE ssh_sessions ADD COLUMN display_name VARCHAR(128)")
+    if 'jump_host_id' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN jump_host_id VARCHAR(64)")
+    if 'via_jump' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN via_jump VARCHAR(256)")
+    if 'reconnect_route_known' not in existing:
+        additions.append("ALTER TABLE ssh_sessions ADD COLUMN reconnect_route_known BOOLEAN NOT NULL DEFAULT 0")
     for stmt in additions:
         db.session.execute(text(stmt))
     if added_auth_type:

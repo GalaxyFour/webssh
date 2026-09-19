@@ -253,7 +253,7 @@ def test_profile_management_uses_precise_ordering_and_custom_group_confirmation(
 
 def test_profile_launch_uses_shared_executor_and_review_callback():
     source = read('static/js/app.js')
-    assert 'function startConnection(connectionData, paneIndex)' in source
+    assert 'function startConnection(connectionData, paneIndex, replacedSessionId = null)' in source
     assert 'ConnectionLauncher.createConnectionLauncher' in source
     assert 'window.launchProfileForPane = (profileId, paneIndex = null)' in source
     start = source.index('function openProfileForReview')
