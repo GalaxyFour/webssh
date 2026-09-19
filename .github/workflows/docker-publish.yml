@@ -14,22 +14,41 @@ env:
 jobs:
   security-scan:
     uses: ./.github/workflows/security.yml
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+
+  release-tests:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/tests.yml
+    with:
+      expected_sha: ${{ github.sha }}
     permissions:
       contents: read
 
   build-and-push:
-    needs: security-scan
+    needs: release-tests
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: image-publish-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       packages: write
-      attestations: write
-      id-token: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout tested revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "IMAGE_REF=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
@@ -48,21 +67,20 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.IMAGE_REF }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build immutable release candidate
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ env.IMAGE_REF }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VCS_REF=${{ github.sha }}
@@ -75,21 +93,79 @@ jobs:
             type=gha,scope=publish
           cache-to: type=gha,mode=max,scope=publish
 
-      - name: Verify published image and record immutable identity
-        shell: bash
+      - name: Validate candidate platforms and source revisions
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
         run: |
-          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Build did not return a valid image digest" >&2
-            exit 1
-          fi
+          python scripts/release_image.py inspect \
+            --image "$IMAGE_REF" --digest "$IMAGE_DIGEST" \
+            --revision "$GITHUB_SHA" --output image-candidate.json
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          candidate = json.load(open('image-candidate.json'))
+          for arch in ('amd64', 'arm64'):
+              print(f"{arch.upper()}_REF={candidate['repository']}@{candidate['platforms']['linux/' + arch]}")
+          PY
 
-          immutable_ref="${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
-          docker buildx imagetools inspect "$immutable_ref" >/dev/null
-          printf '{\n  "repository": "%s",\n  "revision": "%s",\n  "digest": "%s",\n  "immutable_ref": "%s"\n}\n' \
-            "${REGISTRY}/${IMAGE_NAME}" "$GITHUB_SHA" "$IMAGE_DIGEST" "$immutable_ref" \
-            > image-release.json
+      - name: Scan exact AMD64 candidate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.AMD64_REF }}
+          format: json
+          output: candidate-trivy-amd64.json
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln
+          trivyignores: .trivyignore.yaml
+
+      - name: Scan exact ARM64 candidate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.ARM64_REF }}
+          format: json
+          output: candidate-trivy-arm64.json
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln
+          trivyignores: .trivyignore.yaml
+
+      - name: Verify hardened runtime of both immutable candidates
+        shell: bash
+        run: |
+          python scripts/check_hardened_container.py --image "$AMD64_REF" --revision "$GITHUB_SHA" --platform linux/amd64
+          python scripts/check_hardened_container.py --image "$ARM64_REF" --revision "$GITHUB_SHA" --platform linux/arm64
+
+      - name: Promote the verified index without rebuilding
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          promotion_args=()
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            promotion_args+=(--require-current-main)
+          fi
+          printf '%s\n' "$RELEASE_TAGS" > release-tags.txt
+          python scripts/release_image.py promote \
+            --image "$IMAGE_REF" --digest "$IMAGE_DIGEST" \
+            --revision "$GITHUB_SHA" --tags-file release-tags.txt \
+            --output image-release.json "${promotion_args[@]}"
+
+      - name: Upload candidate scan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-checks-${{ github.sha }}
+          path: |
+            image-candidate.json
+            candidate-trivy-*.json
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Upload immutable image identity
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1047,3 +1047,50 @@ def test_backup_cli_refuses_mutating_operations_without_offline_ack(
     assert result.exit_code != 0
     assert 'confirm-offline' in result.output
     assert not archive.exists()
+
+
+def test_restore_stages_in_private_recovery_storage_with_read_only_app_root(tmp_path, monkeypatch):
+    source = tmp_path / 'source'
+    source.mkdir()
+    expected = _write_representative_data(source)
+    archive = tmp_path / 'archive.zip'
+    create_backup(source, archive)
+    destination = tmp_path / 'app' / 'data'
+    destination.mkdir(parents=True)
+    monkeypatch.setattr(backup_manager.config, 'DATA_DIR', destination)
+    monkeypatch.setattr(backup_manager.config, 'BACKUP_TEMP_DIR', tmp_path / 'recovery')
+    original = backup_manager.tempfile.TemporaryDirectory
+    staging = []
+
+    def require_writable_volume(*args, **kwargs):
+        directory = Path(kwargs['dir'])
+        if directory == destination.parent:
+            raise PermissionError('read-only application root')
+        staging.append(directory)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(backup_manager.tempfile, 'TemporaryDirectory', require_writable_volume)
+    restore_backup(archive, destination)
+    assert _snapshot(destination) == expected
+    assert staging and all(path.is_relative_to(tmp_path / 'recovery') for path in staging)
+
+
+@pytest.mark.parametrize("relationship", ("same", "child", "parent"))
+def test_restore_rejects_recovery_overlap_before_mutating_destination(tmp_path, monkeypatch, relationship):
+    source = tmp_path / 'source'
+    source.mkdir()
+    _write_representative_data(source)
+    archive = tmp_path / 'archive.zip'
+    create_backup(source, archive)
+    destination = tmp_path / 'destination'
+    destination.mkdir()
+    (destination / 'keep.txt').write_text('original')
+    root = {'same': destination, 'child': destination / 'recovery',
+            'parent': tmp_path}[relationship]
+    monkeypatch.setattr(backup_manager.config, 'DATA_DIR', tmp_path / 'configured-data')
+    monkeypatch.setattr(backup_manager.config, 'BACKUP_TEMP_DIR', root)
+    before = _snapshot(destination)
+    with pytest.raises(BackupIntegrityError, match='outside the destination'):
+        restore_backup(archive, destination)
+    assert _snapshot(destination) == before
+    assert not (destination / 'recovery').exists()

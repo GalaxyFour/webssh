@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 
 import config
+from .backup_coordination import ensure_backup_temp_dir
 from .storage_utils import atomic_copy_file, fsync_parent_directory
 
 
@@ -778,10 +779,16 @@ def restore_backup(archive, data_dir):
         for item in restorable_manifest.files
     }
     extra_paths = existing_paths - manifest_paths
+    recovery_root = Path(config.BACKUP_TEMP_DIR).expanduser().resolve(strict=False)
+    if recovery_root.is_relative_to(data_dir) or data_dir.is_relative_to(recovery_root):
+        raise BackupIntegrityError('restore staging must be outside the destination')
     data_dir.parent.mkdir(parents=True, exist_ok=True)
 
+    operation_root = ensure_backup_temp_dir()
+    if operation_root.is_relative_to(data_dir) or data_dir.is_relative_to(operation_root):
+        raise BackupIntegrityError('restore staging must be outside the destination')
     with tempfile.TemporaryDirectory(
-        dir=data_dir.parent,
+        dir=operation_root,
         prefix='.webssh-restore-',
     ) as temporary_directory:
         temporary = Path(temporary_directory)

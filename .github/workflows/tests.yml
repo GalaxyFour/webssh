@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      expected_sha:
+        description: Exact commit that the caller will publish
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -12,9 +18,9 @@ on:
         required: true
         type: string
 
-# Cancel superseded runs on the same ref to save CI minutes.
+# Standalone PR runs supersede each other; release callers retain their exact-SHA gates.
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.workflow }}-${{ inputs.expected_sha && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +35,7 @@ jobs:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
           set -eu
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ -n "$EXPECTED_SHA" ]; then
             [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
             test "$GITHUB_SHA" = "$EXPECTED_SHA"
           fi
@@ -450,6 +456,10 @@ jobs:
           exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$WEBSSH_CI_CONTAINER")"
           test "$exit_code" = "0"
 
+      - name: Verify hardened production startup and recovery
+        shell: bash
+        run: python scripts/check_hardened_container.py --image "webssh-ci:${GITHUB_SHA}" --revision "$GITHUB_SHA"
+
       - name: Clean up created container
         if: always()
         shell: bash
@@ -475,3 +485,32 @@ jobs:
 
             docker volume rm "$WEBSSH_CI_RECOVERY_VOLUME"
           fi
+
+  release-contract:
+    needs: dispatch-integrity
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Exercise immutable promotion against a disposable local registry
+        run: python scripts/check_release_promotion.py
+
+  all-tests:
+    needs: [dispatch-integrity, dependency-locks, pytest, redis-rate-limiter, ssh-integration, smb-integration, browser-e2e-shards, browser-e2e, container-threading-smoke, release-contract]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Require every test gate
+        env:
+          GATE_RESULTS: ${{ toJSON(needs) }}
+        run: python scripts/check_release_gates.py

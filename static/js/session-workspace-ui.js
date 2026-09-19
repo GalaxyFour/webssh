@@ -35,6 +35,7 @@
         let inventorySessionId = null;
         let inventoryConnected = false;
         let transportReady = socket.connected !== false;
+        let fitScheduled = false;
 
         function selectedContext() {
             return root.workspaceLayoutController?.getState?.().activeContext || null;
@@ -136,13 +137,18 @@
                 );
                 sftpCapabilityTracker.probeIfNeeded(state);
                 applySessionContextDefault(state);
+                // Context updates can nest during restoration. Fit once per frame
+                // and send only changed dimensions, leaving room for tool requests.
+                if (fitScheduled) return;
+                fitScheduled = true;
                 root.requestAnimationFrame(() => {
+                    fitScheduled = false;
                     terminalManager?.fitAndSyncVisibleTerminals?.({
                         socket,
                         isConnected: sessionId => Boolean(
                             sessionManager.getSession(sessionId)?.connected
                         ),
-                        force: true,
+                        force: false,
                     });
                 });
             },

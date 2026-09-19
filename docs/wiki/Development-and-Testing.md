@@ -85,6 +85,46 @@ Relevant release validation includes:
 
 Always associate CI evidence with the exact commit under review. A green run from an older SHA is not evidence for a newer change.
 
+## Immutable image publication
+
+Main pushes and version tags first call the complete `Tests` workflow with the
+exact source SHA. Every required job must finish successfully; missing, skipped,
+cancelled, or failed jobs prevent publication. Standalone PR and manual test runs
+remain available, including the Dependabot vendor refresh workflow.
+
+The publisher builds one AMD64/ARM64 candidate with SBOM and provenance and pushes
+it by digest without release tags. It verifies the index, platform configs and
+source revision, scans each exact child digest for fixable High/Critical findings,
+and runs the hardened startup, backup/restore and shutdown checks on both images.
+Only then does it copy the complete index, retaining its attestations, to the
+existing branch/version tags (`main`, `latest`, or the version and major.minor
+series). It reads every tag back and requires the original index digest. A failed
+check leaves the candidate unpromoted; publication does not rebuild the image.
+
+The workflow retains `image-candidate.json`, per-platform Trivy reports and the
+successful `image-release.json` as artifacts for 90 days. The release record
+contains the tested revision, index digest, platform digests and verified tags.
+Registry tag writes are not transactional: a registry/network failure can leave
+some tags updated, so a failed promotion requires checking all tags against the
+candidate digest before retrying. Concurrent publisher jobs are serialized, with up to 100 pending jobs queued.
+Queue order follows completion of the preceding test gates, so a main push also
+rechecks the current remote main SHA immediately before promotion. Superseded
+main candidates fail without updating tags; version-tag releases remain eligible
+independently of the current main SHA.
+
+PRs also exercise the promotion helper against a disposable loopback-only local
+registry, using tiny synthetic platform images with attestation payloads:
+
+```bash
+python scripts/check_release_promotion.py
+```
+
+This requires Docker and Buildx. It verifies digest-only staging, whole-index
+preservation at each destination tag, and rejection of a different source SHA.
+It creates a uniquely named registry container and removes only that container
+and its anonymous volume after verifying its ownership label. This contract does
+not replace the real candidate scans or application runtime checks.
+
 ## Storage and concurrency rules
 
 When changing JSON persistence:
