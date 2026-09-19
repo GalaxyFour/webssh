@@ -44,8 +44,9 @@ Run the suite with:
 The pytest harness uses a reduced bcrypt work factor to keep authentication-heavy
 tests fast. An isolated subprocess contract verifies that normal application
 processes retain bcrypt's production work factor. The maintained gates execute
-tests on Python 3.11 and 3.14, exercise Redis 7/8 rate limiting, and include
-disposable OpenSSH integration. Targeted tests are useful while developing, but
+the full unit suite on Python 3.14 and a representative compatibility suite on
+Python 3.11. Separate jobs exercise Redis 7/8 rate limiting and disposable
+OpenSSH and encrypted SMB servers. Targeted tests are useful while developing, but
 they do not replace the relevant full gate before release.
 
 ## Frontend dependencies
@@ -178,20 +179,55 @@ source SHA. It creates a uniquely named registry container and removes only that
 container and its anonymous volume after verifying its ownership label. This
 contract does not replace the real candidate scans or application runtime checks.
 
-### Required-check rollout
+### Test selection and required checks
 
-Existing PR job names are retained so the current branch rules continue to work.
-The `all-tests` aggregate requires every configured test job, including SMB and
-the release contract; `security-scan / image-security` aggregates both platform
-scans. After these contexts have passed on the deployed workflow, maintainers
-can migrate individual required test/image jobs to those aggregate checks while
-retaining separately required analysis checks. Verify the exact GitHub check
-names on a fresh PR before changing repository rules.
+The protected PR checks are `all-tests` and `security-scan / image-security`.
+They always report a result. The first requires the complete test job set,
+including SMB and the release contract; the second requires both native image
+scans. Missing, failed or cancelled jobs block their aggregate. Successful older
+runs cannot satisfy a newer revision.
 
-Path-based skipping, including documentation-only changes, is deliberately not
-introduced here. It requires an explicit change classifier and aggregate gates
-that distinguish permitted skips from missing or failed jobs; changing triggers
-first could leave required checks pending or weaken the release gate.
+| Change or trigger | Tests | Container scans and publication |
+|---|---|---|
+| Code, tests, dependencies, workflow or mixed PR | Full Python 3.14 suite; Python 3.11 compatibility; Redis 7/8; OpenSSH; SMB; JavaScript, vendor and lint checks; both browser shards; runtime and release contracts | Native AMD64 and ARM64 scans; no publication |
+| Documentation-only PR | Exact-revision classification, documentation contracts and both required aggregates | Both image scans deliberately skipped; no publication |
+| Main push or version tag | Complete reusable Tests workflow once | Native candidates build alongside tests; publish only after all gates pass |
+| Manual exact-SHA test run | Full tests, regardless of changed paths | No publication from the Tests workflow |
+| Scheduled or manual Container Security run | Independent image validation | Both native architecture scans; no publication |
+
+`scripts/ci_change_scope.py` owns the documentation allowlist: `README.md`,
+Markdown files below `docs/`, and documentation media below `docs/media/`.
+Runtime assets under `static/`, tests, scripts, workflows, locks and unknown
+paths always select the full path. The classifier checks the exact checkout,
+compares the PR base to the tested merge revision, and includes deleted paths
+and both sides of renames. It reads the complete Git diff, without an API file
+limit. Missing history, an empty diff or uncertain Docker exclusions select
+full validation. Workflow summaries record the decision and its reason.
+
+The existing documentation contracts run in the initial test job through
+`python -m unittest discover -s tests -p test_documentation_surface.py -v`.
+The 33 checks cover Wiki links, page coverage, README structure, documentation
+media, LDAP and Command Set instructions, runtime-version consistency and
+production Compose commands without installing application dependencies.
+Keep every test that reads README or allowed documentation paths in this module,
+including contracts that compare documentation with runtime or workflow files. Full pytest excludes that module
+to avoid running it twice.
+
+Only a successful `docs` classification permits the named expensive jobs to
+be skipped. An unexpected result, a missing job or a missing scope fails the
+aggregate. Workflow-level path filters are intentionally avoided so required
+checks cannot remain pending merely because documentation changed.
+
+Main and tag pushes always run the full release pipeline, including docs merges.
+Every published image therefore belongs to its fully tested source revision.
+This also preserves the current-main promotion guard when a documentation merge
+arrives during an earlier code release. Pages, Wiki publication and CodeQL retain
+their own triggers and do not use the PR documentation shortcut.
+
+When adding a new test job, add it to `all-tests.needs` and the corresponding
+required set in `scripts/check_release_gates.py`. Keep selection conditions in
+sync and test both full and documentation modes. Do not solve a failing aggregate
+by accepting arbitrary skipped jobs or by removing a required check.
 
 ## Storage and concurrency rules
 
