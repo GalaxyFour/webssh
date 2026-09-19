@@ -365,15 +365,37 @@ test('SMB editor remembers recoverable-swap consent for the current connection',
             save_challenge: 'c'.repeat(43),
         });
         preview.saveEdit();
+        const pendingEmissionCount = emitted.length;
+
+        document.getElementById('editorContent').value = 'updated again';
+        preview.markDirty();
+        preview.handleFileSaved({
+            ...emitted[1],
+            revision: 'b'.repeat(64),
+        });
+        const retainedDraft = {
+            content: document.getElementById('editorContent').value,
+            dirty: preview.dirty,
+            editMode: preview.editMode,
+        };
+        preview.saveEdit();
 
         return {
             emitted,
             confirmations,
+            pendingEmissionCount,
+            retainedDraft,
             status: document.getElementById('editorStatus').textContent,
         };
     });
 
     expect(state.confirmations).toBe(1);
+    expect(state.pendingEmissionCount).toBe(2);
+    expect(state.retainedDraft).toEqual({
+        content: 'updated again',
+        dirty: true,
+        editMode: true,
+    });
     expect(state.emitted).toHaveLength(3);
     expect(state.emitted[0]).toMatchObject({
         expected_revision: 'a'.repeat(64),
@@ -386,7 +408,8 @@ test('SMB editor remembers recoverable-swap consent for the current connection',
     });
     expect(state.emitted[1]).not.toHaveProperty('allow_non_atomic');
     expect(state.emitted[2]).toMatchObject({
-        expected_revision: 'a'.repeat(64),
+        expected_revision: 'b'.repeat(64),
+        content: 'updated again',
         replace_strategy: 'recoverable_swap',
     });
     expect(state.emitted[2]).not.toHaveProperty('save_challenge');
