@@ -214,11 +214,11 @@ def test_security_workflow_gates_publish_and_preserves_scan_evidence():
     assert 'image-security-arm64:' in security
     assert re.search(
         r'image-security:\s*\n\s+needs:\s*'
-        r'\[image-security-amd64, image-security-arm64\]',
+        r'\[change-scope, image-security-amd64, image-security-arm64\]',
         security,
     )
-    assert 'test "$AMD64_RESULT" = success' in security
-    assert 'test "$ARM64_RESULT" = success' in security
+    assert 'GATE_KIND: images' in security
+    assert 'python scripts/check_release_gates.py' in security
     assert re.search(r'platforms:\s*linux/amd64\b', security)
     assert re.search(r'platforms:\s*linux/arm64\b', security)
     assert (
@@ -316,46 +316,6 @@ def test_runtime_image_removes_python_packaging_tooling():
     assert 'rm -rf /usr/local/lib/python*/ensurepip' in dockerfile
 
 
-def test_docker_exec_cli_examples_load_the_persisted_secret():
-    wiki = ROOT / 'docs' / 'wiki'
-    documentation = '\n'.join(
-        (wiki / name).read_text(encoding='utf-8')
-        for name in (
-            'Quick-Start.md',
-            'Production-Deployment.md',
-            'Users-and-Account-Management.md',
-        )
-    )
-    commands = re.findall(
-        r'docker compose(?:(?!```)[\s\S])*?exec webssh'
-        r'(?:(?!```)[\s\S])*?flask [^\n]+',
-        documentation,
-    )
-
-    assert commands
-    assert all('/app/entrypoint.sh flask ' in command for command in commands)
-
-
-def test_production_compose_override_documents_its_minimum_version():
-    overlay = (ROOT / 'docker-compose.production.yml').read_text(
-        encoding='utf-8'
-    )
-    if '!override' not in overlay:
-        return
-
-    production_quickstart = (
-        ROOT / 'docs' / 'wiki' / 'Production-Deployment.md'
-    ).read_text(encoding='utf-8')
-
-    assert '2.24.4' in production_quickstart
-    assert re.search(
-        r'(?:requires|minimum).{0,80}Docker Compose.{0,40}2\.24\.4'
-        r'|Docker Compose.{0,40}2\.24\.4.{0,40}(?:or newer|minimum)',
-        production_quickstart,
-        re.IGNORECASE | re.DOTALL,
-    )
-
-
 def test_ci_rejects_stale_vendored_frontend_assets():
     package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
     workflow = (WORKFLOWS / 'tests.yml').read_text(encoding='utf-8')
@@ -434,23 +394,6 @@ def test_dependabot_vendor_refresh_executes_only_trusted_automation_scripts():
     generation = workflow.index('node scripts/vendor.js')
 
     assert snapshot < checkout < verification < generation
-
-
-def test_wiki_describes_current_transfer_and_log_rotation_contracts():
-    wiki = ROOT / 'docs' / 'wiki'
-    transfers = (
-        wiki / 'SFTP-File-Workspace-and-Transfers.md'
-    ).read_text(encoding='utf-8')
-    audit = (
-        wiki / 'Administration-Audit-and-Diagnostics.md'
-    ).read_text(encoding='utf-8')
-
-    assert '`/api/upload`' not in transfers
-    assert '/api/transfers/<token>/upload' in transfers
-    assert '/api/transfers/<token>/download' in transfers
-    assert 'AUDIT_LOG_MAX_BYTES' in audit
-    assert 'AUDIT_LOG_BACKUP_COUNT' in audit
-    assert 'does not rotate them itself' not in audit
 
 
 def test_trivy_suppressions_are_justified_and_expire():
@@ -537,7 +480,7 @@ def test_slow_test_gates_are_sharded_without_duplicate_redis_unit_runs():
     assert 'name: browser-e2e (${{ matrix.shard }}/2)' in workflow
     assert 'npm run test:e2e:ci -- --shard=${{ matrix.shard }}/2' in workflow
     assert re.search(
-        r'\n  browser-e2e:\s*\n\s+needs:\s+browser-e2e-shards\b',
+        r'\n  browser-e2e:\s*\n\s+needs:\s+\[dispatch-integrity, browser-e2e-shards\]',
         workflow,
     )
     assert 'test "$SHARD_RESULT" = success' in workflow
@@ -644,3 +587,27 @@ def test_publish_queues_releases_and_guards_only_main_promotion():
     assert 'if [ "$GITHUB_REF" = "refs/heads/main" ]; then' in step
     assert 'promotion_args+=(--require-current-main)' in step
     assert '\"${promotion_args[@]}\"' in step
+
+
+def test_docs_selection_is_job_level_and_keeps_both_required_aggregates():
+    tests = (WORKFLOWS / 'tests.yml').read_text(encoding='utf-8')
+    images = (WORKFLOWS / 'security.yml').read_text(encoding='utf-8')
+    for workflow in (tests, images):
+        assert 'paths-ignore:' not in workflow
+        assert 'paths:' not in workflow
+        assert 'fetch-depth: 0' in workflow
+        assert 'run: python scripts/ci_change_scope.py' in workflow
+        assert 'mode: ${{ steps.scope.outputs.mode }}' in workflow
+        assert 'if: ${{ always() }}' in workflow
+    assert "CI_FORCE_FULL: ${{ inputs.expected_sha != '' }}" in tests
+    assert 'python -m unittest discover -s tests -p test_documentation_surface.py -v' in tests
+    assert '--ignore=tests/test_documentation_surface.py' in tests
+    from scripts.check_release_gates import REQUIRED
+    for name in REQUIRED - {'dispatch-integrity', 'browser-e2e'}:
+        job = re.split(r'\n  [a-z][a-z-]*:', tests.split('\n  ' + name + ':', 1)[1], maxsplit=1)[0]
+        assert 'needs: dispatch-integrity' in job
+        assert "if: needs.dispatch-integrity.outputs.mode == 'full'" in job
+    for arch in ('amd64', 'arm64'):
+        job = re.split(r'\n  [a-z][a-z0-9-]*:', images.split('\n  image-security-' + arch + ':', 1)[1], maxsplit=1)[0]
+        assert 'needs: change-scope' in job
+        assert "if: needs.change-scope.outputs.mode == 'full'" in job

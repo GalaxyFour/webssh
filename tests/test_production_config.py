@@ -735,66 +735,6 @@ def test_ldap_compose_overlay_supplies_complete_secret_infrastructure():
     assert 'python", "/app/deployment/ldap_secret_cli.py"' in overlay
 
 
-def test_ldap_documentation_selects_overlay_for_every_helper_command():
-    documentation = Path('docs/ldap-authentication.md').read_text(
-        encoding='utf-8',
-    )
-    helper_commands = [
-        line
-        for line in documentation.splitlines()
-        if 'ldap-tools run' in line
-    ]
-
-    assert helper_commands
-    assert all(
-        '-f docker-compose.yml -f docker-compose.ldap.yml' in command
-        for command in helper_commands
-    )
-    assert (
-        '-f docker-compose.yml -f docker-compose.ldap.yml '
-        '-f docker-compose.production.yml up -d'
-    ) in documentation
-
-
-def test_wiki_documents_complete_ldap_compose_quickstart():
-    documentation = Path(
-        'docs/wiki/LDAP-and-Active-Directory.md'
-    ).read_text(encoding='utf-8')
-    normalized = ' '.join(documentation.replace('\\\n', '').split())
-    documented_urls = {
-        (parsed.scheme, parsed.hostname, parsed.port)
-        for value in re.findall(
-            r'`(ldaps?://[^`:/\s]+:\d+)`', documentation
-        )
-        if (parsed := urlsplit(value)).hostname
-    }
-
-    assert '# LDAP and Active Directory' in documentation
-    assert ('ldap', 'ldap.example.com', 389) in documented_urls
-    assert 'mandatory StartTLS' in documentation
-    assert ('ldaps', 'ldap.example.com', 636) in documented_urls
-    assert (
-        '-f docker-compose.yml -f docker-compose.ldap.yml '
-        '--profile ldap-tools run --rm ldap-tools set-password'
-    ) in normalized
-    assert (
-        '-f docker-compose.yml -f docker-compose.ldap.yml up -d'
-    ) in normalized
-    assert (
-        '-f docker-compose.yml -f docker-compose.ldap.yml '
-        '-f docker-compose.production.yml up -d'
-    ) in normalized
-    assert (
-        'docker compose -f docker-compose.yml '
-        'up -d --force-recreate'
-    ) in normalized
-    assert (
-        'docker compose -f docker-compose.yml '
-        '-f docker-compose.production.yml '
-        'up -d --force-recreate'
-    ) in normalized
-
-
 def test_disposable_ldap_lab_binds_published_test_service_to_loopback():
     compose = Path('tests/integration/ldap/docker-compose.yml').read_text(
         encoding='utf-8',

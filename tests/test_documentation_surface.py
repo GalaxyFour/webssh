@@ -3,6 +3,7 @@
 import re
 import struct
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -406,3 +407,248 @@ def test_supported_python_versions_are_documented():
     development = wiki_text("Development-and-Testing.md")
     assert "Python 3.11" in development
     assert "Python 3.14" in development
+
+
+def test_ldap_documentation_selects_overlay_for_every_helper_command():
+    documentation = (ROOT / 'docs' / 'ldap-authentication.md').read_text(
+        encoding='utf-8',
+    )
+    helper_commands = [
+        line
+        for line in documentation.splitlines()
+        if 'ldap-tools run' in line
+    ]
+
+    assert helper_commands
+    assert all(
+        '-f docker-compose.yml -f docker-compose.ldap.yml' in command
+        for command in helper_commands
+    )
+    assert (
+        '-f docker-compose.yml -f docker-compose.ldap.yml '
+        '-f docker-compose.production.yml up -d'
+    ) in documentation
+
+
+def test_wiki_documents_complete_ldap_compose_quickstart():
+    documentation = (WIKI / 'LDAP-and-Active-Directory.md').read_text(encoding='utf-8')
+    normalized = ' '.join(documentation.replace('\\\n', '').split())
+    documented_urls = {
+        (parsed.scheme, parsed.hostname, parsed.port)
+        for value in re.findall(
+            r'`(ldaps?://[^`:/\s]+:\d+)`', documentation
+        )
+        if (parsed := urlsplit(value)).hostname
+    }
+
+    assert '# LDAP and Active Directory' in documentation
+    assert ('ldap', 'ldap.example.com', 389) in documented_urls
+    assert 'mandatory StartTLS' in documentation
+    assert ('ldaps', 'ldap.example.com', 636) in documented_urls
+    assert (
+        '-f docker-compose.yml -f docker-compose.ldap.yml '
+        '--profile ldap-tools run --rm ldap-tools set-password'
+    ) in normalized
+    assert (
+        '-f docker-compose.yml -f docker-compose.ldap.yml up -d'
+    ) in normalized
+    assert (
+        '-f docker-compose.yml -f docker-compose.ldap.yml '
+        '-f docker-compose.production.yml up -d'
+    ) in normalized
+    assert (
+        'docker compose -f docker-compose.yml '
+        'up -d --force-recreate'
+    ) in normalized
+    assert (
+        'docker compose -f docker-compose.yml '
+        '-f docker-compose.production.yml '
+        'up -d --force-recreate'
+    ) in normalized
+
+
+def test_wiki_documents_command_set_lifecycle_and_upgrade_behavior():
+    documentation = ' '.join(
+        wiki_text('Profiles-Jump-Hosts-and-Commands.md').split()
+    )
+
+    for phrase in (
+        'Run after',
+        'exact',
+        'Free text',
+        'Command Sets',
+        'Save as library command',
+        'maximum 4096 characters',
+        'persistent tmux session does not run them again',
+        'former free-text startup commands keep',
+        'working after an update',
+        'cannot be deleted while a profile references it',
+        'No additional environment variable, Compose setting',
+        'Run commands with sudo',
+        'opt-in for new command sets',
+        'Existing command sets',
+        'legacy conversion keep their saved',
+        'does not store or answer a sudo password',
+        'created, inspected, updated, or deleted without opening an SSH',
+        'joined with `&&`',
+        'inside a free-text step remain unchanged',
+        'legacy startup commands',
+    ):
+        assert phrase in documentation
+
+
+def workflow_job(workflow, job_name):
+    marker = f"\n  {job_name}:\n"
+    _, separator, remainder = workflow.partition(marker)
+    assert separator, f"missing workflow job: {job_name}"
+
+    next_job = re.search(r"(?m)^  [a-zA-Z0-9_-]+:\s*$", remainder)
+    return remainder[:next_job.start()] if next_job else remainder
+
+
+def test_python_runtime_contract_stays_synchronized():
+    minimum_python = "3.11"
+    production_python = "3.14"
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    pytest_job = workflow_job(workflow, "pytest")
+    matrix_entries = re.findall(
+        r"- python_version: '([^']+)'\s+check_name: ([^\n]+)",
+        pytest_job,
+    )
+
+    assert dockerfile.startswith(
+        f"FROM python:{production_python}-slim@sha256:"
+    )
+    assert matrix_entries == [
+        (production_python, "pytest"),
+        (minimum_python, f"pytest (Python {minimum_python} minimum)"),
+    ]
+    assert "python-version: ${{ matrix.python_version }}" in pytest_job
+
+    for job_name in ("ssh-integration", "browser-e2e-shards"):
+        assert (
+            f"python-version: '{production_python}'"
+            in workflow_job(workflow, job_name)
+        )
+
+    assert f"python-{minimum_python}+" in readme
+
+
+def test_readme_exposes_the_public_product_entry_points():
+    """Users can reach the package, product site, and separate code graph."""
+    readme = README.read_text(encoding="utf-8")
+    for public_url in (
+        "https://github.com/bifrost0x/webssh/pkgs/container/webssh",
+        "https://bifrost0x.github.io/webssh/",
+        "https://bifrost0x.github.io/webssh/code-graph/",
+    ):
+        assert public_url in readme
+
+
+def test_readme_code_map_badge_targets_graph_subpath():
+    """The project-structure badge opens Graphify, not the product landing page."""
+    readme = README.read_text(encoding="utf-8")
+    badge = "Interaktive%20Code--Map"
+    badge_position = readme.index(badge)
+    link_position = readme.rfind("<a href=", 0, badge_position)
+
+    assert (
+        'href="https://bifrost0x.github.io/webssh/code-graph/"'
+        in readme[link_position:badge_position]
+    )
+
+
+def test_public_surfaces_use_the_large_real_session_workspace_capture():
+    """The new workspace is shown with a desktop-sized product capture."""
+    assert "assets/workspace-overview.png" in README.read_text(encoding="utf-8")
+    assert "assets/session-workspace.png" in (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+
+    for image in ((ROOT / "assets" / "workspace-overview.png"), (ROOT / "assets" / "session-workspace.png")):
+        png = image.read_bytes()
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+        assert int.from_bytes(png[16:20], "big") >= 1920
+        assert int.from_bytes(png[20:24], "big") >= 1080
+
+
+def test_readme_keeps_current_session_diagnostics_public():
+    """Monitoring, diagnostics, and safe service actions stay discoverable."""
+    readme = README.read_text(encoding="utf-8")
+    for feature in (
+        "Active Session Monitoring",
+        "Expanded Diagnostics",
+        "Clipboard-Only Service Actions",
+    ):
+        assert feature in readme
+
+    assert "Session-aware Files, Commands, Diagnostics, and Notes contexts" in readme
+
+
+def test_docker_exec_cli_examples_load_the_persisted_secret():
+    wiki = ROOT / 'docs' / 'wiki'
+    documentation = '\n'.join(
+        (wiki / name).read_text(encoding='utf-8')
+        for name in (
+            'Quick-Start.md',
+            'Production-Deployment.md',
+            'Users-and-Account-Management.md',
+        )
+    )
+    commands = re.findall(
+        r'docker compose(?:(?!```)[\s\S])*?exec webssh'
+        r'(?:(?!```)[\s\S])*?flask [^\n]+',
+        documentation,
+    )
+
+    assert commands
+    assert all('/app/entrypoint.sh flask ' in command for command in commands)
+
+
+def test_production_compose_override_documents_its_minimum_version():
+    overlay = (ROOT / 'docker-compose.production.yml').read_text(
+        encoding='utf-8'
+    )
+    if '!override' not in overlay:
+        return
+
+    production_quickstart = (
+        ROOT / 'docs' / 'wiki' / 'Production-Deployment.md'
+    ).read_text(encoding='utf-8')
+
+    assert '2.24.4' in production_quickstart
+    assert re.search(
+        r'(?:requires|minimum).{0,80}Docker Compose.{0,40}2\.24\.4'
+        r'|Docker Compose.{0,40}2\.24\.4.{0,40}(?:or newer|minimum)',
+        production_quickstart,
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+def test_wiki_describes_current_transfer_and_log_rotation_contracts():
+    wiki = ROOT / 'docs' / 'wiki'
+    transfers = (
+        wiki / 'SFTP-File-Workspace-and-Transfers.md'
+    ).read_text(encoding='utf-8')
+    audit = (
+        wiki / 'Administration-Audit-and-Diagnostics.md'
+    ).read_text(encoding='utf-8')
+
+    assert '`/api/upload`' not in transfers
+    assert '/api/transfers/<token>/upload' in transfers
+    assert '/api/transfers/<token>/download' in transfers
+    assert 'AUDIT_LOG_MAX_BYTES' in audit
+    assert 'AUDIT_LOG_BACKUP_COUNT' in audit
+    assert 'does not rotate them itself' not in audit
+
+
+def load_tests(loader, tests, pattern):
+    """Run the same documentation contracts without application dependencies."""
+    import unittest
+
+    return unittest.TestSuite(
+        unittest.FunctionTestCase(value)
+        for name, value in sorted(globals().items())
+        if name.startswith('test_') and callable(value)
+    )

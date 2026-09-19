@@ -380,33 +380,3 @@ def test_connection_mode_help_uses_accessible_tooltips():
     assert references
     assert set(references).issubset(tooltip_ids)
     assert 'class="info-tooltip-trigger"' in template
-
-
-def test_wiki_documents_command_set_lifecycle_and_upgrade_behavior():
-    documentation = ' '.join(
-        read('docs/wiki/Profiles-Jump-Hosts-and-Commands.md').split()
-    )
-
-    for phrase in (
-        'Run after',
-        'exact',
-        'Free text',
-        'Command Sets',
-        'Save as library command',
-        'maximum 4096 characters',
-        'persistent tmux session does not run them again',
-        'former free-text startup commands keep',
-        'working after an update',
-        'cannot be deleted while a profile references it',
-        'No additional environment variable, Compose setting',
-        'Run commands with sudo',
-        'opt-in for new command sets',
-        'Existing command sets',
-        'legacy conversion keep their saved',
-        'does not store or answer a sudo password',
-        'created, inspected, updated, or deleted without opening an SSH',
-        'joined with `&&`',
-        'inside a free-text step remain unchanged',
-        'legacy startup commands',
-    ):
-        assert phrase in documentation
