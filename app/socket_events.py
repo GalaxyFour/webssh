@@ -3543,6 +3543,34 @@ def verify_session_ownership(session_id, user_id):
     return file_source_resolver.owns(source_id, user_id)
 
 
+@socketio.on('request_session_directory')
+@socket_login_required
+def handle_request_session_directory(data, current_user=None):
+    """Read a directory only for the caller's live SSH session."""
+    from . import session_directory
+
+    session_id = data.get('session_id') if isinstance(data, dict) else None
+    if not isinstance(session_id, str) or not 0 < len(session_id) <= 128:
+        return {'success': False, 'reason': 'unavailable'}
+    # One visible workspace polls about 40 times per minute. Size the shared
+    # per-user budget for every socket the server is willing to admit, with
+    # headroom for navigation-triggered probes, while keeping all ownership
+    # and database work behind a finite limit.
+    requests_per_minute = max(
+        90,
+        config.MAX_SOCKET_CONNECTIONS_PER_USER * 60,
+    )
+    if check_socket_rate_limit(
+            current_user.id,
+            'session_directory',
+            f'{requests_per_minute} per minute'):
+        return {'success': False, 'reason': 'busy'}
+    if not verify_session_ownership(session_id, current_user.id):
+        return {'success': False, 'reason': 'unavailable'}
+    result, reason = session_directory.collect_directory(session_id)
+    return {'success': result is not None, 'directory': result, 'reason': reason}
+
+
 @socketio.on('request_session_insights')
 @socket_login_required
 def handle_request_session_insights(data, current_user=None):

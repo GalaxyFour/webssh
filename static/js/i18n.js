@@ -1,6 +1,10 @@
 
 const translations = {
     en: {
+        'settings.directorySyncDefault': "Synchronize folders with terminal by default",
+        'settings.directorySyncDefaultHint': "Applies when opening or reloading the workspace.",
+        'workspace.directorySync.label': "Synchronize folders with terminal",
+        'workspace.directorySync.hint': "Link folder navigation to this terminal. Starts at the terminal folder.",
         'sessionCommands.editParameters': "Parameters for this insertion",
         'sessionCommands.resetParameters': "Restore saved parameters",
         'workspace.toolsReconnecting': "Reconnecting — displayed data may be out of date.",
@@ -209,7 +213,7 @@ const translations = {
         'workspaceContext.notes': 'Notes',
         'workspaceContext.activeSession': 'Active session',
         'workspaceContext.personalWorkspace': 'Personal workspace',
-        'workspaceContext.notesHint': 'Keep commands and reminders close to the active session.',
+        'workspaceContext.notesHint': 'Your private notes, shared across all your sessions.',
         'workspaceContext.notepad': 'Notepad',
         'workspaceContext.scratchpad': 'Personal scratchpad',
         'workspaceContext.notesPlaceholder': 'Write notes, commands, or snippets here...',
@@ -1393,6 +1397,10 @@ const translations = {
 
 
     vi: {
+        'settings.directorySyncDefault': "Mặc định đồng bộ thư mục với terminal",
+        'settings.directorySyncDefaultHint': "Áp dụng khi mở hoặc tải lại không gian làm việc.",
+        'workspace.directorySync.label': "Đồng bộ thư mục với terminal",
+        'workspace.directorySync.hint': "Liên kết điều hướng với terminal này. Bắt đầu tại thư mục của terminal.",
         'sessionCommands.editParameters': "Tham số cho lần chèn này",
         'sessionCommands.resetParameters': "Khôi phục tham số đã lưu",
         'workspace.toolsReconnecting': "Đang kết nối lại — dữ liệu hiển thị có thể đã cũ.",
@@ -1601,7 +1609,7 @@ const translations = {
         'workspaceContext.notes': 'Ghi chú',
         'workspaceContext.activeSession': 'Phiên đang hoạt động',
         'workspaceContext.personalWorkspace': 'Không gian cá nhân',
-        'workspaceContext.notesHint': 'Giữ lệnh và lời nhắc gần phiên đang hoạt động.',
+        'workspaceContext.notesHint': 'Ghi chú riêng của bạn, dùng chung cho mọi phiên.',
         'workspaceContext.notepad': 'Sổ ghi chú',
         'workspaceContext.scratchpad': 'Ghi chú nháp cá nhân',
         'workspaceContext.notesPlaceholder': 'Viết ghi chú, lệnh hoặc đoạn mã tại đây...',
@@ -2784,6 +2792,10 @@ const translations = {
     },
 
     de: {
+        'settings.directorySyncDefault': "Ordner standardmäßig mit Terminal synchronisieren",
+        'settings.directorySyncDefaultHint': "Gilt beim Öffnen oder Neuladen des Workspace.",
+        'workspace.directorySync.label': "Ordner mit Terminal synchronisieren",
+        'workspace.directorySync.hint': "Ordnernavigation mit diesem Terminal koppeln. Startet im Terminal-Ordner.",
         'sessionCommands.editParameters': "Parameter für dieses Einfügen",
         'sessionCommands.resetParameters': "Gespeicherte Parameter wiederherstellen",
         'workspace.toolsReconnecting': "Verbindung wird wiederhergestellt — angezeigte Daten können veraltet sein.",
@@ -2992,7 +3004,7 @@ const translations = {
         'workspaceContext.notes': 'Notizen',
         'workspaceContext.activeSession': 'Aktive Session',
         'workspaceContext.personalWorkspace': 'Persönlicher Arbeitsbereich',
-        'workspaceContext.notesHint': 'Commands und Hinweise direkt bei der aktiven Session festhalten.',
+        'workspaceContext.notesHint': 'Deine privaten Notizen, für alle deine Sitzungen gemeinsam.',
         'workspaceContext.notepad': 'Notizblock',
         'workspaceContext.scratchpad': 'Persönliche Notizen',
         'workspaceContext.notesPlaceholder': 'Notizen, Commands oder Snippets hier festhalten...',
@@ -4174,6 +4186,10 @@ const translations = {
     },
 
     fr: {
+        'settings.directorySyncDefault': "Synchroniser les dossiers avec le terminal par défaut",
+        'settings.directorySyncDefaultHint': "S’applique à l’ouverture ou au rechargement de l’espace de travail.",
+        'workspace.directorySync.label': "Synchroniser les dossiers avec le terminal",
+        'workspace.directorySync.hint': "Lier la navigation à ce terminal. Commence dans le dossier du terminal.",
         'sessionCommands.editParameters': "Paramètres pour cette insertion",
         'sessionCommands.resetParameters': "Rétablir les paramètres enregistrés",
         'workspace.toolsReconnecting': "Reconnexion en cours — les données affichées peuvent être obsolètes.",
@@ -4382,7 +4398,7 @@ const translations = {
         'workspaceContext.notes': 'Notes',
         'workspaceContext.activeSession': 'Session active',
         'workspaceContext.personalWorkspace': 'Espace personnel',
-        'workspaceContext.notesHint': 'Gardez commandes et rappels près de la session active.',
+        'workspaceContext.notesHint': 'Vos notes privées, communes à toutes vos sessions.',
         'workspaceContext.notepad': 'Bloc-notes',
         'workspaceContext.scratchpad': 'Notes personnelles',
         'workspaceContext.notesPlaceholder': 'Écrivez ici des notes, commandes ou extraits...',
@@ -5564,6 +5580,10 @@ const translations = {
     },
 
     es: {
+        'settings.directorySyncDefault': "Sincronizar carpetas con la terminal por defecto",
+        'settings.directorySyncDefaultHint': "Se aplica al abrir o recargar el espacio de trabajo.",
+        'workspace.directorySync.label': "Sincronizar carpetas con la terminal",
+        'workspace.directorySync.hint': "Vincular la navegación a esta terminal. Empieza en su carpeta actual.",
         'sessionCommands.editParameters': "Parámetros para esta inserción",
         'sessionCommands.resetParameters': "Restaurar los parámetros guardados",
         'workspace.toolsReconnecting': "Reconectando — los datos mostrados pueden estar desactualizados.",
@@ -5772,7 +5792,7 @@ const translations = {
         'workspaceContext.notes': 'Notas',
         'workspaceContext.activeSession': 'Sesión activa',
         'workspaceContext.personalWorkspace': 'Espacio personal',
-        'workspaceContext.notesHint': 'Mantén comandos y recordatorios junto a la sesión activa.',
+        'workspaceContext.notesHint': 'Tus notas privadas, compartidas entre todas tus sesiones.',
         'workspaceContext.notepad': 'Bloc de notas',
         'workspaceContext.scratchpad': 'Notas personales',
         'workspaceContext.notesPlaceholder': 'Escribe aquí notas, comandos o fragmentos...',
@@ -6954,6 +6974,10 @@ const translations = {
     },
 
     zh: {
+        'settings.directorySyncDefault': "默认与终端同步文件夹",
+        'settings.directorySyncDefaultHint': "打开或重新加载工作区时生效。",
+        'workspace.directorySync.label': "与终端同步文件夹",
+        'workspace.directorySync.hint': "将文件夹导航与此终端关联。从终端当前文件夹开始。",
         'sessionCommands.editParameters': "本次插入的参数",
         'sessionCommands.resetParameters': "恢复已保存的参数",
         'workspace.toolsReconnecting': "正在重新连接 — 显示的数据可能已过期。",
@@ -7162,7 +7186,7 @@ const translations = {
         'workspaceContext.notes': '笔记',
         'workspaceContext.activeSession': '活动会话',
         'workspaceContext.personalWorkspace': '个人工作区',
-        'workspaceContext.notesHint': '将命令和提醒保存在当前会话旁。',
+        'workspaceContext.notesHint': '你的私人笔记，在你的所有会话中共用。',
         'workspaceContext.notepad': '记事本',
         'workspaceContext.scratchpad': '个人草稿',
         'workspaceContext.notesPlaceholder': '在此记录笔记、命令或代码片段...',

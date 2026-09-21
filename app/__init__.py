@@ -859,6 +859,7 @@ def create_app(
             username=current_user.username,
             theme=theme,
             terminal_appearance=settings.get('terminal_appearance', {}),
+            sync_terminal_directory=settings.get('sync_terminal_directory', True),
             connection_history_scope=connection_history_scope(
                 current_user,
                 app.config['SECRET_KEY'],
@@ -1179,6 +1180,7 @@ def create_app(
             account_mfa_enabled=bool(current_user.mfa_enabled),
             github_identity_linked=current_user.github_identity is not None,
             github_managed=bool(current_user.is_github_managed),
+            sync_terminal_directory=settings.get('sync_terminal_directory', True),
             confirm_session_close=settings.get(
                 'confirm_session_close',
                 False,
@@ -1203,6 +1205,7 @@ def create_app(
         allowed = {
             'theme',
             'terminal_appearance',
+            'sync_terminal_directory',
             'confirm_session_close',
             'disconnect_session_action',
             'authentication_session_duration_minutes',
@@ -1215,6 +1218,10 @@ def create_app(
             if not valid_terminal_appearance(data['terminal_appearance']):
                 return jsonify({'error': 'Invalid terminal appearance'}), 400
             updates['terminal_appearance'] = data['terminal_appearance']
+        if 'sync_terminal_directory' in data:
+            if not isinstance(data['sync_terminal_directory'], bool):
+                return jsonify({'error': 'Invalid directory sync setting'}), 400
+            updates['sync_terminal_directory'] = data['sync_terminal_directory']
         if 'theme' in data:
             valid_themes = {
                 'glass', 'retro', 'solar', 'paper', 'noir',

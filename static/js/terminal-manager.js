@@ -491,6 +491,7 @@ const TerminalManager = {
         }
 
         this.terminals[key] = terminal;
+        window.SessionDirectorySync?.trackTerminal(sessionId, terminal);
         this.fitAddons[key] = fitAddon;
         this.searchAddons[key] = searchAddon;
 

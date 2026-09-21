@@ -36,6 +36,17 @@
         let inventoryConnected = false;
         let transportReady = socket.connected !== false;
         let fitScheduled = false;
+        const directorySync = root.SessionDirectorySync?.createController({
+            socket,
+            manager: fileManager,
+            enabledByDefault: documentRef.body?.dataset?.syncTerminalDirectory !== 'false',
+            indicator: documentRef.getElementById('sessionDirectorySyncIndicator'),
+            input: documentRef.getElementById('sessionDirectorySyncInput'),
+            panel: elements.filesPanel,
+            sendInput: (id, value) => root.SSHInput.send(id, value),
+            hasPendingInput: id => root.SSHInput?.hasPending(id),
+        });
+        fileManager.onDirectorySyncNavigate = (id, path) => directorySync?.navigate(id, path);
 
         function selectedContext() {
             return root.workspaceLayoutController?.getState?.().activeContext || null;
@@ -49,10 +60,23 @@
             );
         }
 
+        function syncDirectoryContext() {
+            const id = sessionManager.getWorkspaceSession?.()
+                || sessionManager.getActiveSession();
+            directorySync?.setContext(
+                transportReady && sessionManager.getSession(id)?.connected ? id : null,
+                documentRef.visibilityState !== 'hidden'
+                    && selectedContext() === 'files'
+                    && documentRef.body?.dataset?.primaryWorkspace === 'workspaces'
+                    && fileManager.isEmbeddedOpen(),
+            );
+        }
+
         function syncContextControllers(activeContext = selectedContext()) {
             if (activeContext === 'files') coordinator?.openSftpPanel?.();
             diagnosticsController?.setOpen(activeContext === 'diagnostics');
             if (coordinator) syncInsightsVisibility();
+            syncDirectoryContext();
         }
 
         function applySessionContextDefault(state = coordinator?.getState?.()) {
@@ -188,6 +212,7 @@
         documentRef.addEventListener('workspace-context-change', event => {
             syncContextControllers(event.detail?.activeContext || null);
         });
+        root.addEventListener('primary-workspace-change', syncDirectoryContext);
         socket.on('disconnect', () => {
             transportReady = false;
             sync();
@@ -200,12 +225,16 @@
         root.addEventListener('session-workspace-change', sync);
         root.addEventListener('session-removed', event => {
             const removedSessionId = event?.detail?.sessionId;
+            directorySync?.removeSession(removedSessionId);
             insightsController?.removeSession(removedSessionId);
             inventoryController?.removeSession(removedSessionId);
             sftpCapabilityTracker.remove(removedSessionId);
             coordinator.removeSession(removedSessionId);
         });
-        documentRef.addEventListener('visibilitychange', syncInsightsVisibility);
+        documentRef.addEventListener('visibilitychange', () => {
+            syncInsightsVisibility();
+            syncDirectoryContext();
+        });
         wideDesktopQuery.addEventListener?.('change', sync);
         root.addEventListener('themeChanged', () => {
             diagnosticsController?.redraw();

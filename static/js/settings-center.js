@@ -317,6 +317,11 @@
         initTheme();
         initScrollback();
         initBooleanPreference(
+            'directorySyncDefaultInput',
+            'syncTerminalDirectory',
+            'sync_terminal_directory',
+        );
+        initBooleanPreference(
             'confirmSessionCloseInput',
             'confirmSessionClose',
             'confirm_session_close',

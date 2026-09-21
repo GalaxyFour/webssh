@@ -346,6 +346,7 @@
 
 .fm-path-input {
     flex: 1;
+    min-width: 0;
     padding: 6px 10px;
     font-size: 13px;
     font-family: var(--font-mono);
@@ -353,6 +354,10 @@
     border: 1px solid var(--border-color);
     border-radius: 6px;
     color: var(--text-primary);
+}
+
+.fm-path-input:not(:focus) {
+    text-align: right;
 }
 
 .fm-path-input:focus {

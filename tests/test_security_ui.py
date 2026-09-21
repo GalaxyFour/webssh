@@ -195,6 +195,7 @@ def test_account_preferences_api_validates_and_persists_supported_values(
 
     updated = client.post("/api/account/preferences", json={
         "theme": "obsidian",
+        "sync_terminal_directory": False,
         "confirm_session_close": True,
         "disconnect_session_action": "close",
         "authentication_session_duration_minutes": 480,
@@ -210,10 +211,13 @@ def test_account_preferences_api_validates_and_persists_supported_values(
         "theme": "obsidian",
         "terminal_appearance": {},
         "notepad": "",
+        "sync_terminal_directory": False,
         "confirm_session_close": True,
         "disconnect_session_action": "close",
         "authentication_session_duration_minutes": 480,
     }
+    assert b'data-sync-terminal-directory="false"' in rendered.data
+    assert b'data-sync-terminal-directory="false"' in client.get('/').data
     assert invalid.status_code == 400
     assert b'data-theme="obsidian"' in rendered.data
     assert b'data-confirm-session-close="true"' in rendered.data
@@ -221,6 +225,18 @@ def test_account_preferences_api_validates_and_persists_supported_values(
     assert b'data-authentication-session-duration-minutes="480"' in rendered.data
     assert b'id="authenticationSessionDurationSelect"' in rendered.data
     assert b'even while an SSH session is active' in rendered.data
+
+
+@pytest.mark.parametrize('value', [None, 0, 1, 'false', [], {}])
+def test_directory_sync_preference_rejects_non_booleans(app, client, value):
+    _create_user(app, 'sync_preferences_user')
+    _login(client, 'sync_preferences_user')
+    assert b'data-sync-terminal-directory="true"' in client.get('/').data
+    response = client.post('/api/account/preferences', json={
+        'sync_terminal_directory': value,
+    })
+    assert response.status_code == 400
+    assert b'data-sync-terminal-directory="true"' in client.get('/settings').data
 
 
 @pytest.mark.parametrize(
