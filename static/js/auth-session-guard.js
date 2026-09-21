@@ -8,14 +8,40 @@
     const FIVE_MINUTES = 5 * 60 * 1000;
     const ONE_MINUTE = 60 * 1000;
     const RESTORE_TTL = 30 * 60 * 1000;
-    const STORAGE_KEY = 'webssh:auth-session-return';
+    const LEGACY_STORAGE_KEY = 'webssh:auth-session-return';
+    const STORAGE_KEY_PREFIX = `${LEGACY_STORAGE_KEY}:`;
     let started = false;
     let dismissWarning = null;
 
-    function readRestore(storage, now = Date.now()) {
+    function accountScope(browserDocument) {
+        return String(browserDocument?.body?.dataset?.connectionHistoryScope || '').trim();
+    }
+
+    function storageKey(scope) {
+        return scope ? `${STORAGE_KEY_PREFIX}${scope}` : null;
+    }
+
+    function pruneRestoreStorage(storage, keepKey) {
         try {
-            const value = JSON.parse(storage?.getItem(STORAGE_KEY) || 'null');
-            if (!value || !Number.isFinite(value.savedAt)
+            storage?.removeItem(LEGACY_STORAGE_KEY);
+            for (let index = Number(storage?.length) - 1; index >= 0; index -= 1) {
+                const key = storage.key(index);
+                if (key !== keepKey && key?.startsWith(STORAGE_KEY_PREFIX)) {
+                    storage.removeItem(key);
+                }
+            }
+        } catch {
+            // Storage cleanup must not affect authentication expiry.
+        }
+    }
+
+    function readRestore(storage, now = Date.now(), scope = '') {
+        const key = storageKey(scope);
+        pruneRestoreStorage(storage, key);
+        if (!key) return null;
+        try {
+            const value = JSON.parse(storage?.getItem(key) || 'null');
+            if (!value || value.accountScope !== scope || !Number.isFinite(value.savedAt)
                     || value.savedAt > now + ONE_MINUTE
                     || now - value.savedAt > RESTORE_TTL) return null;
             return value;
@@ -24,9 +50,18 @@
         }
     }
 
-    function saveRestore(browserWindow, browserDocument, storage, now = Date.now()) {
+    function saveRestore(
+        browserWindow,
+        browserDocument,
+        storage,
+        now = Date.now(),
+        scope = accountScope(browserDocument),
+    ) {
+        const key = storageKey(scope);
+        pruneRestoreStorage(storage, key);
         const note = browserDocument.getElementById('sessionNotepad');
         const state = {
+            accountScope: scope,
             savedAt: now,
             path: `${browserWindow.location.pathname}${browserWindow.location.search}${browserWindow.location.hash}`,
             sessionId: browserWindow.SessionManager?.getActiveSession?.() || null,
@@ -44,17 +79,18 @@
             )).slice(0, 100),
         };
         try {
-            storage?.setItem(STORAGE_KEY, JSON.stringify(state));
+            if (key) storage?.setItem(key, JSON.stringify(state));
         } catch {
             // Session storage is optional; expiry still proceeds safely.
         }
         return state;
     }
 
-    function restore(browserWindow, browserDocument, storage) {
-        const state = readRestore(storage);
+    function restore(browserWindow, browserDocument, storage, scope = accountScope(browserDocument)) {
+        const key = storageKey(scope);
+        const state = readRestore(storage, Date.now(), scope);
         if (!state) return false;
-        try { storage?.removeItem(STORAGE_KEY); } catch { /* optional storage */ }
+        try { storage?.removeItem(key); } catch { /* optional storage */ }
         if (typeof state.noteDraft === 'string') {
             const note = browserDocument.getElementById('sessionNotepad');
             if (note) {
@@ -119,6 +155,8 @@
             try { storage = browserWindow.sessionStorage; } catch { storage = null; }
         }
         const now = options.now || Date.now;
+        const scope = String(options.accountScope
+            ?? accountScope(browserDocument)).trim();
         const setTimer = options.setTimeout || browserWindow.setTimeout.bind(browserWindow);
         const expiresAt = Number(options.expiresAt
             ?? browserDocument.body?.dataset?.authSessionExpiresAt);
@@ -153,7 +191,7 @@
         }
 
         function expire() {
-            saveRestore(browserWindow, browserDocument, storage, now());
+            saveRestore(browserWindow, browserDocument, storage, now(), scope);
             browserWindow.authSessionRedirectPending = true;
             const appRoot = String(browserWindow.APP_ROOT || '');
             const next = `${browserWindow.location.pathname}${browserWindow.location.search}`;
@@ -173,7 +211,11 @@
             return timer;
         }
 
-        return { schedule, expire, restore: () => restore(browserWindow, browserDocument, storage) };
+        return {
+            schedule,
+            expire,
+            restore: () => restore(browserWindow, browserDocument, storage, scope),
+        };
     }
 
     function start() {
