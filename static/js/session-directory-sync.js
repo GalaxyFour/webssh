@@ -14,7 +14,7 @@
         // Return false so xterm still handles the mode itself. An alternate
         // screen and the remote foreground-process check are separate guards.
         terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, params => {
-            if (params.includes(2004)) state.dirty = false;
+            if (params.includes(2004) && !state.replayDepth) state.dirty = false;
             return false;
         });
         terminal.onData(data => noteInput(sessionId, data));
@@ -24,6 +24,22 @@
         if (!data || /^\x1b\[[?>]?[0-9;]*c$/.test(data)) return;
         const state = inputs.get(sessionId);
         if (state) { state.dirty = true; state.version += 1; }
+    }
+
+    function beginReplay(sessionId) {
+        const state = inputs.get(sessionId);
+        if (!state) return;
+        state.replayDepth = (state.replayDepth || 0) + 1;
+        state.dirty = true;
+    }
+
+    function endReplay(sessionId) {
+        const state = inputs.get(sessionId);
+        if (!state) return;
+        state.replayDepth = Math.max(0, (state.replayDepth || 0) - 1);
+        // An old prompt in the transcript may be followed by unfinished input.
+        // Require a subsequent live prompt boundary before sending a command.
+        state.dirty = true;
     }
 
     function canSend(sessionId) {
@@ -217,5 +233,14 @@
         };
     }
 
-    return { createController, trackTerminal, noteInput, canSend, cdCommand, validPath };
+    return {
+        createController,
+        trackTerminal,
+        beginReplay,
+        endReplay,
+        noteInput,
+        canSend,
+        cdCommand,
+        validPath,
+    };
 }));

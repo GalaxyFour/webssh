@@ -146,6 +146,23 @@ test('prompt tracking starts conservatively and pauses on typed input and altern
     mode([2004]);terminal.buffer.active.type='alternate';assert.equal(sync.canSend('tracked'),false);
 });
 
+test('replayed prompt history stays unsafe until a new live prompt boundary', () => {
+    let mode;
+    const terminal = {
+        parser: {registerCsiHandler(_id, fn) { mode = fn; }},
+        onData() {},
+        buffer: {active: {type: 'normal'}},
+        modes: {bracketedPasteMode: true},
+    };
+    sync.trackTerminal('restored', terminal);
+    sync.beginReplay('restored');
+    mode([2004]);
+    sync.endReplay('restored');
+    assert.equal(sync.canSend('restored'), false);
+    mode([2004]);
+    assert.equal(sync.canSend('restored'), true);
+});
+
 test('unsupported probes never move Files or write to the shell', () => {
     const h=harness();
     h.requests[0].callback({success:false,reason:'unsupported'});

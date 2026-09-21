@@ -205,6 +205,7 @@ const SessionManager = {
             allowOsc52Clipboard: Boolean(
                 sessionData.use_tmux && sessionData.tmux_session_name
             ),
+            restoredOutput: sessionData.restored === true,
         });
         TerminalManager.attachTerminal(session_id, terminalId);
         TerminalManager.setupInputHandler(session_id, (data) => {
