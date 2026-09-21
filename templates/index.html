@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="{{ static_asset_url(filename='css/webssh-2.css') }}">
     <link rel="stylesheet" href="{{ static_asset_url(filename='css/terminal-appearance.css') }}">
 </head>
-<body data-theme="{{ theme|default('glass') }}" data-confirm-session-close="{{ 'true' if confirm_session_close else 'false' }}" data-disconnect-session-action="{{ disconnect_session_action }}" data-connection-history-scope="{{ connection_history_scope }}" data-terminal-appearance="{{ terminal_appearance|default({})|tojson|forceescape }}">
+<body data-sync-terminal-directory="{{ 'true' if sync_terminal_directory else 'false' }}" data-theme="{{ theme|default('glass') }}" data-confirm-session-close="{{ 'true' if confirm_session_close else 'false' }}" data-disconnect-session-action="{{ disconnect_session_action }}" data-connection-history-scope="{{ connection_history_scope }}" data-terminal-appearance="{{ terminal_appearance|default({})|tojson|forceescape }}">
     <script src="{{ static_asset_url(filename='js/theme-preference.js') }}"></script>
 
     <header class="header">
@@ -207,11 +207,11 @@
                 <div class="context-workspace-panels">
                     <section class="context-workspace-panel" id="contextFilesPanel" role="tabpanel" aria-labelledby="contextFilesTab" aria-hidden="true" hidden>
                         <div class="session-files-panel hidden" id="sessionFilesPanel" aria-label="Active session files" data-i18n-aria-label="workspace.activeSessionFiles">
-                            <div class="session-panel-header">
-                                <div>
-                                    <div class="session-panel-eyebrow" data-i18n="workspaceContext.activeSession">Active session</div>
-                                    <div class="session-panel-title"><span class="material-icons" aria-hidden="true">folder_open</span> SFTP</div>
-                                </div>
+                            <div class="session-panel-header" id="sessionDirectorySyncIndicator" hidden>
+                                <label class="session-directory-sync" for="sessionDirectorySyncInput" title="Link folder navigation to this terminal. Starts at the terminal folder." data-i18n-title="workspace.directorySync.hint">
+                                    <input type="checkbox" id="sessionDirectorySyncInput">
+                                    <span data-i18n="workspace.directorySync.label">Synchronize folders with terminal</span>
+                                </label>
                             </div>
                             <div class="session-files-mount" id="sessionFilesMount"></div>
                             <div class="session-files-status" id="sessionFilesStatus" role="status" aria-live="polite" hidden></div>
@@ -232,7 +232,7 @@
                                 <div>
                                     <span class="session-panel-eyebrow" data-i18n="workspaceContext.personalWorkspace">Personal workspace</span>
                                     <h2 id="notepadTitle" data-i18n="workspaceContext.notes">Notes</h2>
-                                    <p data-i18n="workspaceContext.notesHint">Keep commands and reminders close to the active session.</p>
+                                    <p data-i18n="workspaceContext.notesHint">Your private notes, shared across all your sessions.</p>
                                 </div>
                             </div>
                             <div class="notepad-section">
@@ -267,9 +267,9 @@
     </button>
     <nav class="mobile-app-dock" id="mobileAppDock" aria-label="Mobile navigation" data-i18n-aria-label="navigation.mobile">
         <button class="mobile-dock-item active" type="button" data-mobile-view="workspaces" aria-current="page"><span class="material-icons" aria-hidden="true">terminal</span><span data-i18n="navigation.terminal">Terminal</span></button>
-        <button class="mobile-dock-item" type="button" data-mobile-view="session-files" aria-controls="contextFilesPanel" disabled><span class="material-icons" aria-hidden="true">folder_open</span><span>SFTP</span></button>
+        <button class="mobile-dock-item" type="button" data-mobile-view="session-files" aria-controls="contextFilesPanel" disabled><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="workspaceContext.files">Files</span></button>
         <button class="mobile-dock-item" type="button" data-mobile-view="session-commands" aria-controls="contextCommandsPanel" disabled><span class="material-icons" aria-hidden="true">terminal</span><span data-i18n="workspaceContext.commands">Commands</span></button>
-        <button class="mobile-dock-item" type="button" data-mobile-view="session-diagnostics" aria-controls="contextDiagnosticsPanel" disabled><span class="material-icons" aria-hidden="true">monitor_heart</span><span data-i18n="workspaceContext.metrics">Metrics</span></button>
+        <button class="mobile-dock-item" type="button" data-mobile-view="session-diagnostics" aria-controls="contextDiagnosticsPanel" disabled><span class="material-icons" aria-hidden="true">monitor_heart</span><span data-i18n="workspaceContext.diagnostics">Diagnostics</span></button>
         <button class="mobile-dock-item" id="mobileMoreBtn" type="button" data-mobile-view="more" aria-expanded="false" aria-controls="headerButtons"><span class="material-icons" aria-hidden="true">more_horiz</span><span data-i18n="navigation.more">More</span></button>
     </nav>
 
@@ -1432,6 +1432,7 @@
     <script src="{{ static_asset_url(filename='js/session-diagnostics.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/session-files-panel.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/session-workspace.js') }}"></script>
+    <script src="{{ static_asset_url(filename='js/session-directory-sync.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/session-workspace-ui.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/drag-drop-manager.js') }}"></script>
     <script src="{{ static_asset_url(filename='js/command-set-utils.js') }}"></script>

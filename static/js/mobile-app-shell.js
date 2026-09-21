@@ -341,6 +341,7 @@
             listen(windowRef, 'languageChanged', updateSessionSummary);
             listen(documentRef, 'workspace-context-change', event => {
                 activeContext = event.detail?.activeContext || null;
+                if (activeContext === 'files' && isPhone()) setCommandOpen(false);
                 syncSessionToolAvailability();
                 renderDockSelection();
             });

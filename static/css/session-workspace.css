@@ -48,7 +48,28 @@
 }
 
 .session-panel-header {
-    padding: 14px 16px 10px;
+    padding: 2px 10px;
+    flex-shrink: 0;
+}
+
+.session-directory-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    margin-left: auto;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.session-directory-sync input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--success-color, #4caf50);
 }
 
 .session-panel-eyebrow {
@@ -113,6 +134,7 @@
 
 .fm-embedded-mode .fm-panes {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
 }
 
 .fm-embedded-mode #fmRightPane,
@@ -145,30 +167,27 @@
 
 .fm-embedded-mode .fm-toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
 }
 
 .fm-embedded-mode .fm-toolbar-left,
 .fm-embedded-mode .fm-toolbar-right {
-    width: 100%;
-    min-width: 0;
+    display: contents;
 }
 
-.fm-embedded-mode .fm-toolbar-right {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 4px;
+.fm-embedded-mode #fmRefresh {
+    display: none;
 }
 
-.fm-embedded-mode .fm-toolbar-right .btn {
+.fm-embedded-mode .fm-toolbar .btn {
     min-width: 0;
     justify-content: center;
     padding-inline: 6px;
 }
 
-.fm-embedded-mode .fm-toolbar-right .btn-text {
+.fm-embedded-mode .fm-toolbar .btn-text {
     position: absolute;
     width: 1px;
     height: 1px;

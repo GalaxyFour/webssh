@@ -573,8 +573,10 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
 
     const embeddedFileLayout = await page.evaluate(() => {
         const bounds = element => element.getBoundingClientRect();
-        const toolbar = document.querySelector('.fm-embedded-mode .fm-toolbar-right');
+        const toolbar = document.querySelector('.fm-embedded-mode .fm-toolbar');
         const toolbarBounds = bounds(toolbar);
+        const toolbarButtons = Array.from(toolbar.querySelectorAll('button'))
+            .filter(button => bounds(button).width > 0 && bounds(button).height > 0);
         const fileRows = Array.from(document.querySelectorAll(
             '.fm-embedded-mode #fmLeftList .fm-file-item',
         ));
@@ -588,9 +590,9 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
         return {
             maxRowHeight: Math.max(...fileRows.map(row => bounds(row).height)),
             toolbarOverflow: toolbar.scrollWidth - toolbar.clientWidth,
-            toolbarRows: new Set(Array.from(toolbar.querySelectorAll('button'))
+            toolbarRows: new Set(toolbarButtons
                 .map(button => Math.round(bounds(button).top))).size,
-            toolbarButtonsInside: Array.from(toolbar.querySelectorAll('button')).every(button => {
+            toolbarButtonsInside: toolbarButtons.every(button => {
                 const buttonBounds = bounds(button);
                 return buttonBounds.left >= toolbarBounds.left
                     && buttonBounds.right <= toolbarBounds.right + 1;
@@ -609,6 +611,9 @@ test('single-session workspace keeps terminal primary with on-demand Files, Diag
     expect(embeddedFileLayout.viewportBackground).toBe('rgba(0, 0, 0, 0)');
     expect(embeddedFileLayout.paneBackground).toBe(embeddedFileLayout.terminalBackground);
 
+    const directorySync = page.locator('#sessionDirectorySyncInput');
+    await expect(directorySync).toBeChecked();
+    await directorySync.uncheck();
     await page.locator('#fmLeftList .fm-file-item[data-index="0"]').dblclick();
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases');
     expect(await page.evaluate(() => window.__workspaceInsightSample || 0)).toBe(0);
@@ -793,9 +798,9 @@ test('360px mobile workspace keeps tools available and preserves context across 
     const commandsDock = page.locator('[data-mobile-view="session-commands"]');
     const metricsDock = page.locator('[data-mobile-view="session-diagnostics"]');
     await expect(terminalDock).toContainText('Terminal');
-    await expect(sftpDock).toContainText('SFTP');
+    await expect(sftpDock).toContainText('Files');
     await expect(commandsDock).toContainText('Commands');
-    await expect(metricsDock).toContainText('Metrics');
+    await expect(metricsDock).toContainText('Diagnostics');
     await expect(sftpDock).toBeEnabled();
     await expect(commandsDock).toBeEnabled();
     await expect(metricsDock).toBeEnabled();

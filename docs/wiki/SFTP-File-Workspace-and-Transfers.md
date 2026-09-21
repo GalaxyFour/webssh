@@ -273,3 +273,50 @@ Check background-job and transfer quotas plus the target conflict policy.
 - [SSH Connections and Host Keys](SSH-Connections-and-Host-Keys)
 - [Configuration Reference](Configuration-Reference)
 - [Security Model and Hardening](Security-Model-and-Hardening)
+
+## Sync the Workspace file browser with the terminal
+
+In **Workspaces → Files**, **Synchronize folders with terminal** is enabled by
+default in the compact header above the file list. Temporary probe failures
+retry silently without adding status messages. This applies to the active
+session's embedded browser, not the separate File Manager. In
+**Settings → Preferences → Terminal**, each user can change
+**Synchronize folders with terminal by default**. The preference is stored in
+the user account and applies when opening or reloading the workspace. The
+Workspace checkbox still overrides sync per SSH session for the current page;
+switching sessions preserves those overrides.
+
+Enabling sync first opens the terminal's actual working directory in Files.
+Subsequent terminal navigation (`cd`, `pushd`, aliases, or a nested shell) is
+observed from the remote process state. Opening a folder, using Up/Home, or
+entering an absolute path in the embedded browser sends a quoted `cd -- '…'`
+to that session. Selecting or previewing a file does not execute it. The browser
+then follows the observed directory, including the result of a failed `cd` or
+symlink resolution. Sync-generated input never uses broadcast mode.
+
+The current implementation supports Linux targets with readable `/proc`,
+`readlink`, and a `ps` implementation supporting `--ppid`, `pid`, `ppid`, `tty`,
+`tpgid`, and `comm`. For WebSSH-managed tmux sessions it resolves the active pane
+in the active window of that session. Ambiguous PTYs, inaccessible processes,
+non-Linux targets, and restricted SSH exec channels report sync as unavailable.
+No shell startup files are modified and no remote agent is installed.
+
+Files-to-terminal navigation additionally requires an empty detected shell
+prompt in the normal terminal screen, bracketed paste mode, and a supported
+foreground shell (bash, zsh, fish, sh, dash, or ksh). Shells without prompt-mode
+signaling can still be followed, but automatic `cd` waits for a reliably
+detected prompt. Finish any partial command or return from an application to
+the prompt, then open the folder again. Navigation that cannot be sent safely
+is **not queued for later execution**.
+These are conservative UI guards, not an atomic shell protocol: custom prompt
+behavior and concurrent input from another SSH/tmux client cannot be fully
+inferred. Paths containing control characters are intentionally rejected.
+
+The directory is sampled about every 1.5 seconds while the opted-in Workspace
+file panel is visible; folder clicks request a fresh sample. Hidden panels,
+other application views, disconnected sessions, and disabled sync stop polling.
+Unavailable targets retry with a longer delay. After identifier validation,
+requests consume the per-user rate limit before the ownership lookup. Each
+owned session allows one in-flight probe with bounded response size and a
+timeout; probes use a separate SSH exec channel without interrupting PTY output.
+There is no directory polling when sync is off.

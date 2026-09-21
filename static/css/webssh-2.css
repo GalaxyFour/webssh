@@ -5221,6 +5221,7 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     }
 
     .mobile-command-toggle:disabled,
+    body:has(#contextFilesTab[aria-selected="true"]) .mobile-command-toggle,
     body:not([data-primary-workspace="workspaces"]) .mobile-command-toggle {
         display: none;
     }

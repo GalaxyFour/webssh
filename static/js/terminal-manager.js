@@ -22,6 +22,7 @@ const TerminalManager = {
     clipboardDisposers: {},
     terminalWriteCallbacks: {},
     osc52ClipboardAllowed: {},
+    directorySyncReplayDepths: {},
 
     isVirtualKeyboardVisible(visualViewportHeight, layoutViewportHeight) {
         if (visualViewportHeight <= 0 || layoutViewportHeight <= 0) {
@@ -491,6 +492,10 @@ const TerminalManager = {
         }
 
         this.terminals[key] = terminal;
+        window.SessionDirectorySync?.trackTerminal(sessionId, terminal);
+        if (options.restoredOutput === true) {
+            this.beginDirectorySyncReplay(sessionId, key);
+        }
         this.fitAddons[key] = fitAddon;
         this.searchAddons[key] = searchAddon;
 
@@ -502,6 +507,21 @@ const TerminalManager = {
         }
 
         return terminal;
+    },
+
+    beginDirectorySyncReplay(sessionId, terminalKey) {
+        this.directorySyncReplayDepths[terminalKey] = (
+            this.directorySyncReplayDepths[terminalKey] || 0
+        ) + 1;
+        window.SessionDirectorySync?.beginReplay(sessionId);
+    },
+
+    endDirectorySyncReplay(sessionId, terminalKey) {
+        const depth = this.directorySyncReplayDepths[terminalKey] || 0;
+        if (depth < 1) return;
+        if (depth === 1) delete this.directorySyncReplayDepths[terminalKey];
+        else this.directorySyncReplayDepths[terminalKey] = depth - 1;
+        window.SessionDirectorySync?.endReplay(sessionId);
     },
 
     attachTerminal(sessionId, containerId, terminalKey = null) {
@@ -557,6 +577,7 @@ const TerminalManager = {
                         pendingOutput.forEach(entry => entry.onWritten?.());
                     };
                     if (replayOutput.length === 0) {
+                        this.endDirectorySyncReplay(sessionId, key);
                         acceptPendingOutput();
                         this.activateOsc52ClipboardHandler(key, terminal);
                         return;
@@ -567,6 +588,7 @@ const TerminalManager = {
                         this.writeOutputToTerminal(key, data, () => {
                             remainingWrites -= 1;
                             if (remainingWrites === 0) {
+                                this.endDirectorySyncReplay(sessionId, key);
                                 acceptPendingOutput();
                                 this.activateOsc52ClipboardHandler(key, terminal);
                             }
@@ -774,6 +796,8 @@ const TerminalManager = {
             const terminal = this.terminals[key];
             if (!terminal || !this.terminalReady[key]) return;
 
+            this.beginDirectorySyncReplay(sessionId, key);
+
             // Hold output that arrives during resync so the authoritative
             // snapshot remains ordered before the new live stream.
             this.terminalReady[key] = false;
@@ -815,11 +839,13 @@ const TerminalManager = {
                 };
                 const replayOutput = this.getTranscript(sessionId);
                 if (!replayOutput) {
+                    this.endDirectorySyncReplay(sessionId, key);
                     acceptPendingOutput();
                     this.activateOsc52ClipboardHandler(key, terminal);
                     return;
                 }
                 this.writeOutputToTerminal(key, replayOutput, () => {
+                    this.endDirectorySyncReplay(sessionId, key);
                     acceptPendingOutput();
                     this.activateOsc52ClipboardHandler(key, terminal);
                 });
@@ -1352,6 +1378,9 @@ const TerminalManager = {
         this.scrollbarDisposers[terminalKey]?.();
         this.compositionDisposers[terminalKey]?.();
         this.clipboardDisposers[terminalKey]?.dispose?.();
+        while ((this.directorySyncReplayDepths[terminalKey] || 0) > 0) {
+            this.endDirectorySyncReplay(sessionId, terminalKey);
+        }
         if (terminal) {
             terminal.dispose();
         }
@@ -1365,6 +1394,7 @@ const TerminalManager = {
         delete this.clipboardDisposers[terminalKey];
         delete this.terminalWriteCallbacks[terminalKey];
         delete this.osc52ClipboardAllowed[terminalKey];
+        delete this.directorySyncReplayDepths[terminalKey];
 
         if (sessionId && this.sessionTerminals[sessionId]) {
             this.sessionTerminals[sessionId] = this.sessionTerminals[sessionId].filter(key => key !== terminalKey);

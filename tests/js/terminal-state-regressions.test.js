@@ -97,6 +97,24 @@ test('restored hidden terminal preserves protocol modes after transcript evictio
     }
 });
 
+test('terminal resync brackets restored output as unsafe directory-sync history', async () => {
+    const peer = setup();
+    const calls = [];
+    window.SessionDirectorySync = {
+        beginReplay(sessionId) { calls.push(['begin', sessionId]); },
+        endReplay(sessionId) { calls.push(['end', sessionId]); },
+    };
+    try {
+        manager.resyncRestoredOutput('s', '\x1b[?2004hpartial input', 0);
+        assert.deepEqual(calls, [['begin', 's']]);
+        await flushParser(peer.terminal);
+        assert.deepEqual(calls, [['begin', 's'], ['end', 's']]);
+    } finally {
+        delete window.SessionDirectorySync;
+        manager.destroyTerminal('s');
+    }
+});
+
 test('background transcript eviction preserves terminal protocol modes', async () => {
     const peer = setup();
     try {

@@ -13,6 +13,7 @@ DEFAULT_SETTINGS = {
     'terminal_appearance': {},
     'notepad': '',
     'confirm_session_close': False,
+    'sync_terminal_directory': True,
     'disconnect_session_action': 'retry',
     'authentication_session_duration_minutes': (
         DEFAULT_AUTHENTICATION_SESSION_DURATION_MINUTES
@@ -35,6 +36,9 @@ def _valid_settings(value):
     if 'theme' in value and not isinstance(value['theme'], str):
         return False
     if 'notepad' in value and not isinstance(value['notepad'], str):
+        return False
+    if ('sync_terminal_directory' in value
+            and not isinstance(value['sync_terminal_directory'], bool)):
         return False
     if (
         'terminal_appearance' in value
@@ -80,6 +84,10 @@ def _valid_settings_update(value):
         and (
             'notepad' not in value
             or isinstance(value['notepad'], str)
+        )
+        and (
+            'sync_terminal_directory' not in value
+            or isinstance(value['sync_terminal_directory'], bool)
         )
         and (
             'confirm_session_close' not in value
