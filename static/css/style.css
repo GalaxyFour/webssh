@@ -1890,6 +1890,20 @@ body.broadcast-active .terminal-wrapper:not(.unassigned) {
     font: 11px/1.4 var(--font-mono);
 }
 
+.session-command-item-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.session-command-favorite {
+    min-width: 32px;
+    padding-inline: 8px;
+    color: var(--warning-color);
+    font-size: 16px;
+    line-height: 1;
+}
+
 .session-command-empty {
     padding: 30px 16px;
     color: var(--text-secondary);
@@ -4920,7 +4934,7 @@ body.keyboard-open.notepad-focused .notepad-panel {
 
 .quick-connect-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+    grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
     align-items: start;
     gap: 18px;
 }
@@ -5165,7 +5179,7 @@ body.keyboard-open.notepad-focused .notepad-panel {
     font-weight: 500;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 820px) {
     .quick-connect-grid {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -6173,10 +6187,14 @@ body.keyboard-open.notepad-focused .notepad-panel {
         height: calc(100dvh - 24px);
     }
 
-    .commands-table-header,
+    .commands-table-header {
+        display: none;
+    }
+
     .command-row {
         grid-template-columns: 1fr;
         gap: 8px;
+        padding: 16px;
     }
 
     .command-cell {

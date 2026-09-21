@@ -109,7 +109,7 @@ for (const kind of ['sftp', 'smb']) {
         const checkbox = row.getByRole('checkbox');
         await expect(checkbox).toHaveAttribute('aria-label', `Select: ${filename}`);
         expect(await checkbox.evaluate(element => element.getAttributeNames().sort())).toEqual([
-            'aria-checked', 'aria-label', 'class', 'role', 'type',
+            'aria-checked', 'aria-label', 'class', 'role', 'tabindex', 'type',
         ]);
         await checkbox.click();
         await expect(checkbox).toHaveAttribute('aria-checked', 'true');
@@ -119,6 +119,48 @@ for (const kind of ['sftp', 'smb']) {
         await assertNoExternalRequests(page);
     });
 }
+
+test('single-pane files fill a medium viewport and support keyboard navigation', async ({ page }) => {
+    await page.setViewportSize({ width: 876, height: 778 });
+    await openWorkspaceWithSources(page);
+    await page.locator('[data-source-key="sftp-session:workspace-source"]').click();
+    const geometry = await page.evaluate(() => {
+        const panes = document.querySelector('.fm-panes').getBoundingClientRect();
+        const pane = document.getElementById('fmLeftPane').getBoundingClientRect();
+        return {
+            panesHeight: Math.round(panes.height),
+            paneHeight: Math.round(pane.height),
+            rows: getComputedStyle(document.querySelector('.fm-panes')).gridTemplateRows,
+        };
+    });
+    expect(geometry.paneHeight).toBeGreaterThanOrEqual(geometry.panesHeight - 2);
+    expect(geometry.rows.trim().split(/\s+/)).toHaveLength(1);
+
+    await page.evaluate(() => {
+        Object.assign(window.sftpFileManager.panes.left, {
+            loading: false,
+            path: '/srv/source',
+            files: [
+                { name: 'archive', is_dir: true, size: 0 },
+                { name: 'notes.txt', is_dir: false, size: 12 },
+            ],
+            focusedIndex: null,
+        });
+        window.sftpFileManager.renderPane('left');
+    });
+
+    const first = page.locator('#fmLeftList .fm-file-item').first();
+    const second = page.locator('#fmLeftList .fm-file-item').nth(1);
+    await first.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(second).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(second).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Home');
+    await expect(first).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(page.locator('#fmLeftList .fm-file-item').last()).toBeFocused();
+});
 
 test('source-first workspace preserves panes and exposes only functional SFTP actions', async ({ page }) => {
     await openWorkspaceWithSources(page);
@@ -395,16 +437,18 @@ test('file checkboxes support additive selection and select all', async ({ page 
     await expect(page.locator('#fmLeftList .fm-file-item.selected')).toHaveCount(0);
     await expect(page.locator('[data-pane-toolbar="left"] [data-pane-action="delete"]')).toBeDisabled();
 
-    const firstCheckbox = page.locator('#fmLeftList .fm-file-item[data-index="0"] .fm-file-checkbox');
-    const secondCheckbox = page.locator('#fmLeftList .fm-file-item[data-index="1"] .fm-file-checkbox');
-    await firstCheckbox.focus();
-    await page.keyboard.press('Enter');
+    const firstRow = page.locator('#fmLeftList .fm-file-item[data-index="0"]');
+    const secondRow = page.locator('#fmLeftList .fm-file-item[data-index="1"]');
+    const firstCheckbox = firstRow.locator('.fm-file-checkbox');
+    const secondCheckbox = secondRow.locator('.fm-file-checkbox');
+    await firstRow.focus();
+    await page.keyboard.press('Space');
     await expect(firstCheckbox).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#fmLeftList .fm-file-item.selected')).toHaveCount(1);
 
-    await page.keyboard.press('Tab');
-    await expect(secondCheckbox).toBeFocused();
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowDown');
+    await expect(secondRow).toBeFocused();
+    await page.keyboard.press('Space');
     await expect(secondCheckbox).toHaveAttribute('aria-checked', 'true');
     await expect(page.locator('#fmLeftList .fm-file-item.selected')).toHaveCount(2);
     await assertNoExternalRequests(page);

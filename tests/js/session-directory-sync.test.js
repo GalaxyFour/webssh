@@ -33,7 +33,7 @@ function harness(options = {}) {
     function reply(index, path='/tmp', shell_ready=true, shell='bash') {
         requests[index].callback({success:true, directory:{path, shell_ready, shell_id:'42', shell}});
     }
-    return {controller, requests, sent, moves, indicator, checkbox, panel, reply, manager,
+    return {controller, requests, sent, moves, timers, indicator, checkbox, panel, reply, manager,
         ready(value) {ready=value;}, input() {version++;}, source(id) {source=`sftp-session:${id}`;},
         toggle(value) {checkbox.checked = value; inputListeners.change();}};
 }
@@ -134,6 +134,73 @@ test('paths reject relative, control and oversized input and quote metacharacter
         sync.cdCommand("/tmp/back\\slash'quoted; touch nope", 'fish'),
         "cd -- '/tmp/back\\\\slash\\'quoted; touch nope'\r",
     );
+});
+
+test('OSC 7 accepts encoded absolute paths and keeps the host informational', () => {
+    assert.deepEqual(sync.parseOsc7('file://server.example/srv/My%20Files/%23release'), {
+        host: 'server.example', path: '/srv/My Files/#release',
+    });
+    assert.deepEqual(sync.parseOsc7('file://foreign-host/tmp'), {
+        host: 'foreign-host', path: '/tmp',
+    });
+    for (const value of [
+        'https://server.example/tmp',
+        'file://user@server.example/tmp',
+        'file://server.example/tmp?query=1',
+        'file://server.example/%ZZ',
+        'file://server.example/tmp%0Awhoami',
+    ]) assert.equal(sync.parseOsc7(value), null);
+});
+
+test('fresh OSC 7 locations move Files without writing to the terminal', () => {
+    const h = harness();
+    h.controller.observe('a', '/srv/app', 'remote-hostname');
+    assert.deepEqual(h.moves, [['left', '/srv/app', {directorySync: true}]]);
+    assert.deepEqual(h.sent, []);
+    assert.equal(h.controller.getDirectory().path, '/srv/app');
+    h.controller.observe('other', '/wrong-session');
+    assert.equal(h.moves.length, 1);
+    h.controller.dispose();
+});
+
+test('rapid OSC 7 updates are coalesced to the newest path', () => {
+    let clock = 1000;
+    const h = harness({now: () => clock, oscFollowInterval: 300});
+    h.controller.observe('a', '/one');
+    clock += 10;
+    h.controller.observe('a', '/two');
+    h.controller.observe('a', '/three');
+    assert.deepEqual(h.moves.map(move => move[1]), ['/one']);
+    const pending = Array.from(h.timers.values()).at(-1);
+    clock += 300;
+    pending();
+    assert.deepEqual(h.moves.map(move => move[1]), ['/one', '/three']);
+    h.controller.dispose();
+});
+
+test('OSC 7 ignores transcript replay and alternate-screen applications', () => {
+    const h = harness();
+    let osc;
+    const terminal = {
+        parser: {
+            registerCsiHandler() { return {dispose() {}}; },
+            registerOscHandler(id, handler) { assert.equal(id, 7); osc = handler; return {dispose() {}}; },
+        },
+        onData() { return {dispose() {}}; },
+        buffer: {active: {type: 'normal'}},
+        modes: {bracketedPasteMode: true},
+    };
+    const tracked = sync.trackTerminal('a', terminal);
+    osc('file://host/live');
+    assert.deepEqual(h.moves, [['left', '/live', {directorySync: true}]]);
+    sync.beginReplay('a');
+    osc('file://host/replayed');
+    sync.endReplay('a');
+    terminal.buffer.active.type = 'alternate';
+    osc('file://host/editor');
+    assert.equal(h.moves.length, 1);
+    tracked.dispose();
+    h.controller.dispose();
 });
 
 test('prompt tracking starts conservatively and pauses on typed input and alternate screen', () => {

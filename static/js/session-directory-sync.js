@@ -6,6 +6,27 @@
     'use strict';
 
     const inputs = new Map();
+    const directoryObservers = new Set();
+
+    function parseOsc7(data) {
+        if (typeof data !== 'string' || data.length < 8 || data.length > 8192) return null;
+        let url;
+        try {
+            url = new URL(data);
+        } catch {
+            return null;
+        }
+        if (url.protocol !== 'file:' || url.username || url.password
+                || url.search || url.hash || url.hostname.length > 255) return null;
+        let path;
+        try {
+            path = decodeURIComponent(url.pathname);
+        } catch {
+            return null;
+        }
+        if (!validPath(path)) return null;
+        return { host: url.hostname, path };
+    }
 
     function trackTerminal(sessionId, terminal) {
         const state = { dirty: true, version: 0, terminal };
@@ -13,11 +34,26 @@
         // Readline/ZLE announce the start of an editable prompt with DEC 2004.
         // Return false so xterm still handles the mode itself. An alternate
         // screen and the remote foreground-process check are separate guards.
-        terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, params => {
+        const promptDisposable = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, params => {
             if (params.includes(2004) && !state.replayDepth) state.dirty = false;
             return false;
         });
-        terminal.onData(data => noteInput(sessionId, data));
+        const inputDisposable = terminal.onData(data => noteInput(sessionId, data));
+        const oscDisposable = terminal.parser.registerOscHandler?.(7, data => {
+            const location = parseOsc7(data);
+            if (!location || state.replayDepth
+                    || terminal.buffer?.active?.type !== 'normal') return true;
+            directoryObservers.forEach(observer => observer({ sessionId, ...location }));
+            return true;
+        });
+        return {
+            dispose() {
+                promptDisposable?.dispose?.();
+                inputDisposable?.dispose?.();
+                oscDisposable?.dispose?.();
+                if (inputs.get(sessionId) === state) inputs.delete(sessionId);
+            },
+        };
     }
 
     function noteInput(sessionId, data) {
@@ -67,6 +103,7 @@
         const { socket, manager, indicator, input, panel } = options;
         const setTimer = options.setTimeout || setTimeout;
         const clearTimer = options.clearTimeout || clearTimeout;
+        const now = options.now || Date.now;
         const inputReady = options.canSend || canSend;
         const inputVersion = options.inputVersion || (id => inputs.get(id)?.version);
         const enabledByDefault = options.enabledByDefault !== false;
@@ -76,9 +113,15 @@
         let generation = 0;
         let timer = null;
         let timeout = null;
+        let oscFollowTimer = null;
+        let pendingOscLocation = null;
         let request = null;
         let directory = null;
         let awaitingChange = null;
+        let lastOscAt = 0;
+        let lastOscFollowAt = 0;
+        const oscFallbackDelay = Math.max(5000, options.oscFallbackDelay || 15000);
+        const oscFollowInterval = Math.max(100, options.oscFollowInterval || 300);
 
         function isEnabled(id) {
             return Boolean(id && (sessionOverrides.has(id)
@@ -96,7 +139,10 @@
             generation += 1;
             clearTimer(timer);
             clearTimer(timeout);
+            clearTimer(oscFollowTimer);
             timer = timeout = request = null;
+            oscFollowTimer = null;
+            pendingOscLocation = null;
             awaitingChange = null;
         }
 
@@ -122,6 +168,10 @@
 
         function schedule(delay = 1500) {
             clearTimer(timer);
+            const oscAge = now() - lastOscAt;
+            if (lastOscAt && oscAge < oscFallbackDelay) {
+                delay = Math.max(delay, oscFallbackDelay - oscAge);
+            }
             if (active()) timer = setTimer(() => poll(), delay);
         }
 
@@ -194,6 +244,38 @@
 
         input?.addEventListener?.('change', () => setEnabled(input.checked));
 
+        const applyOscLocation = detail => {
+            oscFollowTimer = null;
+            pendingOscLocation = null;
+            lastOscFollowAt = now();
+            directory = { path: detail.path, host: detail.host || '', shell_ready: true };
+            if (awaitingChange && detail.path !== awaitingChange.previous) awaitingChange = null;
+            follow(detail.path);
+            schedule(oscFallbackDelay);
+        };
+
+        const directoryListener = detail => {
+            if (!detail || detail.sessionId !== sessionId || !active()
+                    || !validPath(detail.path)) return;
+            generation += 1;
+            clearTimer(timer);
+            clearTimer(timeout);
+            timer = timeout = request = null;
+            lastOscAt = now();
+            const wait = oscFollowInterval - (lastOscAt - lastOscFollowAt);
+            if (wait <= 0) {
+                clearTimer(oscFollowTimer);
+                applyOscLocation(detail);
+                return;
+            }
+            pendingOscLocation = detail;
+            clearTimer(oscFollowTimer);
+            oscFollowTimer = setTimer(() => {
+                if (pendingOscLocation && active()) applyOscLocation(pendingOscLocation);
+            }, wait);
+        };
+        directoryObservers.add(directoryListener);
+
         return {
             setContext(id, isVisible) {
                 if (id === sessionId && visible === isVisible) {
@@ -205,6 +287,8 @@
                 sessionId = id;
                 visible = isVisible;
                 directory = null;
+                lastOscAt = 0;
+                lastOscFollowAt = 0;
                 render();
                 poll();
             },
@@ -230,6 +314,13 @@
             setEnabled,
             isEnabled,
             getDirectory() { return directory; },
+            observe(id, path, host = '') {
+                directoryListener({ sessionId: id, path, host });
+            },
+            dispose() {
+                cancel();
+                directoryObservers.delete(directoryListener);
+            },
         };
     }
 
@@ -242,5 +333,6 @@
         canSend,
         cdCommand,
         validPath,
+        parseOsc7,
     };
 }));
