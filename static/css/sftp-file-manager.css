@@ -2000,6 +2000,7 @@
 
 #sftpFileManager.fm-workspace-single .fm-panes {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
 }
 
 #sftpFileManager.fm-workspace-single.fm-single-right #fmLeftPane {
@@ -2008,6 +2009,12 @@
 
 #sftpFileManager.fm-workspace-single.fm-single-right #fmRightPane {
     display: flex;
+}
+
+.fm-file-item:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+    background: var(--bg-hover);
 }
 
 #sftpFileManager.fm-workspace-mode .fm-pane {

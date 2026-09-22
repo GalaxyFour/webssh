@@ -50,6 +50,10 @@
     }
 
     window.addEventListener('beforeunload', (event) => {
+        if (window.authSessionRedirectPending) {
+            window.authSessionRedirectPending = false;
+            return;
+        }
         if (socketProtocolReloadPending || settingsNavigationPending) {
             socketProtocolReloadPending = false;
             settingsNavigationPending = false;
@@ -3070,6 +3074,7 @@
         setupClipboardActions();
         setupSplitControls();
         setupNotepad();
+        window.AuthSessionGuard?.start?.();
         TerminalSearch.init();
         FilePreview.init();
         window.sessionWorkspace = window.SessionWorkspaceUI?.init({

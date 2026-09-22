@@ -1,6 +1,7 @@
 """Structural contracts for the WebSSH application shell."""
 
 from pathlib import Path
+import re
 
 from app.static_delivery import static_asset_version
 
@@ -56,6 +57,7 @@ def test_workspace_exposes_one_context_tab_system_below_connection_tabs(
         b'id="primaryWorkspaceSurface"',
         b'js/primary-workspace-controller.js',
         b'js/workspace-layout-controller.js',
+        b'js/auth-session-guard.js',
         b'js/webssh2-shell.js',
         b'css/webssh-2.css',
     ):
@@ -73,6 +75,12 @@ def test_workspace_exposes_one_context_tab_system_below_connection_tabs(
     assert b'id="notepadToggle"' not in response.data
     assert b'id="sessionContextCard"' not in response.data
     assert b'id="sessionToolTabs"' not in response.data
+    expiry = re.search(rb'data-auth-session-expires-at="(\d+)"', response.data)
+    server_now = re.search(rb'data-auth-server-now="(\d+)"', response.data)
+    assert expiry is not None
+    assert server_now is not None
+    assert int(expiry.group(1)) > 0
+    assert int(expiry.group(1)) > int(server_now.group(1))
 
 
 def test_workspace_header_uses_the_shipped_webssh_logo(app, client):

@@ -8,6 +8,7 @@ import config
 import os
 import sys
 import time
+from datetime import timezone
 from .models import db
 from .auth import (init_auth, authenticate_user, register_user,
                    check_rate_limit, is_bootstrap_registration_available,
@@ -26,7 +27,7 @@ from .storage_errors import StorageCorruptionError
 from .tailscale_ssh import user_can_use_tailscale_ssh
 from .runtime_lifecycle import RuntimeLifecycle
 from .browser_identity import connection_history_scope
-from .auth_assurance import clear_browser_authentication
+from .auth_assurance import clear_browser_authentication, current_authentication_session
 
 socketio = SocketIO(
     async_mode=config.SOCKETIO_ASYNC_MODE,
@@ -854,6 +855,7 @@ def create_app(
     def index():
         settings = get_user_settings(current_user.id)
         theme = settings.get('theme', 'glass')
+        auth_session = current_authentication_session()
         return render_template(
             'index.html',
             username=current_user.username,
@@ -880,6 +882,11 @@ def create_app(
             ssh_input_limits={
                 'maxEventBytes': config.SSH_INPUT_MAX_BYTES,
             },
+            auth_session_expires_at=int(
+                auth_session.expires_at.replace(tzinfo=timezone.utc).timestamp()
+                * 1000
+            ),
+            auth_server_now=int(time.time() * 1000),
         )
 
     @app.route('/login', methods=['GET', 'POST'])

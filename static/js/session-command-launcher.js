@@ -176,6 +176,53 @@
         parameterDrafts: new Map(),
         expandedParameters: new Set(),
         resultsScrollTop: 0,
+        favorites: new Set(),
+        recent: [],
+
+        preferenceKey() {
+            const scope = String(root.document?.body?.dataset?.connectionHistoryScope || 'local');
+            return `webssh:session-commands:${scope}`;
+        },
+
+        entryKey(entry) {
+            return `${entry?.type || ''}:${entry?.id || ''}`;
+        },
+
+        loadPreferences() {
+            try {
+                const saved = JSON.parse(root.localStorage?.getItem(this.preferenceKey()) || '{}');
+                this.favorites = new Set(Array.isArray(saved.favorites) ? saved.favorites.slice(0, 100) : []);
+                this.recent = Array.isArray(saved.recent) ? saved.recent.slice(0, 12) : [];
+            } catch {
+                this.favorites = new Set();
+                this.recent = [];
+            }
+        },
+
+        savePreferences() {
+            try {
+                root.localStorage?.setItem(this.preferenceKey(), JSON.stringify({
+                    favorites: Array.from(this.favorites).slice(0, 100),
+                    recent: this.recent.slice(0, 12),
+                }));
+            } catch {
+                // Storage can be unavailable in hardened or private browser contexts.
+            }
+        },
+
+        rememberUse(entry) {
+            const key = this.entryKey(entry);
+            this.recent = [key, ...this.recent.filter(candidate => candidate !== key)].slice(0, 12);
+            this.savePreferences();
+        },
+
+        toggleFavorite(entry) {
+            const key = this.entryKey(entry);
+            if (this.favorites.has(key)) this.favorites.delete(key);
+            else this.favorites.add(key);
+            this.savePreferences();
+            this.render();
+        },
 
         t(key, fallback) {
             const translated = root.i18n?.t(key);
@@ -186,6 +233,7 @@
             const document = root.document;
             if (!document || this.initialized) return;
             this.initialized = true;
+            this.loadPreferences();
             this.trigger = document.getElementById('contextCommandsTab');
             this.panel = document.getElementById('sessionCommandsPanel');
             this.mount = document.getElementById('sessionCommandsMount');
@@ -341,8 +389,32 @@
                 empty.textContent = this.t('sessionCommands.noResults', 'No matching entries.');
                 list.appendChild(empty);
             } else {
-                this.renderGroup(list, entries, 'set', this.t('sessionCommands.sets', 'Command Sets'), canInsert);
-                this.renderGroup(list, entries, 'command', this.t('sessionCommands.commands', 'Commands'), canInsert);
+                const byKey = new Map(entries.map(entry => [this.entryKey(entry), entry]));
+                const favoriteEntries = entries.filter(entry => this.favorites.has(this.entryKey(entry)));
+                const favoriteKeys = new Set(favoriteEntries.map(entry => this.entryKey(entry)));
+                const recentEntries = this.recent
+                    .map(key => byKey.get(key))
+                    .filter(entry => entry && !favoriteKeys.has(this.entryKey(entry)));
+                const promotedKeys = new Set([
+                    ...favoriteEntries.map(entry => this.entryKey(entry)),
+                    ...recentEntries.map(entry => this.entryKey(entry)),
+                ]);
+                const catalogEntries = entries.filter(entry => !promotedKeys.has(this.entryKey(entry)));
+                if (!this.searchQuery && favoriteEntries.length) {
+                    this.renderGroup(list, favoriteEntries, null, this.t('sessionCommands.favorites', 'Favorites'), canInsert);
+                }
+                if (!this.searchQuery && recentEntries.length) {
+                    this.renderGroup(list, recentEntries, null, this.t('sessionCommands.recent', 'Recently used'), canInsert);
+                }
+                this.renderGroup(
+                    list,
+                    this.searchQuery ? entries : catalogEntries,
+                    null,
+                    this.searchQuery
+                        ? this.t('sessionCommands.results', 'Results')
+                        : this.t('sessionCommands.catalog', 'All commands'),
+                    canInsert,
+                );
             }
 
             const footer = document.createElement('footer');
@@ -373,7 +445,7 @@
         },
 
         renderGroup(parent, entries, type, label, canInsert = false) {
-            const matching = entries.filter(entry => entry.type === type);
+            const matching = type ? entries.filter(entry => entry.type === type) : entries;
             if (!matching.length) return;
             const document = root.document;
             const section = document.createElement('section');
@@ -489,9 +561,27 @@
                             'error'
                         );
                         this.sync();
+                    } else {
+                        this.rememberUse(entry);
                     }
                 });
-                row.append(details, insert);
+                const actions = document.createElement('div');
+                actions.className = 'session-command-item-actions';
+                const favorite = document.createElement('button');
+                favorite.type = 'button';
+                favorite.className = 'btn btn-secondary btn-small session-command-favorite';
+                const isFavorite = this.favorites.has(this.entryKey(entry));
+                favorite.textContent = isFavorite ? '★' : '☆';
+                favorite.setAttribute('aria-pressed', String(isFavorite));
+                const favoriteLabel = this.t(
+                    isFavorite ? 'sessionCommands.removeFavorite' : 'sessionCommands.addFavorite',
+                    isFavorite ? 'Remove from favorites' : 'Add to favorites',
+                );
+                favorite.setAttribute('aria-label', favoriteLabel);
+                favorite.title = favoriteLabel;
+                favorite.addEventListener('click', () => this.toggleFavorite(entry));
+                actions.append(favorite, insert);
+                row.append(details, actions);
                 section.appendChild(row);
             });
             parent.appendChild(section);

@@ -1085,7 +1085,7 @@
 
 @media (max-width: 900px) {
     .admin-main {
-        grid-template-columns: 190px minmax(0, 1fr);
+        grid-template-columns: 216px minmax(0, 1fr);
     }
 
     .admin-content {
@@ -1218,7 +1218,8 @@
 /* Navigation labels must fit the sidebar in every language. */
 .settings-center-navigation .admin-tab > span:last-child {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }
 .settings-center-navigation .admin-nav-group {
     flex-wrap: wrap;

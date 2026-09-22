@@ -23,6 +23,7 @@ const TerminalManager = {
     terminalWriteCallbacks: {},
     osc52ClipboardAllowed: {},
     directorySyncReplayDepths: {},
+    directorySyncDisposers: {},
 
     isVirtualKeyboardVisible(visualViewportHeight, layoutViewportHeight) {
         if (visualViewportHeight <= 0 || layoutViewportHeight <= 0) {
@@ -492,7 +493,11 @@ const TerminalManager = {
         }
 
         this.terminals[key] = terminal;
-        window.SessionDirectorySync?.trackTerminal(sessionId, terminal);
+        this.directorySyncDisposers[key]?.dispose?.();
+        this.directorySyncDisposers[key] = window.SessionDirectorySync?.trackTerminal(
+            sessionId,
+            terminal,
+        );
         if (options.restoredOutput === true) {
             this.beginDirectorySyncReplay(sessionId, key);
         }
@@ -1378,6 +1383,7 @@ const TerminalManager = {
         this.scrollbarDisposers[terminalKey]?.();
         this.compositionDisposers[terminalKey]?.();
         this.clipboardDisposers[terminalKey]?.dispose?.();
+        this.directorySyncDisposers[terminalKey]?.dispose?.();
         while ((this.directorySyncReplayDepths[terminalKey] || 0) > 0) {
             this.endDirectorySyncReplay(sessionId, terminalKey);
         }
@@ -1395,6 +1401,7 @@ const TerminalManager = {
         delete this.terminalWriteCallbacks[terminalKey];
         delete this.osc52ClipboardAllowed[terminalKey];
         delete this.directorySyncReplayDepths[terminalKey];
+        delete this.directorySyncDisposers[terminalKey];
 
         if (sessionId && this.sessionTerminals[sessionId]) {
             this.sessionTerminals[sessionId] = this.sessionTerminals[sessionId].filter(key => key !== terminalKey);

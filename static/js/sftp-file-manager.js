@@ -54,6 +54,9 @@ class SFTPFileManager {
             files: [],
             selected: new Set(),
             lastSelected: -1,
+            focusedIndex: null,
+            focusAfterRender: false,
+            restoreFocusName: null,
             hostInfo: null,
             loading: false,
             loadingTimeout: null,
@@ -1763,6 +1766,13 @@ class SFTPFileManager {
                     state.pendingDirectoryRequestId = null;
                     state.pendingDirectoryPath = null;
                     state.pendingDirectoryCursor = 0;
+                    if (cursor === 0) {
+                        const restoredIndex = state.restoreFocusName === null
+                            ? null
+                            : state.files.findIndex(file => file.name === state.restoreFocusName);
+                        state.focusedIndex = restoredIndex >= 0 ? restoredIndex : null;
+                        state.restoreFocusName = null;
+                    }
                     if (visible) {
                         this.updatePathInput(pane, data.path);
                         this.renderPane(pane);
@@ -3056,6 +3066,7 @@ class SFTPFileManager {
 
         state.autoHomeEligible = false;
         state.selected.clear();
+        if (!options.preserveFocus) state.focusedIndex = null;
         state.loading = true;
         this.renderPane(pane);
 
@@ -3067,8 +3078,10 @@ class SFTPFileManager {
         const state = this.panes[pane];
 
         if (!this.sourceCan(state, 'list') || state.path === '/') return;
+        state.restoreFocusName = state.path.split('/').filter(Boolean).pop() || null;
+        state.focusAfterRender = true;
         const parentPath = state.path.split('/').slice(0, -1).join('/') || '/';
-        this.navigatePaneTo(pane, parentPath);
+        this.navigatePaneTo(pane, parentPath, { preserveFocus: true });
     }
 
     navigatePaneHome(pane) {
@@ -3084,6 +3097,7 @@ class SFTPFileManager {
 
         if (!this.sourceCan(state, 'list')) return;
         const newPath = state.path === '/' ? '/' + dirName : state.path + '/' + dirName;
+        state.focusAfterRender = true;
         this.navigatePaneTo(pane, newPath);
     }
 
@@ -3107,6 +3121,12 @@ class SFTPFileManager {
             }
 
             state.autoHomeEligible = false;
+            state.restoreFocusName = state.focusedIndex >= 0
+                ? state.files[state.focusedIndex]?.name || null
+                : null;
+            state.focusAfterRender = Boolean(
+                document.activeElement?.closest?.(`#fm${this.capitalize(pane)}Pane`),
+            );
             state.loading = true;
             this.renderPane(pane);
             const requestId = this.requestDirectory(pane, state.path);
@@ -3234,11 +3254,20 @@ class SFTPFileManager {
             indexMap.set(sortedIndex, originalIndex);
         });
 
+        const renderedIndexes = sortedFiles.map((file) => state.files.indexOf(file));
+        const defaultFocusIndex = state.path !== '/' ? -1 : (renderedIndexes[0] ?? null);
+        if (state.focusedIndex === null
+                || (state.focusedIndex !== -1 && !renderedIndexes.includes(state.focusedIndex))) {
+            state.focusedIndex = defaultFocusIndex;
+        }
+
         let html = '';
 
         if (state.path !== '/') {
             html += `
-                <div class="fm-file-item directory" data-index="-1" data-type="parent">
+                <div class="fm-file-item directory" data-index="-1" data-type="parent"
+                     role="option" aria-selected="false" tabindex="${state.focusedIndex === -1 ? '0' : '-1'}"
+                     aria-label="${this.escapeHtml(this.t('fm.parentDirectory', 'Parent directory'))}">
                     <span class="fm-file-checkbox" aria-hidden="true"></span>
                     <span class="material-icons fm-file-icon parent">arrow_upward</span>
                     <div class="fm-file-info">
@@ -3267,8 +3296,12 @@ class SFTPFileManager {
                 <div class="fm-file-item ${file.is_dir ? 'directory' : ''} ${state.selected.has(originalIndex) ? 'selected' : ''}"
                      data-index="${originalIndex}"
                      data-type="${file.is_dir ? 'directory' : 'file'}"
+                     role="option"
+                     aria-selected="${state.selected.has(originalIndex)}"
+                     tabindex="${state.focusedIndex === originalIndex ? '0' : '-1'}"
                      draggable="${this.supportsNativeFileDrag()}">
                     <button type="button" class="fm-file-checkbox material-icons" role="checkbox"
+                            tabindex="-1"
                             aria-checked="${state.selected.has(originalIndex)}"
                             aria-label="${this.escapeHtml(this.t('fm.workspace.selectItem', 'Select'))}: ${this.escapeHtml(file.name)}">${state.selected.has(originalIndex) ? 'check_box' : 'check_box_outline_blank'}</button>
                     <span class="material-icons fm-file-icon ${file.is_dir ? 'folder' : 'file'}">${icon}</span>
@@ -3293,6 +3326,8 @@ class SFTPFileManager {
         }
 
         container.innerHTML = html;
+        container.setAttribute?.('role', 'listbox');
+        container.setAttribute?.('aria-multiselectable', 'true');
 
         const loadMore = container.querySelector?.('[data-load-more]') || null;
         if (loadMore) {
@@ -3315,6 +3350,12 @@ class SFTPFileManager {
             }
         });
 
+        if (state.focusAfterRender) {
+            state.focusAfterRender = false;
+            container.querySelector(`.fm-file-item[data-index="${state.focusedIndex}"]`)
+                ?.focus?.({ preventScroll: false });
+        }
+
         this.updatePaneStatus(pane);
     }
 
@@ -3326,6 +3367,7 @@ class SFTPFileManager {
         }
         e.stopPropagation();
         this.setActivePane(pane);
+        this.setPaneFocus(pane, index, false);
 
         if (index === -1) return;
 
@@ -3401,6 +3443,7 @@ class SFTPFileManager {
             if (idx >= 0) {
                 const isSelected = state.selected.has(idx);
                 item.classList.toggle('selected', isSelected);
+                item.setAttribute('aria-selected', String(isSelected));
                 const checkbox = item.querySelector('.fm-file-checkbox.material-icons');
                 if (checkbox) {
                     checkbox.textContent = isSelected ? 'check_box' : 'check_box_outline_blank';
@@ -3410,6 +3453,55 @@ class SFTPFileManager {
         });
 
         this.updatePaneStatus(pane);
+    }
+
+    setPaneFocus(pane, index, shouldFocus = true) {
+        const state = this.panes[pane];
+        const container = document.getElementById(`fm${this.capitalize(pane)}List`);
+        const target = container?.querySelector?.(`.fm-file-item[data-index="${index}"]`);
+        if (!target) return false;
+        state.focusedIndex = index;
+        container.querySelectorAll('.fm-file-item').forEach(item => {
+            item.tabIndex = item === target ? 0 : -1;
+        });
+        if (shouldFocus) target.focus({ preventScroll: false });
+        return true;
+    }
+
+    handlePaneKeydown(event, pane) {
+        const item = event.target.closest?.('.fm-file-item');
+        if (!item) return;
+        const rows = Array.from(
+            document.getElementById(`fm${this.capitalize(pane)}List`)
+                ?.querySelectorAll?.('.fm-file-item') || [],
+        );
+        const position = rows.indexOf(item);
+        const index = Number(item.dataset.index);
+        let next = null;
+        if (event.key === 'ArrowDown') next = Math.min(rows.length - 1, position + 1);
+        else if (event.key === 'ArrowUp') next = Math.max(0, position - 1);
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = rows.length - 1;
+        if (next !== null) {
+            event.preventDefault();
+            this.setActivePane(pane);
+            this.setPaneFocus(pane, Number(rows[next]?.dataset.index));
+            return;
+        }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            this.handleItemDblClick(pane, index);
+            return;
+        }
+        if (event.key === ' ' || event.code === 'Space') {
+            event.preventDefault();
+            if (index < 0) return;
+            const state = this.panes[pane];
+            if (state.selected.has(index)) state.selected.delete(index);
+            else state.selected.add(index);
+            state.lastSelected = index;
+            this.updateSelectionVisual(pane);
+        }
     }
 
     setActivePane(pane) {
@@ -3492,6 +3584,8 @@ class SFTPFileManager {
             const listEl = document.getElementById(`fm${this.capitalize(pane)}List`);
 
             listEl.addEventListener('keydown', event => {
+                this.handlePaneKeydown(event, pane);
+                if (event.defaultPrevented) return;
                 if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return;
                 const item = event.target.closest('.fm-file-item');
                 if (!item) return;

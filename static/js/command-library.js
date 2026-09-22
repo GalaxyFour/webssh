@@ -8,6 +8,7 @@ const CommandLibrary = {
     chunkSize: 40,
     pendingSaveCallback: null,
     returnToModalId: null,
+    osManuallySelected: false,
 
     init() {
         this.loadCommands();
@@ -32,6 +33,7 @@ const CommandLibrary = {
         }
 
         this.setupEventListeners();
+        window.addEventListener?.('session-target-os-change', () => this.detectOs());
     },
 
     setupEventListeners() {
@@ -89,6 +91,7 @@ const CommandLibrary = {
                 document.querySelectorAll('#commandLibraryPanel .os-filter-btn').forEach(b => b.classList.remove('active'));
                 e.currentTarget.classList.add('active');
                 this.currentOs = e.currentTarget.dataset.os;
+                this.osManuallySelected = true;
                 this.searchCommands(this.searchQuery);
             });
         });
@@ -111,6 +114,7 @@ const CommandLibrary = {
 
     openLibrary() {
         this.returnToModalId = null;
+        this.detectOs();
         this.loadCommands();
 
         window.CommandWorkspace.open('library', {primary: true});
@@ -145,6 +149,23 @@ const CommandLibrary = {
     },
 
     detectOs() {
+        if (this.osManuallySelected) return this.currentOs;
+        const sessionId = window.SessionManager?.getActiveSession?.();
+        const osName = window.WEBSSH_TARGET_OS_BY_SESSION?.[sessionId];
+        const normalized = String(osName || '').toLowerCase();
+        let detected = null;
+        if (/windows|mingw|msys/.test(normalized)) detected = 'windows';
+        else if (/darwin|mac\s?os|os x/.test(normalized)) detected = 'macos';
+        else if (/linux|bsd|ubuntu|debian|fedora|centos|rhel|suse|alpine|arch/.test(normalized)) detected = 'linux';
+        if (!detected) return this.currentOs;
+        const button = document.querySelector(`#commandLibraryPanel .os-filter-btn[data-os="${detected}"]`);
+        if (!button) return this.currentOs;
+        document.querySelectorAll('#commandLibraryPanel .os-filter-btn').forEach(candidate => {
+            candidate.classList.toggle('active', candidate === button);
+        });
+        this.currentOs = detected;
+        this.searchCommands(this.searchQuery);
+        return detected;
     },
 
     searchCommands(query) {

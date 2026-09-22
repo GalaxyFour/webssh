@@ -97,6 +97,14 @@
 
         function renderInsights(state) {
             lastInsightsState = state;
+            const osName = state?.stats?.os_name;
+            if (state?.sessionId && typeof osName === 'string' && osName.trim()) {
+                root.WEBSSH_TARGET_OS_BY_SESSION ||= {};
+                root.WEBSSH_TARGET_OS_BY_SESSION[state.sessionId] = osName.trim();
+                root.dispatchEvent?.(new CustomEvent('session-target-os-change', {
+                    detail: { sessionId: state.sessionId, osName: osName.trim() },
+                }));
+            }
             const active = sessionManager.getSession(state.sessionId);
             diagnosticsController?.render(
                 !transportReady && active?.connected ? { ...state, status: 'reconnecting' } : state,
