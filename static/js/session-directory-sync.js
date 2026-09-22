@@ -67,6 +67,7 @@
         if (!state) return;
         state.replayDepth = (state.replayDepth || 0) + 1;
         state.dirty = true;
+        state.version += 1;
     }
 
     function endReplay(sessionId) {

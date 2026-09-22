@@ -300,7 +300,8 @@ test('a lost acknowledgement expires instead of blocking every future folder act
     assert.equal(h.sent.length, 2);
 });
 
-test('tmux outer alternate screen supports repeated cd without repeated prompt signals', () => {
+for (const interruption of ['typing', 'replay']) {
+test(`tmux repeated cd respects ${interruption} without repeated prompt signals`, () => {
     let mode;
     const terminal = {
         parser: {registerCsiHandler(_id, handler) {mode = handler;}},
@@ -325,10 +326,12 @@ test('tmux outer alternate screen supports repeated cd without repeated prompt s
     h.controller.navigate('a', '/second');
     h.reply(3, '/first', true, 'bash', {tmux: true});
     assert.deepEqual(sent.map(entry => entry[1]), ["cd -- '/first'\r", "cd -- '/second'\r"]);
-    // User typing after the generated command must never be cleared by its acknowledgement.
-    sync.noteInput('a', 'unfinished');
+    // Neither new input nor replay may be cleared by an old cd acknowledgement.
+    if (interruption === 'typing') sync.noteInput('a', 'unfinished');
+    else { sync.beginReplay('a'); sync.endReplay('a'); }
     Array.from(h.timers.values()).at(-1)();
     h.reply(4, '/second', true, 'bash', {tmux: true});
     assert.equal(sync.canSend('a', {tmux: true}), false);
     h.controller.dispose(); tracked.dispose();
 });
+}
