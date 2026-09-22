@@ -300,6 +300,44 @@ test('a lost acknowledgement expires instead of blocking every future folder act
     assert.equal(h.sent.length, 2);
 });
 
+test('ordinary shells wait for a live prompt after a synchronized directory change', () => {
+    let mode;
+    const terminal = {
+        parser: {registerCsiHandler(_id, handler) {mode = handler;}},
+        onData() {}, buffer: {active: {type: 'normal'}},
+        modes: {bracketedPasteMode: true},
+    };
+    const tracked = sync.trackTerminal('a', terminal);
+    mode([2004]);
+    const sent = [];
+    const h = harness({canSend: sync.canSend, inputVersion: undefined,
+        sendInput(id, command) {sent.push([id, command]); sync.noteInput(id, command);}});
+    try {
+        h.reply(0);
+        h.controller.navigate('a', '/first');
+        h.reply(1);
+        assert.equal(sent.length, 1);
+        // A prompt hook can still be running after the shell has changed cwd.
+        Array.from(h.timers.values()).at(-1)();
+        h.reply(2, '/first');
+        assert.equal(sync.canSend('a'), false);
+        h.controller.navigate('a', '/second');
+        assert.equal(h.requests.length, 3);
+        assert.equal(sent.length, 1);
+        assert.deepEqual(h.blocked, ['pending']);
+        // Only a fresh live DEC 2004 prompt signal permits the next command.
+        mode([2004]);
+        Array.from(h.timers.values()).at(-1)();
+        h.reply(3, '/first');
+        assert.equal(sync.canSend('a'), true);
+        h.controller.navigate('a', '/second');
+        h.reply(4, '/first');
+        assert.deepEqual(sent.map(entry => entry[1]), ["cd -- '/first'\r", "cd -- '/second'\r"]);
+    } finally {
+        h.controller.dispose(); tracked.dispose();
+    }
+});
+
 for (const interruption of ['typing', 'replay']) {
 test(`tmux repeated cd respects ${interruption} without repeated prompt signals`, () => {
     let mode;

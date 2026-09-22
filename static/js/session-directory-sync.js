@@ -249,7 +249,7 @@
                 }
                 if (awaitingChange) {
                     awaitingChange.polls += 1;
-                    if (next.shell_ready && next.path !== awaitingChange.previous
+                    if (next.tmux === true && next.shell_ready && next.path !== awaitingChange.previous
                             && next.shell_id === awaitingChange.shellId
                             && awaitingChange.version === inputVersion(sessionId)
                             && !options.hasPendingInput?.(sessionId)) {
