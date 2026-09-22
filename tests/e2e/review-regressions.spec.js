@@ -1,6 +1,6 @@
 const {test, expect} = require('playwright/test');
-const path = require('node:path');
 const {login, assertNoExternalRequests} = require('./helpers');
+const {captureOutputPath} = require('./capture-output');
 
 test.afterEach(async ({page}) => assertNoExternalRequests(page));
 
@@ -31,7 +31,7 @@ test('German settings navigation stays within the sidebar at intermediate widths
         });
         if (width === 900 && process.env.WEBSSH_CAPTURE_ASSETS === '1') {
             await page.screenshot({
-                path: path.resolve(__dirname, '..', '..', 'assets', 'settings-de-900.png'),
+                path: captureOutputPath('settings-de-900.png'),
             });
         }
         for (const button of geometry) {

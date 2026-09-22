@@ -70,18 +70,56 @@ data/
 
 node_modules/
 
-# AI assistant files
+# Local AI and editor assistant files
+AGENTS.md
 CLAUDE.md
+CODEX.md
+GEMINI.md
+JULES.md
+QWEN.md
+COPILOT.md
+AI_INSTRUCTIONS.md
+agent-instructions.md
+.agent/
+.agents/
+.ai/
+.amazonq/
+.codex/
 .claude/
+.cursor/
+.continue/
+.gemini/
+.junie/
+.roo/
+.windsurf/
+.aider*
+.clinerules
+.roorules
+.windsurfrules
 .superpowers/
 plans/
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
 
 # Knowledge graph
 graphify-out/
 .test-tmp/
 .e2e-tmp/
-AGENTS.md
-.codex/hooks.json
+.test-run.tmp/
+
+# Local design reviews and QA notes
+design-qa.md
+docs/reviews/
+reviews/
+review-artifacts/
+qa-artifacts/
+*-review.md
+review-*.md
+*-review-*.md
+*-qa.md
+qa-*.md
+*-qa-*.md
 
 # Disposable Paramiko/OpenSSH integration-test secrets
 tests/integration/paramiko5/runtime/

@@ -163,6 +163,24 @@ This project handles SSH credentials. When contributing, please:
 
 If your change touches authentication, encryption, or session handling, please note this in your PR for extra review attention.
 
+#### Public Repository Hygiene
+
+Everything committed here is published. Do not commit local agent instructions,
+AI-tool configuration, private review notes, development captures, temporary
+test output, workstation paths, credentials, or unreferenced media. Keep reusable
+product and operator documentation in the existing public documentation areas.
+
+Run the same repository guard used by CI before submitting:
+
+```bash
+python scripts/check_repository_hygiene.py
+```
+
+The guard inspects tracked files directly, so force-adding an ignored file does
+not bypass it. Changes that add a forbidden path, an internal-instruction marker,
+a workstation-specific tool path, or an unreferenced file under `assets/` fail
+the required `dispatch-integrity` check.
+
 #### Testing Your Changes
 
 Before submitting:

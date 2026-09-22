@@ -105,7 +105,9 @@ npm run test:captures
 
 This sets `WEBSSH_CAPTURE_ASSETS=1` for the capture suites. Their functional,
 accessibility and geometry assertions also run in normal CI. Failure screenshots
-and traces remain available without the flag.
+and traces remain available without the flag. Captures used by the README or
+product site update their declared files below `assets/`; additional QA captures
+are written to the ignored `.test-run.tmp/captures/` directory.
 
 Playwright assumptions must be updated when a default frontend state changes.
 Test both the new default and the user's explicit override.
@@ -212,6 +214,12 @@ production Compose commands without installing application dependencies.
 Keep every test that reads README or allowed documentation paths in this module,
 including contracts that compare documentation with runtime or workflow files. Full pytest excludes that module
 to avoid running it twice.
+
+The same initial job runs `python scripts/check_repository_hygiene.py` against
+the complete tracked tree. This blocks local agent instructions, internal review
+artifacts, transient development output, workstation-specific AI-tool paths and
+unreferenced files below `assets/`, including files force-added despite ignore
+rules. Run it locally before opening or updating a pull request.
 
 Only a successful `docs` classification permits the named expensive jobs to
 be skipped. An unexpected result, a missing job or a missing scope fails the
