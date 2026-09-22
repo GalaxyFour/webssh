@@ -309,6 +309,9 @@ async function seedLinuxSession(page, options = {}) {
                     : null,
             });
             SessionManager.assignSessionToPane('workspace-linux', 0);
+            if (seedOptions.initialLiveOutput) {
+                TerminalManager.writeOutput('workspace-linux', seedOptions.initialLiveOutput);
+            }
         };
         window.__createWorkspaceSwitchSession = function createWorkspaceSwitchSession() {
             SessionManager.createSession({
@@ -322,7 +325,7 @@ async function seedLinuxSession(page, options = {}) {
         };
         window.__createWorkspaceSession();
         document.querySelector('.account-name').textContent = 'operator';
-        setTimeout(() => {
+        if (!seedOptions.initialLiveOutput) setTimeout(() => {
             TerminalManager.writeOutput('workspace-linux', [
                 '\u001b[1;36mProduction Edge - Ubuntu 24.04 LTS\u001b[0m',
                 'ops@edge-01:~$ systemctl is-active webssh',
@@ -379,6 +382,35 @@ test('terminal selections copy through keyboard and command palette actions', as
 });
 
 for (const legacyTmux of [false, true]) {
+test(`first tmux folder double-click accepts the prompt buffered during attachment (${legacyTmux ? 'legacy' : 'pane mode'})`, async ({page}) => {
+    await login(page);
+    await seedLinuxSession(page, {
+        useTmux: true, directorySync: true, legacyTmux,
+        // Captured startup sequence from tmux 3.4: paste mode is enabled
+        // before device-attribute and foreground/background colour queries.
+        initialLiveOutput: '\x1b[?1049h\x1b[?2004h\x1b[c\x1b[>c\x1b[>q'
+            + '\x1b]10;?\x1b\\\x1b]11;?\x1b\\ops@edge:~$ ',
+    });
+    // Exercise initial buffering and its write callback, without injecting a
+    // second prompt after attachment to repair readiness for the test.
+    await expect.poll(() => page.evaluate(() => {
+        const key = TerminalManager.sessionTerminals['workspace-linux'][0];
+        return TerminalManager.terminals[key].buffer.active.getLine(0)?.translateToString(true);
+    })).toContain('ops@edge:~$');
+    await page.locator('#contextFilesTab').click();
+    await expect(page.locator('#sessionDirectorySyncInput')).toBeChecked();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current');
+    await page.locator('#fmLeftList .fm-file-item').filter({hasText: 'releases'}).dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases');
+    const sent = await page.evaluate(() => window.__workspaceEvents.filter(event => event.event === 'ssh_input'));
+    expect(sent.filter(event => event.payload.data.startsWith('cd -- ')).map(event => event.payload)).toEqual([
+        {session_id: 'workspace-linux', data: "cd -- '/srv/webssh/current/releases'\r"},
+    ]);
+    expect(sent.some(event => /^\x1b\]1[01];rgb:/.test(event.payload.data))).toBe(true);
+    await expect(page.locator('.notification').filter({hasText: 'Folder sync paused'})).toHaveCount(0);
+    await assertNoExternalRequests(page);
+});
+
 test(`tmux folder double-clicks synchronize repeatedly (${legacyTmux ? 'legacy' : 'pane mode'})`, async ({page}) => {
     await login(page);
     await seedLinuxSession(page, {useTmux: true, directorySync: true, legacyTmux});

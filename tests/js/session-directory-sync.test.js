@@ -234,6 +234,34 @@ test('replayed prompt history stays unsafe until a new live prompt boundary', ()
     assert.equal(sync.canSend('restored'), true);
 });
 
+test('terminal colour replies preserve readiness but never clear actual input', () => {
+    let mode;
+    const terminal = {
+        parser: {registerCsiHandler(_id, handler) {mode = handler;}}, onData() {},
+        buffer: {active: {type: 'normal'}}, modes: {bracketedPasteMode: true},
+    };
+    const tracked = sync.trackTerminal('colours', terminal);
+    const replies = ['\x1b[?1;2c', '\x1b[>0;276;0c',
+        '\x1b]10;rgb:ffff/ffff/ffff\x1b\\', '\x1b]11;rgb:0000/0000/0000\x1b\\',
+        '\x1b]12;rgb:FF/80/00\x07'];
+    try {
+        for (const reply of replies) {
+            mode([2004]); sync.noteInput('colours', reply);
+            assert.equal(sync.canSend('colours'), true);
+            sync.noteInput('colours', 'unfinished'); sync.noteInput('colours', reply);
+            assert.equal(sync.canSend('colours'), false);
+        }
+        // Partial/malformed replies, pasted escape strings and any additional
+        // user text or Enter must remain input, even if they contain a reply.
+        for (const data of ['\x1b]11;rgb:0000/0000/0000', '\x1b]11;rgb:gg/00/00\x07',
+            'text' + replies[2], replies[2] + 'text', replies[2] + '\n', replies[2] + '\r',
+            '\x1b[200~' + replies[2] + '\x1b[201~']) {
+            mode([2004]); sync.noteInput('colours', data);
+            assert.equal(sync.canSend('colours'), false);
+        }
+    } finally { tracked.dispose(); }
+});
+
 test('unsupported probes never move Files or write to the shell', () => {
     const h=harness();
     h.requests[0].callback({success:false,reason:'unsupported'});

@@ -69,7 +69,13 @@
     }
 
     function noteInput(sessionId, data) {
-        if (!data || /^\x1b\[[?>]?[0-9;]*c$/.test(data)) return;
+        if (!data) return;
+        // xterm emits terminal replies through onData too. tmux queries its
+        // foreground/background colours after enabling prompt mode at startup.
+        // These exact replies must not count as typing (or invalidate a probe).
+        // Keep forwarding them through SSHInput; only input tracking ignores them.
+        const reply = /^(?:\x1b\[[?>]?[0-9;]*c|\x1b\](?:10|11|12);rgb:[0-9a-f]{1,4}\/[0-9a-f]{1,4}\/[0-9a-f]{1,4}(?:\x1b\\|\x07))$/i.exec(data);
+        if (reply?.[0] === data) return;
         const state = inputs.get(sessionId);
         if (state) {
             state.dirty = true;
