@@ -139,25 +139,26 @@
                 || interactiveSessionId;
             const session = sessionId ? sessionManager?.getSession?.(sessionId) : null;
             const connected = Boolean(session?.connected);
-            elements.body?.classList.toggle('has-workspace-session', Boolean(session));
             const label = session
                 ? sessionManager?.getDisplayLabel?.(
                     sessionId,
                     session.username,
                     session.host,
                 ) || session.displayName || session.host || sessionId
-                : translate('workspace.noActiveSession', 'No active session');
+                : translate('connection.newConnection', 'Quick Connect');
 
             if (elements.sessionSummaryLabel) elements.sessionSummaryLabel.textContent = label;
             if (elements.sessionSummary) {
-                elements.sessionSummary.disabled = !session;
+                elements.sessionSummary.disabled = false;
                 elements.sessionSummary.setAttribute(
                     'aria-label',
                     session
-                        ? `${translate('workspaceContext.activeSession', 'Active session')}: ${label}`
-                        : translate('workspace.noActiveSession', 'No active session'),
+                        ? `${translate('panes.selectSession', 'Select a session or use Quick Connect')}: ${label}`
+                        : translate('connection.newConnection', 'Quick Connect'),
                 );
             }
+            const summaryIcon = byId('mobileSessionSummaryIcon');
+            if (summaryIcon) summaryIcon.textContent = session ? 'swap_horiz' : 'add';
             elements.sessionStatus?.classList.toggle('connected', connected);
             elements.sessionStatus?.classList.toggle(
                 'disconnected',
@@ -322,11 +323,18 @@
         }
 
         function handleSessionSummary() {
+            setMoreOpen(false, {restoreFocus: false});
+            byId(VIEW_TARGETS.workspaces)?.click?.();
+            windowRef.workspaceLayoutController?.closeContext?.('user');
             const sessionId = sessionManager?.getWorkspaceSession?.()
                 || sessionManager?.getActiveSession?.();
-            const tab = sessionId ? byId(`tab-${sessionId}`) : null;
-            tab?.scrollIntoView?.({behavior: 'smooth', block: 'nearest', inline: 'center'});
-            tab?.focus?.();
+            if (sessionId) {
+                byId('newTabBtn')?.click?.();
+            } else {
+                windowRef.openConnectionModalForPane?.(
+                    sessionManager?.getActivePaneIndex?.() ?? 0,
+                );
+            }
         }
 
         function init() {

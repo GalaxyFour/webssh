@@ -27,16 +27,16 @@ test('keeps Quick Connect in the workspace without a duplicate header action', a
     const centralLauncher = page.locator('.profile-launcher-new');
     await expect(newTab).toBeVisible();
     await expect(centralLauncher).toBeVisible();
-    await expect(centralLauncher).toHaveClass(/btn-primary/);
-    await expect(centralLauncher).not.toHaveClass(/btn-secondary/);
+    await expect(centralLauncher).toHaveClass(/btn-secondary/);
+    await expect(centralLauncher).not.toHaveClass(/btn-primary/);
 
     const savedProfiles = await page.evaluate(() =>
         window.ProfileManager.profiles.map(profile => ({...profile}))
     );
     await page.evaluate(() => window.ProfileManager.setProfiles([]));
     await expect(centralLauncher).toBeVisible();
-    await expect(centralLauncher).toHaveClass(/btn-primary/);
-    await expect(centralLauncher).not.toHaveClass(/btn-secondary/);
+    await expect(centralLauncher).toHaveClass(/btn-secondary/);
+    await expect(centralLauncher).not.toHaveClass(/btn-primary/);
     await page.evaluate(profiles => window.ProfileManager.setProfiles(profiles), savedProfiles);
 
     await newTab.click();
@@ -80,7 +80,7 @@ test('action-bar plus targets the active pane when another pane is empty', async
     await expect.poll(() => page.evaluate(() => window.__launcherTargetPane)).toBe(1);
 });
 
-test('presents compact quick connect and shows history only when available', async ({ page }) => {
+test('presents a focused two-column quick connect without a saved-profile picker', async ({ page }) => {
     await page.evaluate(() => {
         for (let index = 0; index < 7; index += 1) {
             window.ConnectionHistory.addConnection(
@@ -186,7 +186,7 @@ test('uses the requested connection details and advanced settings hierarchy', as
     expect(hierarchy.advancedTitle).toBe('Advanced Settings');
     expect(hierarchy.detailsBorder).toBe('1px');
     expect(Math.abs(hierarchy.authLabelCenter - hierarchy.authSelectCenter)).toBeLessThan(2);
-    expect(hierarchy.authBottom).toBeGreaterThan(hierarchy.hostTop);
+    expect(hierarchy.authBottom).toBeLessThan(hierarchy.hostTop);
     expect(hierarchy.runAfterFontSize).toBe(hierarchy.jumpHostFontSize);
     expect(parseFloat(hierarchy.previewFontSize)).toBeLessThan(parseFloat(hierarchy.runAfterFontSize));
     expect(hierarchy.previewWeight).toBeLessThan(hierarchy.runAfterWeight);

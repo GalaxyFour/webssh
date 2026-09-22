@@ -1241,7 +1241,6 @@ test('desktop context width survives a page reload without affecting mobile layo
         localStorage.setItem('webssh.workspace.contextWidth', '512');
     });
     await page.reload();
-    await page.locator('#contextWorkspaceLauncher').click();
 
     await expect(page.locator('#contextWorkspace')).toBeVisible();
     await expect.poll(() => page.locator('#contextWorkspace').evaluate(
@@ -1264,7 +1263,6 @@ test('automatic context width follows live desktop resizes without a reload', as
         localStorage.removeItem('webssh.workspace.contextWidthMode');
     });
     await page.reload();
-    await page.locator('#contextWorkspaceLauncher').click();
 
     const contextWidth = () => page.locator('#contextWorkspace').evaluate(
         element => Math.round(element.getBoundingClientRect().width),
@@ -2804,4 +2802,27 @@ test('Files retains stale rows through a failed refresh and retry', async ({ pag
     await expect(page.locator('#sessionFilesStatus')).toBeHidden();
     await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).not.toHaveAttribute('inert', '');
     await expect(rows).toHaveCount(5);
+});
+
+
+test.describe('mobile session header touch interaction', () => {
+    test.use({hasTouch: true, viewport: {width: 390, height: 844}});
+
+    test('header opens the session chooser from Commands and preserves the terminal', async ({page}) => {
+        await login(page);
+        await seedLinuxSession(page);
+        await page.locator('[data-mobile-view="commands"]').tap();
+        await expect(page.locator('#commandWorkspaceModal')).toBeVisible();
+        const summary = page.locator('#mobileSessionSummary');
+        await expect(summary).toBeEnabled();
+        await summary.tap();
+        await expect(page.locator('#commandWorkspaceModal')).toBeHidden();
+        const launcher = page.locator('.terminal-pane.active .profile-launcher');
+        await expect(launcher).toBeVisible();
+        await expect(launcher.locator('.profile-launcher-return')).toBeVisible();
+        await expect(page.locator('#sessionTabs .session-tab')).toHaveCount(1);
+        await launcher.locator('.profile-launcher-return').tap();
+        await expect(page.locator('.terminal-pane.active .xterm')).toBeVisible();
+        await assertNoExternalRequests(page);
+    });
 });

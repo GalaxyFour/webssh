@@ -33,10 +33,10 @@
                     <img class="app-brand-logo" src="{{ static_asset_url(filename='images/webssh-logo.svg') }}" alt="" aria-hidden="true">
                     <span><small data-i18n="brand.tagline">Your shell. Your rules.</small></span>
                 </a>
-                <button id="mobileSessionSummary" class="mobile-session-summary" type="button" disabled>
+                <button id="mobileSessionSummary" class="mobile-session-summary" type="button">
                     <span class="mobile-session-status" aria-hidden="true"></span>
-                    <span id="mobileSessionSummaryLabel" data-i18n="workspace.noActiveSession">No active session</span>
-                    <span class="material-icons" aria-hidden="true">expand_more</span>
+                    <span id="mobileSessionSummaryLabel">Quick Connect</span>
+                    <span id="mobileSessionSummaryIcon" class="material-icons" aria-hidden="true">add</span>
                 </button>
                 <button id="mobileMenuBtn" class="btn btn-secondary mobile-menu-btn" aria-label="Toggle menu" data-i18n-aria-label="navigation.toggleMenu" aria-expanded="false" aria-controls="headerButtons"><span class="material-icons" aria-hidden="true">more_vert</span></button>
             </div>
@@ -515,6 +515,17 @@
                                     </div>
                                 </div>
 
+                                <div class="form-group quick-connect-auth-method">
+                                    <label for="authTypeSelect" data-i18n="connection.authMethod">Authentication Method</label>
+                                    <select id="authTypeSelect" class="form-control">
+                                        <option value="password" data-i18n="auth.password">Password</option>
+                                        <option value="key" data-i18n="connection.sshKey">SSH Key</option>
+                                        {% if tailscale_ssh_allowed %}
+                                        <option value="tailscale" data-i18n="connection.tailscaleSSH">Tailscale SSH</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+
                                 <div class="quick-connect-core-fields">
                     <div class="form-row">
                         <div class="form-group flex-2">
@@ -534,17 +545,6 @@
                         <input type="text" id="usernameInput" class="form-control" placeholder="root" required>
                         <div class="field-hint" id="usernameHint"></div>
                     </div>
-
-                                <div class="form-group quick-connect-auth-method">
-                                    <label for="authTypeSelect" data-i18n="connection.authMethod">Authentication Method</label>
-                                    <select id="authTypeSelect" class="form-control">
-                                        <option value="password" data-i18n="auth.password">Password</option>
-                                        <option value="key" data-i18n="fm.qc.sshKey">SSH Key</option>
-                                        {% if tailscale_ssh_allowed %}
-                                        <option value="tailscale" data-i18n="connection.tailscaleSSH">Tailscale SSH</option>
-                                        {% endif %}
-                                    </select>
-                                </div>
 
                     <div class="form-group" id="passwordGroup">
                         <label for="passwordInput" data-i18n="auth.password">Password *</label>

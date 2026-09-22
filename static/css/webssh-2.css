@@ -2779,9 +2779,9 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     gap: 10px;
     padding: 13px 14px;
     overflow: hidden;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
+    border: 1px solid var(--auth-context-border);
+    border-radius: var(--ws2-radius-sm);
+    background: rgb(7 12 21 / 68%);
 }
 
 .auth-product-pillars .material-icons {
@@ -5392,45 +5392,7 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     }
 }
 
-/* Focus connection entry; keep the existing surfaces and theme tokens. */
-body:not(.has-workspace-session) :is(#broadcastToggleBtn, #saveTranscriptBtn, #mobileBroadcastAction, #mobileTranscriptAction) {
-    display: none;
-}
-.profile-launcher {
-    justify-content: flex-start;
-    align-items: stretch;
-    padding: 22px 28px;
-    gap: 10px;
-}
-.profile-launcher > .pane-empty-icon { display: none; }
-.profile-launcher-title, .profile-launcher-hint { text-align: left; }
-.profile-launcher > .profile-launcher-new {
-    order: -1;
-    align-self: flex-end;
-    min-height: 40px;
-    margin-bottom: -46px;
-}
-.profile-launcher-title, .profile-launcher-hint { padding-right: 160px; }
-.profile-launcher-search, .profile-launcher-sections { width: 100%; }
-.profile-launcher-sections { flex: 1; max-height: none; }
-.profile-launcher-card { padding-block: 10px; }
-.profile-launcher-endpoint, .profile-launcher-action { font-size: 12px; }
-.profile-launcher-action.mode-review { color: var(--warning-color); }
-
-/* A short default form expands only for history or advanced options. */
-#connectionModal:not(.has-recent-connections) .modal-content { width: min(100%, 640px); }
-#connectionModal:not(.has-recent-connections) .quick-connect-grid { grid-template-columns: minmax(0, 1fr); }
-.quick-connect-scroll-region { padding: 16px; }
-.quick-connect-grid, .quick-connect-secondary { gap: 12px; }
-.quick-connect-actions { padding: 14px 16px; }
-.quick-connect-details-card .quick-connect-card-header { padding: 14px 16px; }
-.quick-connect-details-content { padding: 14px 16px; }
-.quick-connect-core-fields { gap: 10px; }
-.quick-connect-core-fields .field-hint:empty { display: none; }
-.quick-connect-core-fields .quick-connect-auth-method { margin-bottom: 0; }
-.quick-connect-core-fields .form-row { flex-direction: row; }
-.quick-connect-core-fields .form-row .flex-1 { flex: 0 0 96px; }
-.quick-connect-core-fields .form-row .flex-2 { min-width: 0; }
+/* Saved host management. */
 .profile-advanced-settings > summary { cursor: pointer; list-style: none; margin-bottom: 0; }
 .profile-advanced-settings > summary::-webkit-details-marker { display: none; }
 .profile-advanced-settings .profile-advanced-chevron { font-size: 24px; }
@@ -5463,21 +5425,10 @@ body:not(.has-workspace-session) :is(#broadcastToggleBtn, #saveTranscriptBtn, #m
 .command-params code:empty { display: none; }
 .command-help { padding: 8px 12px; }
 .command-help p { margin: 0; }
-.auth-product-pillars li { min-height: 40px; padding: 6px 0; }
 
 @media (max-width: 767px) {
     #mobileMenuBtn { display: none; }
-    .profile-launcher { padding: 16px 12px; }
-    .profile-launcher-title, .profile-launcher-hint { padding-right: 0; }
-    .profile-launcher > .profile-launcher-new { order: 0; align-self: stretch; margin: 0; min-height: 44px; }
-    .profile-launcher-title { font-size: 20px; }
-    .profile-launcher-card { min-height: 68px; }
-    .quick-connect-scroll-region { padding: 10px; }
-    .quick-connect-core-fields .form-row { display: flex; gap: 10px; }
-    .quick-connect-core-fields .quick-connect-auth-method { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-    .quick-connect-details-card .quick-connect-card-header { padding: 12px; }
-    .quick-connect-details-content { padding: 12px; }
-    .quick-connect-actions .btn, .profile-editor-actions .btn { min-height: 44px; }
+    .profile-editor-actions .btn { min-height: 44px; }
     .command-row { grid-template-columns: minmax(0, 1fr); }
     .command-row .cmd-copy { min-height: 44px; }
     .command-row .command-cell { border-bottom: 0; padding-bottom: 0; }

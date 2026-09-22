@@ -385,10 +385,6 @@
             container.classList.toggle('hidden', history.length === 0);
             document.getElementById('recentConnectionsEmpty')
                 ?.classList.toggle('hidden', history.length > 0);
-            document.getElementById('recentConnectionsCard')
-                ?.classList.toggle('hidden', history.length === 0);
-            document.getElementById('connectionModal')
-                ?.classList.toggle('has-recent-connections', history.length > 0);
 
             history.forEach(conn => {
                 const option = document.createElement('button');
@@ -1777,7 +1773,6 @@
             modal.classList.add('show');
         }
         setConnectLoading(false);
-        window.requestAnimationFrame(() => document.getElementById('hostInput')?.focus());
         return true;
     }
 

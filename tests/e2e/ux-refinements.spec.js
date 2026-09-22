@@ -4,15 +4,6 @@ const { login, installSshConnectTrap, sshAttempts, assertNoExternalRequests } = 
 test.beforeEach(async ({page}) => { await login(page); });
 test.afterEach(async ({page}) => { await assertNoExternalRequests(page); });
 
-test('connection entry starts focused and empty history does not compete with the form', async ({page}) => {
-    await expect(page.locator('#contextWorkspace')).toBeHidden();
-    await page.locator('.profile-launcher-new').click();
-    await expect(page.locator('#hostInput')).toBeFocused();
-    await expect(page.locator('#recentConnectionsCard')).toBeHidden();
-    await expect(page.locator('#connectionAdvancedSettings')).not.toHaveAttribute('open', '');
-    await expect(page.locator('#connectBtn')).toBeInViewport();
-});
-
 test('file chooser shares favorites, group order, search and readiness with the host launcher', async ({page}) => {
     const launcherGroups = await page.locator('.profile-launcher-section-title').allTextContents();
     await page.locator('#fileTransferBtn').click();
@@ -94,10 +85,6 @@ test('all mobile primary destinations work without an SSH session and tools rema
     await expect(page.locator('#contextNotesPanel')).toBeVisible();
     await expect(page.locator('[data-mobile-view="workspaces"]')).toHaveAttribute('aria-current', 'page');
     await page.locator('#contextWorkspaceClose').click();
-    await page.locator('.profile-launcher-new').click();
-    await expect(page.locator('#connectBtn')).toBeInViewport();
-    const bounds = await page.locator('#hostInput, #portInput').evaluateAll(inputs => inputs.map(input => input.getBoundingClientRect().top));
-    expect(Math.abs(bounds[0] - bounds[1])).toBeLessThan(2);
 });
 
 
@@ -115,4 +102,21 @@ test('host density persists and advanced hosts expose their existing settings', 
     await host.locator('.profile-action-menu > summary').click();
     await host.locator('[data-profile-action="edit"]').click();
     await expect(page.locator('#profileAdvancedSettingsCard')).toHaveAttribute('open', '');
+});
+
+
+test.describe('mobile header touch interaction', () => {
+    test.use({hasTouch: true});
+
+    test('mobile header opens Quick Connect from Commands without a session', async ({page}) => {
+        await page.setViewportSize({width: 390, height: 844});
+        await page.locator('[data-mobile-view="commands"]').click();
+        const summary = page.locator('#mobileSessionSummary');
+        await expect(summary).toBeEnabled();
+        await expect(summary).toHaveText(/Quick Connect/);
+        await summary.tap();
+        await expect(page.locator('#connectionModal')).toBeVisible();
+        await expect(page.locator('#commandWorkspaceModal')).toBeHidden();
+    });
+
 });
