@@ -3,7 +3,8 @@ const test = require('node:test');
 const sync = require('../../static/js/session-directory-sync.js');
 
 function harness(options = {}) {
-    const requests = [], sent = [], moves = [], timers = new Map();
+    const requests = [], sent = [], moves = [], blocked = [], timers = new Map();
+    const delays = new Map();
     let seq = 0, ready = true, version = 0, source = 'sftp-session:a';
     const indicator = {hidden: true};
     const inputListeners = {};
@@ -23,17 +24,18 @@ function harness(options = {}) {
     };
     const controller = sync.createController({
         socket: {emit(event, data, callback) { requests.push({event, data, callback}); }},
-        manager, indicator, input: checkbox, panel, ...options,
+        manager, indicator, input: checkbox, panel,
         canSend: () => ready, inputVersion: () => version,
         sendInput: (...args) => sent.push(args),
-        setTimeout(fn) {timers.set(++seq, fn); return seq;},
+        onNavigationBlocked: reason => blocked.push(reason), ...options,
+        setTimeout(fn, delay) {timers.set(++seq, fn); delays.set(seq, delay); return seq;},
         clearTimeout(id) {timers.delete(id);},
     });
     controller.setContext('a', true);
-    function reply(index, path='/tmp', shell_ready=true, shell='bash') {
-        requests[index].callback({success:true, directory:{path, shell_ready, shell_id:'42', shell}});
+    function reply(index, path='/tmp', shell_ready=true, shell='bash', extra={}) {
+        requests[index].callback({success:true, directory:{path, shell_ready, shell_id:'42', shell, ...extra}});
     }
-    return {controller, requests, sent, moves, timers, indicator, checkbox, panel, reply, manager,
+    return {controller, requests, sent, moves, blocked, timers, delays, indicator, checkbox, panel, reply, manager,
         ready(value) {ready=value;}, input() {version++;}, source(id) {source=`sftp-session:${id}`;},
         toggle(value) {checkbox.checked = value; inputListeners.change();}};
 }
@@ -101,8 +103,9 @@ test('busy foreground application or concurrent typing prevents terminal input',
         if(mode==='dirty') h.ready(false);
         h.controller.navigate('a','/elsewhere');
         if(mode==='typing') h.input();
-        if(mode!=='dirty') h.reply(1,'/tmp',mode!=='busy');
+        h.reply(1,'/tmp',mode!=='busy');
         assert.deepEqual(h.sent,[]);
+        assert.deepEqual(h.blocked,['prompt']);
     }
 });
 
@@ -121,6 +124,7 @@ test('hide, session switch and source changes invalidate late replies', () => {
 test('superseded folder requests do not send stale cd', () => {
     const h=harness();h.reply(0);
     h.controller.navigate('a','/first');h.controller.navigate('a','/second');
+    assert.equal(h.requests.length, 2);
     h.reply(1);assert.deepEqual(h.sent,[]);h.reply(2);
     assert.deepEqual(h.sent,[['a',"cd -- '/second'\r"]]);
 });
@@ -239,7 +243,92 @@ test('unsupported probes never move Files or write to the shell', () => {
 test('a late read-only poll cannot undo a newer folder navigation', () => {
     const h=harness();
     h.controller.navigate('a','/wanted');
+    assert.equal(h.requests.length,1);
     h.reply(0,'/stale');assert.deepEqual(h.moves,[]);
     h.reply(1,'/actual');
     assert.deepEqual(h.sent,[['a',"cd -- '/wanted'\r"]]);
+});
+
+test('typing while a navigation waits for a background probe cancels the intent', () => {
+    const h = harness();
+    h.controller.navigate('a', '/wanted');
+    h.input();
+    h.reply(0);
+    assert.equal(h.requests.length, 1);
+    assert.deepEqual(h.sent, []);
+    assert.deepEqual(h.blocked, ['prompt']);
+});
+
+test('OSC locations cannot swallow a folder click during its fresh probe', () => {
+    const h = harness(); h.reply(0);
+    h.controller.navigate('a', '/wanted');
+    h.controller.observe('a', '/tmp');
+    h.reply(1);
+    assert.deepEqual(h.sent, [['a', "cd -- '/wanted'\r"]]);
+});
+
+test('recent OSC data does not delay acknowledgement of an explicit cd by 15 seconds', () => {
+    const h = harness({now: () => 1000});
+    h.controller.observe('a', '/tmp');
+    h.controller.navigate('a', '/wanted');
+    h.reply(1);
+    assert.equal(Array.from(h.delays.values()).at(-1), 350);
+    assert.deepEqual(h.sent, [['a', "cd -- '/wanted'\r"]]);
+});
+
+test('an unavailable navigation probe reports the problem without sending delayed input', () => {
+    const h = harness(); h.reply(0);
+    h.controller.navigate('a', '/wanted');
+    h.requests[1].callback({success: false, reason: 'unsupported'});
+    assert.deepEqual(h.blocked, ['unavailable']);
+    Array.from(h.timers.values()).at(-1)();
+    h.reply(2);
+    assert.deepEqual(h.sent, []);
+});
+
+test('a lost acknowledgement expires instead of blocking every future folder action', () => {
+    const h = harness(); h.reply(0);
+    h.controller.navigate('a', '/wanted'); h.reply(1);
+    Array.from(h.timers.values()).at(-1)(); // Verification probe.
+    Array.from(h.timers.values()).at(-1)(); // Its response timeout.
+    assert.deepEqual(h.blocked, ['unavailable']);
+    h.controller.navigate('a', '/retry');
+    assert.equal(h.requests.length, 4);
+    h.reply(2, '/late'); // Timed-out reply cannot affect the new request.
+    assert.equal(h.sent.length, 1);
+    h.reply(3);
+    assert.equal(h.sent.length, 2);
+});
+
+test('tmux outer alternate screen supports repeated cd without repeated prompt signals', () => {
+    let mode;
+    const terminal = {
+        parser: {registerCsiHandler(_id, handler) {mode = handler;}},
+        onData() {}, buffer: {active: {type: 'alternate'}},
+        modes: {bracketedPasteMode: true},
+    };
+    const tracked = sync.trackTerminal('a', terminal);
+    mode([2004]);
+    const sent = [];
+    const h = harness({canSend: sync.canSend, inputVersion: undefined,
+        sendInput(id, command) {sent.push([id, command]); sync.noteInput(id, command);}});
+    h.reply(0);
+    assert.equal(sync.canSend('a'), false);
+    h.controller.navigate('a', '/first');
+    h.reply(1, '/tmp', true, 'bash', {tmux: true});
+    assert.equal(sent.length, 1);
+    assert.equal(sync.canSend('a', {tmux: true}), false);
+    // tmux redraws the prompt without forwarding another DEC 2004 enable.
+    Array.from(h.timers.values()).at(-1)();
+    h.reply(2, '/first', true, 'bash', {tmux: true});
+    assert.equal(sync.canSend('a', {tmux: true}), true);
+    h.controller.navigate('a', '/second');
+    h.reply(3, '/first', true, 'bash', {tmux: true});
+    assert.deepEqual(sent.map(entry => entry[1]), ["cd -- '/first'\r", "cd -- '/second'\r"]);
+    // User typing after the generated command must never be cleared by its acknowledgement.
+    sync.noteInput('a', 'unfinished');
+    Array.from(h.timers.values()).at(-1)();
+    h.reply(4, '/second', true, 'bash', {tmux: true});
+    assert.equal(sync.canSend('a', {tmux: true}), false);
+    h.controller.dispose(); tracked.dispose();
 });

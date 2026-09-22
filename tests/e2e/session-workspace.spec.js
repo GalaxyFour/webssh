@@ -35,6 +35,10 @@ async function seedLinuxSession(page, options = {}) {
         window.__workspaceInventoryRequests = 0;
         window.__workspaceInventoryMode = 'full';
         window.__workspaceClipboard = null;
+        window.__workspaceDirectory = {
+            path: '/srv/webssh/current', shell_ready: true, shell_id: '42', shell: 'bash',
+            tmux: seedOptions.useTmux === true,
+        };
         window.__workspaceChartSamples = { pressure: 0, network: 0 };
         const fileRows = [
             { name: 'releases', is_dir: true, size: 0, permissions: 'drwxr-xr-x' },
@@ -139,6 +143,16 @@ async function seedLinuxSession(page, options = {}) {
             }
             if (payload?.session_id === 'workspace-linux'
                     || payload?.source_id === linuxFileSource.source_id) {
+                if (seedOptions.directorySync && event === 'request_session_directory') {
+                    const acknowledge = rest.find(value => typeof value === 'function');
+                    queueMicrotask(() => acknowledge({success: true, directory: {...window.__workspaceDirectory}}));
+                    return window.socket;
+                }
+                if (seedOptions.directorySync && event === 'ssh_input') {
+                    const match = /^cd -- '([^']+)'\r$/.exec(payload.data);
+                    if (match) window.__workspaceDirectory.path = match[1];
+                    return window.socket;
+                }
                 if (event === 'probe_session_sftp') {
                     const sendCapability = () => deliver('session_sftp_capability', {
                         success: true,
@@ -360,6 +374,36 @@ test('terminal selections copy through keyboard and command palette actions', as
     await expect.poll(() => page.evaluate(() => window.__workspaceClipboard))
         .toBe(paletteSelection);
     await expect(page.locator('.notification-success')).toContainText('Selection copied');
+    await assertNoExternalRequests(page);
+});
+
+test('tmux folder double-clicks synchronize repeatedly despite coalesced prompt modes', async ({page}) => {
+    await login(page);
+    await seedLinuxSession(page, {useTmux: true, directorySync: true});
+    await page.locator('#contextFilesTab').click();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current');
+    await page.evaluate(() => new Promise(resolve => {
+        const key = TerminalManager.sessionTerminals['workspace-linux'][0];
+        // Captured tmux behavior: alternate outer screen, one prompt enable;
+        // short subsequent commands do not produce another DEC 2004 transition.
+        TerminalManager.terminals[key].write('\x1b[?1049h\x1b[?2004hops@edge:~$ ', resolve);
+    }));
+    await expect(page.locator('#sessionDirectorySyncInput')).toBeChecked();
+    const folder = page.locator('#fmLeftList .fm-file-item').filter({hasText: 'releases'});
+    await folder.dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases');
+    await folder.dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases/releases');
+    const sent = await page.evaluate(() => window.__workspaceEvents.filter(event => event.event === 'ssh_input'));
+    expect(sent.map(event => event.payload)).toEqual([
+        {session_id: 'workspace-linux', data: "cd -- '/srv/webssh/current/releases'\r"},
+        {session_id: 'workspace-linux', data: "cd -- '/srv/webssh/current/releases/releases'\r"},
+    ]);
+    await page.evaluate(() => window.SessionDirectorySync.noteInput('workspace-linux', 'unfinished'));
+    await folder.dblclick();
+    await expect(page.locator('.notification').filter({hasText: 'Folder sync paused'})).toBeVisible();
+    expect(await page.evaluate(() => window.__workspaceEvents.filter(event => event.event === 'ssh_input').length)).toBe(2);
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases/releases');
     await assertNoExternalRequests(page);
 });
 

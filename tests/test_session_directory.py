@@ -39,6 +39,7 @@ def test_exec_is_explicit_and_tmux_target_is_quoted():
     script = shlex.split(command)[3]
     assert "tmux display-message -p -t '=name'\"'\"'; touch /tmp/nope:'" in script
     assert 'pane_in_mode' in script
+    assert 'alternate_on' in script
 
 
 class Channel:
@@ -67,6 +68,19 @@ def test_probe_closes_channel_and_releases_lock(monkeypatch):
     result, reason = directory.collect_directory('a')
     assert result['path'] == '/tmp' and reason is None
     assert channel.closed and not session['directory_probe_lock'].locked()
+
+
+def test_tmux_probe_marks_only_a_successfully_checked_pane(monkeypatch):
+    channel = Channel()
+    session = setup_session(monkeypatch, channel)
+    session.update(use_tmux=True, tmux_session_name='workspace')
+    result, reason = directory.collect_directory('a')
+    assert reason is None and result['tmux'] is True
+
+    channel = Channel()
+    channel.recv_exit_status = lambda: 1
+    setup_session(monkeypatch, channel).update(use_tmux=True, tmux_session_name='workspace')
+    assert directory.collect_directory('a') == (None, 'unsupported')
 
 
 def test_probe_bounds_output_and_closes_channel(monkeypatch):
