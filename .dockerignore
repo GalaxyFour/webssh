@@ -50,13 +50,42 @@ data/
 
 # Local planning files and internal docs (must never enter the public image)
 AGENTS.md
+CODEX.md
+GEMINI.md
+JULES.md
+QWEN.md
+COPILOT.md
+AI_INSTRUCTIONS.md
+agent-instructions.md
+.agent/
 .agents/
+.ai/
+.amazonq/
 .codex/
 CLAUDE.md
 .claude/
+.cursor/
+.continue/
+.gemini/
+.junie/
+.roo/
+.windsurf/
+.aider*
+.clinerules
+.roorules
+.windsurfrules
 .superpowers/
 plans/
 design-qa.md
+reviews/
+review-artifacts/
+qa-artifacts/
+*-review.md
+review-*.md
+*-review-*.md
+*-qa.md
+qa-*.md
+*-qa-*.md
 
 # Knowledge graph (dev artifact; the public Pages graph is rebuilt in CI)
 graphify-out/

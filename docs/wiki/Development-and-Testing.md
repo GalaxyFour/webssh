@@ -215,6 +215,12 @@ Keep every test that reads README or allowed documentation paths in this module,
 including contracts that compare documentation with runtime or workflow files. Full pytest excludes that module
 to avoid running it twice.
 
+The same initial job runs `python scripts/check_repository_hygiene.py` against
+the complete tracked tree. This blocks local agent instructions, internal review
+artifacts, transient development output, workstation-specific AI-tool paths and
+unreferenced files below `assets/`, including files force-added despite ignore
+rules. Run it locally before opening or updating a pull request.
+
 Only a successful `docs` classification permits the named expensive jobs to
 be skipped. An unexpected result, a missing job or a missing scope fails the
 aggregate. Workflow-level path filters are intentionally avoided so required
