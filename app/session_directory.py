@@ -67,7 +67,9 @@ def probe_command(session):
             + " '#{?pane_in_mode,0,#{?alternate_on,0,#{pane_pid}}}:#{bracket_paste_flag}') || exit 1\n"
             + 'directory_pid=${directory_pane%:*}\n'
             + 'directory_paste=${directory_pane##*:}\n'
-            + 'case "$directory_paste" in 0|1) ;; *) exit 1;; esac\n'
+            # Older tmux versions expand an unknown format to an empty value.
+            # Keep directory following available without claiming prompt readiness.
+            + 'case "$directory_paste" in 0|1) ;; "") unset directory_paste;; *) exit 1;; esac\n'
             + '[ "$directory_pid" != 0 ] || exit 1'
         )
     else:

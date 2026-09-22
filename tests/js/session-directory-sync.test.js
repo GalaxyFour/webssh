@@ -402,8 +402,10 @@ test('tmux submission output invalidates navigation probes started before it', (
     } finally { h.controller.dispose(); tracked.dispose(); }
 });
 
+for (const bracketed_paste of [undefined, true]) {
 for (const interruption of ['typing', 'replay']) {
-test(`tmux repeated cd respects ${interruption} without repeated prompt signals`, () => {
+test(`tmux (${bracketed_paste === undefined ? "legacy" : "pane mode"}) repeated cd respects ${interruption} without repeated prompt signals`, () => {
+    const pane = {tmux: true, shell_ready: true, bracketed_paste};
     let mode;
     const terminal = {
         parser: {registerCsiHandler(_id, handler) {mode = handler;}},
@@ -418,22 +420,23 @@ test(`tmux repeated cd respects ${interruption} without repeated prompt signals`
     h.reply(0);
     assert.equal(sync.canSend('a'), false);
     h.controller.navigate('a', '/first');
-    h.reply(1, '/tmp', true, 'bash', {tmux: true, shell_ready: true, bracketed_paste: true});
+    h.reply(1, '/tmp', true, 'bash', pane);
     assert.equal(sent.length, 1);
-    assert.equal(sync.canSend('a', {tmux: true, shell_ready: true, bracketed_paste: true}), false);
+    assert.equal(sync.canSend('a', pane), false);
     // tmux redraws the prompt without forwarding another DEC 2004 enable.
     Array.from(h.timers.values()).at(-1)();
-    h.reply(2, '/first', true, 'bash', {tmux: true, shell_ready: true, bracketed_paste: true});
-    assert.equal(sync.canSend('a', {tmux: true, shell_ready: true, bracketed_paste: true}), true);
+    h.reply(2, '/first', true, 'bash', pane);
+    assert.equal(sync.canSend('a', pane), true);
     h.controller.navigate('a', '/second');
-    h.reply(3, '/first', true, 'bash', {tmux: true, shell_ready: true, bracketed_paste: true});
+    h.reply(3, '/first', true, 'bash', pane);
     assert.deepEqual(sent.map(entry => entry[1]), ["cd -- '/first'\r", "cd -- '/second'\r"]);
     // Neither new input nor replay may be cleared by an old cd acknowledgement.
     if (interruption === 'typing') sync.noteInput('a', 'unfinished');
     else { sync.beginReplay('a'); sync.endReplay('a'); }
     Array.from(h.timers.values()).at(-1)();
-    h.reply(4, '/second', true, 'bash', {tmux: true, shell_ready: true, bracketed_paste: true});
-    assert.equal(sync.canSend('a', {tmux: true, shell_ready: true, bracketed_paste: true}), false);
+    h.reply(4, '/second', true, 'bash', pane);
+    assert.equal(sync.canSend('a', pane), false);
     h.controller.dispose(); tracked.dispose();
 });
+}
 }

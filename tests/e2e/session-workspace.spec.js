@@ -38,7 +38,7 @@ async function seedLinuxSession(page, options = {}) {
         window.__workspaceDirectory = {
             path: '/srv/webssh/current', shell_ready: true, shell_id: '42', shell: 'bash',
             tmux: seedOptions.useTmux === true,
-            bracketed_paste: seedOptions.useTmux === true,
+            bracketed_paste: seedOptions.legacyTmux ? undefined : seedOptions.useTmux === true,
         };
         window.__workspaceChartSamples = { pressure: 0, network: 0 };
         const fileRows = [
@@ -378,9 +378,10 @@ test('terminal selections copy through keyboard and command palette actions', as
     await assertNoExternalRequests(page);
 });
 
-test('tmux folder double-clicks synchronize repeatedly despite coalesced prompt modes', async ({page}) => {
+for (const legacyTmux of [false, true]) {
+test(`tmux folder double-clicks synchronize repeatedly (${legacyTmux ? 'legacy' : 'pane mode'})`, async ({page}) => {
     await login(page);
-    await seedLinuxSession(page, {useTmux: true, directorySync: true});
+    await seedLinuxSession(page, {useTmux: true, directorySync: true, legacyTmux});
     await page.locator('#contextFilesTab').click();
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current');
     await page.evaluate(() => new Promise(resolve => {
@@ -407,6 +408,7 @@ test('tmux folder double-clicks synchronize repeatedly despite coalesced prompt 
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases/releases');
     await assertNoExternalRequests(page);
 });
+}
 
 test('tmux folder clicks recover after manual commands and Ctrl+C without outer prompt signals', async ({page}) => {
     await login(page);

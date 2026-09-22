@@ -15,7 +15,8 @@ from app import session_directory
     sys.platform != 'linux' or not shutil.which('tmux') or not shutil.which('bash'),
     reason='Requires local Linux tmux and bash',
 )
-def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_path):
+@pytest.mark.parametrize('legacy_format', [False, True])
+def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_path, legacy_format):
     tmux = ['tmux', '-S', str(tmp_path / 'sync.sock'), '-f', '/dev/null']
 
     def run(*args):
@@ -35,6 +36,8 @@ def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_p
 
     command = session_directory.probe_command({'use_tmux': True, 'tmux_session_name': 'sync'})
     script = shlex.split(command)[3].replace('tmux display-message', shlex.join(tmux) + ' display-message')
+    if legacy_format:
+        script = script.replace('#{bracket_paste_flag}', '#{webssh_test_unknown_format}')
 
     def probe():
         result = subprocess.run(['sh', '-c', script], capture_output=True, timeout=5)
@@ -42,12 +45,16 @@ def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_p
 
     def ready_at(path):
         result = probe()
-        return (result and result['shell_ready'] and result['bracketed_paste']
+        return (result and result['shell_ready'] and result.get('bracketed_paste', True)
                 and result['path'] == str(path))
 
     run('new-session', '-d', '-s', 'sync', '-c', str(tmp_path), 'bash --noprofile --norc')
     try:
         until(lambda: ready_at(tmp_path))
+        supports_prompt_mode = (not legacy_format and run(
+            'display-message', '-p', '-t', '=sync:', '#{bracket_paste_flag}',
+        ).stdout.strip() in {b'0', b'1'})
+        assert ('bracketed_paste' in probe()) is supports_prompt_mode
         for name in ['first', "second with ' quote"]:
             folder = tmp_path / name
             folder.mkdir()
@@ -56,20 +63,21 @@ def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_p
 
         # A foreground shell alone is insufficient while a prompt hook runs.
         # Keep a builtin-only hook in bash's own process group, not a child job.
-        prompt_hook = 'until [[ -e ' + shlex.quote(str(tmp_path / 'release-prompt')) + ' ]]; do :; done'
-        send('PROMPT_COMMAND=' + shlex.quote(prompt_hook))
-        until(lambda: (result := probe()) is not None
-              and result['shell_ready'] and not result['bracketed_paste'])
-        (tmp_path / 'release-prompt').touch()
-        until(lambda: ready_at(folder))
-        send('unset PROMPT_COMMAND')
-        until(lambda: ready_at(folder))
+        if supports_prompt_mode:
+            prompt_hook = 'until [[ -e ' + shlex.quote(str(tmp_path / 'release-prompt')) + ' ]]; do :; done'
+            send('PROMPT_COMMAND=' + shlex.quote(prompt_hook))
+            until(lambda: (result := probe()) is not None
+                  and result['shell_ready'] and not result['bracketed_paste'])
+            (tmp_path / 'release-prompt').touch()
+            until(lambda: ready_at(folder))
+            send('unset PROMPT_COMMAND')
+            until(lambda: ready_at(folder))
 
         send('pwd')
         until(lambda: ready_at(folder))
         run('send-keys', '-t', '=sync:', '-l', 'echo unfinished')
         # The remote mode alone cannot distinguish a partially typed line.
-        assert probe()['bracketed_paste'] is True
+        assert probe().get('bracketed_paste', True) is True
         run('send-keys', '-t', '=sync:', 'C-c')
         until(lambda: ready_at(folder))
 

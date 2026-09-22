@@ -103,6 +103,12 @@
         const state = inputs.get(sessionId);
         if (!state || state.replayDepth) return false;
         if (directory?.tmux === true) {
+            if (directory.bracketed_paste === undefined) {
+                // Legacy tmux cannot report its pane's prompt mode. Preserve
+                // the live-prompt guard; never infer manual completion here.
+                return Boolean(directory.shell_ready && !state.dirty
+                    && state.terminal.modes.bracketedPasteMode);
+            }
             return Boolean(directory.shell_ready && directory.bracketed_paste === true
                 && (!state.dirty || (state.submitted && state.submitOutput)));
         }
@@ -274,7 +280,7 @@
                 }
                 if (awaitingChange) {
                     awaitingChange.polls += 1;
-                    if (next.tmux === true && next.bracketed_paste === true
+                    if (next.tmux === true && (next.bracketed_paste === true || next.bracketed_paste === undefined)
                             && next.shell_ready && next.path !== awaitingChange.previous
                             && next.shell_id === awaitingChange.shellId
                             && awaitingChange.version === inputVersion(sessionId)

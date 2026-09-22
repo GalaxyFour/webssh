@@ -315,7 +315,8 @@ inside the active tmux pane. A confirmed directory change from a sync-generated
 `cd` acknowledges that command even when tmux coalesces prompt-mode signals,
 provided no user input or shell change occurred meanwhile. Unknown or replayed
 prompts and unfinished manual input remain guarded.
-After a manual Enter or Ctrl+C, a fresh tmux probe can also confirm the prompt
+On tmux servers exposing `bracket_paste_flag`, after a manual Enter or Ctrl+C,
+a fresh probe can also confirm the prompt
 once live terminal output advances to a new line. It must find a supported
 foreground shell with bracketed paste enabled **inside the pane**. This avoids
 depending on mode changes that tmux may omit from the outer terminal, and keeps
@@ -323,6 +324,10 @@ navigation blocked while a prompt hook is still running. New typing, an active
 paste, or transcript replay invalidates this confirmation. After reconnecting
 at an unknown prompt, finish or cancel the current input to establish a live
 prompt before using Files-to-terminal navigation.
+Older tmux servers without this optional flag still support directory following
+and the existing live-prompt and sync-generated `cd` checks. They cannot use the
+additional confirmation after manual input when tmux omits the prompt signal;
+Files-to-terminal navigation remains guarded in that case.
 These are conservative UI guards, not an atomic shell protocol: custom prompt
 behavior and concurrent input from another SSH/tmux client cannot be fully
 inferred. Paths containing control characters are intentionally rejected.
