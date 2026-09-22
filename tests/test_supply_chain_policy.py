@@ -297,8 +297,12 @@ def test_runtime_image_excludes_repository_only_tooling():
     }
 
     assert {
+        '.agents/',
+        '.codex/',
         '.env.example',
         '.trivyignore.yaml',
+        'AGENTS.md',
+        'design-qa.md',
         'docker-compose*.yml',
         'package*.json',
         'playwright.config.js',

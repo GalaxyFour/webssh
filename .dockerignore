@@ -49,10 +49,14 @@ Thumbs.db
 data/
 
 # Local planning files and internal docs (must never enter the public image)
+AGENTS.md
+.agents/
+.codex/
 CLAUDE.md
 .claude/
 .superpowers/
 plans/
+design-qa.md
 
 # Knowledge graph (dev artifact; the public Pages graph is rebuilt in CI)
 graphify-out/

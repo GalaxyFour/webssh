@@ -80,8 +80,14 @@ plans/
 graphify-out/
 .test-tmp/
 .e2e-tmp/
+.test-run.tmp/
 AGENTS.md
-.codex/hooks.json
+.agents/
+.codex/
+
+# Local design reviews and QA notes
+design-qa.md
+docs/reviews/
 
 # Disposable Paramiko/OpenSSH integration-test secrets
 tests/integration/paramiko5/runtime/

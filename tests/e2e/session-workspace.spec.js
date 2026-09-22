@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test, expect } = require('playwright/test');
 const { login, assertNoExternalRequests } = require('./helpers');
+const { captureOutputPath } = require('./capture-output');
 
 test.use({
     viewport: { width: 1920, height: 1080 },
@@ -13,7 +14,7 @@ function captureAssetsEnabled() {
 }
 
 function capturePath(filename) {
-    return path.resolve(__dirname, '..', '..', 'assets', filename);
+    return captureOutputPath(filename);
 }
 
 function pngSize(filePath) {

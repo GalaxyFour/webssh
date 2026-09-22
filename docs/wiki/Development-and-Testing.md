@@ -105,7 +105,9 @@ npm run test:captures
 
 This sets `WEBSSH_CAPTURE_ASSETS=1` for the capture suites. Their functional,
 accessibility and geometry assertions also run in normal CI. Failure screenshots
-and traces remain available without the flag.
+and traces remain available without the flag. Captures used by the README or
+product site update their declared files below `assets/`; additional QA captures
+are written to the ignored `.test-run.tmp/captures/` directory.
 
 Playwright assumptions must be updated when a default frontend state changes.
 Test both the new default and the user's explicit override.

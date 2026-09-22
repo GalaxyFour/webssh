@@ -7,21 +7,20 @@ const {
     login,
     openKeyManagement,
 } = require('./helpers');
+const { captureOutputPath: repositoryCaptureOutputPath } = require('./capture-output');
 
 const DESKTOP_VIEWPORT = { width: 1920, height: 1080 };
 const DESKTOP_DEVICE_SCALE_FACTOR = 4 / 3;
 const DESKTOP_CAPTURE_SIZE = { width: 2560, height: 1440 };
 const MOBILE_VIEWPORT = { width: 360, height: 640 };
 const MOBILE_CAPTURE_SIZE = { width: 1080, height: 1920 };
-const ASSET_DIR = path.resolve(__dirname, '..', '..', 'assets');
-
 function captureAssetsEnabled() {
     return process.env.WEBSSH_CAPTURE_ASSETS === '1';
 }
 
 function captureOutputPath(testInfo, filename) {
     return captureAssetsEnabled()
-        ? path.join(ASSET_DIR, filename)
+        ? repositoryCaptureOutputPath(filename)
         : testInfo.outputPath(filename);
 }
 
