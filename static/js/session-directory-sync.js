@@ -67,6 +67,7 @@
         if (!state) return;
         state.replayDepth = (state.replayDepth || 0) + 1;
         state.dirty = true;
+        state.version += 1;
     }
 
     function endReplay(sessionId) {
@@ -78,11 +79,18 @@
         state.dirty = true;
     }
 
-    function canSend(sessionId) {
+    function canSend(sessionId, directory = null) {
         const state = inputs.get(sessionId);
         return Boolean(state && !state.dirty
-            && state.terminal.buffer.active.type === 'normal'
+            && (state.terminal.buffer.active.type === 'normal' || directory?.tmux === true)
             && state.terminal.modes.bracketedPasteMode);
+    }
+
+    function confirmNavigation(sessionId, version) {
+        const state = inputs.get(sessionId);
+        // tmux can coalesce readline's disable/enable pair. A confirmed cwd
+        // change from our own cd can acknowledge that command, never user input.
+        if (state && state.version === version && !state.replayDepth) state.dirty = false;
     }
 
     function validPath(path) {
@@ -106,6 +114,8 @@
         const now = options.now || Date.now;
         const inputReady = options.canSend || canSend;
         const inputVersion = options.inputVersion || (id => inputs.get(id)?.version);
+        const confirmInput = options.confirmNavigation || confirmNavigation;
+        const blocked = reason => options.onNavigationBlocked?.(reason);
         const enabledByDefault = options.enabledByDefault !== false;
         const sessionOverrides = new Map();
         let sessionId = null;
@@ -169,7 +179,7 @@
         function schedule(delay = 1500) {
             clearTimer(timer);
             const oscAge = now() - lastOscAt;
-            if (lastOscAt && oscAge < oscFallbackDelay) {
+            if (!awaitingChange && lastOscAt && oscAge < oscFallbackDelay) {
                 delay = Math.max(delay, oscFallbackDelay - oscAge);
             }
             if (active()) timer = setTimer(() => poll(), delay);
@@ -181,29 +191,46 @@
             if (state.path !== path) manager.navigatePaneTo('left', path, { directorySync: true });
         }
 
-        function poll(targetPath = null) {
+        function poll(targetPath = null, version = inputVersion(sessionId)) {
             if (!active() || request) return false;
-            const token = { generation, sessionId, version: inputVersion(sessionId) };
+            const token = { generation, sessionId, version, targetPath };
             request = token;
             timeout = setTimer(() => {
                 if (request !== token) return;
                 request = null;
+                if (token.targetPath !== null || token.nextNavigation || awaitingChange) blocked('unavailable');
+                awaitingChange = null;
                 schedule(10000);
             }, 5000);
             socket.emit('request_session_directory', { session_id: sessionId }, result => {
                 if (request !== token || token.generation !== generation || !active()) return;
                 clearTimer(timeout);
                 request = null;
+                if (token.nextNavigation) {
+                    // Let an existing read finish before opening the fresh
+                    // navigation probe: the server permits one probe at a time.
+                    const intent = token.nextNavigation;
+                    if (intent.version !== inputVersion(sessionId)) {
+                        blocked('prompt');
+                        schedule();
+                    } else {
+                        poll(intent.path, intent.version);
+                    }
+                    return;
+                }
                 const next = result?.directory;
                 if (!result?.success || !validPath(next?.path)) {
+                    if (targetPath !== null || awaitingChange) blocked('unavailable');
+                    awaitingChange = null;
                     schedule(10000);
                     return;
                 }
                 directory = next;
                 if (targetPath !== null) {
-                    if (!next.shell_ready || !inputReady(sessionId)
+                    if (!next.shell_ready || !inputReady(sessionId, next)
                             || token.version !== inputVersion(sessionId)
                             || options.hasPendingInput?.(sessionId)) {
+                        blocked('prompt');
                         schedule();
                         return;
                     }
@@ -212,18 +239,26 @@
                         schedule();
                         return;
                     }
-                    awaitingChange = { previous: next.path, polls: 0 };
+                    awaitingChange = { previous: next.path, shellId: next.shell_id, polls: 0, version: null };
                     noteInput(sessionId, targetPath);
                     // Deliberately target this SSH session, never broadcast.
                     options.sendInput(sessionId, cdCommand(targetPath, next.shell));
+                    awaitingChange.version = inputVersion(sessionId);
                     schedule(350);
                     return;
                 }
                 if (awaitingChange) {
                     awaitingChange.polls += 1;
-                    if (!next.shell_ready || !inputReady(sessionId)) {
+                    if (next.tmux === true && next.shell_ready && next.path !== awaitingChange.previous
+                            && next.shell_id === awaitingChange.shellId
+                            && awaitingChange.version === inputVersion(sessionId)
+                            && !options.hasPendingInput?.(sessionId)) {
+                        confirmInput(sessionId, awaitingChange.version);
+                    }
+                    if (!next.shell_ready || !inputReady(sessionId, next)) {
                         if (awaitingChange.polls >= 6) {
                             awaitingChange = null;
+                            blocked('prompt');
                         }
                         schedule(); return;
                     }
@@ -257,6 +292,9 @@
         const directoryListener = detail => {
             if (!detail || detail.sessionId !== sessionId || !active()
                     || !validPath(detail.path)) return;
+            // Prompt/location output must not discard an explicit folder click
+            // while its fresh probe or command acknowledgement is in flight.
+            if ((request && request.targetPath !== null) || request?.nextNavigation || awaitingChange) return;
             generation += 1;
             clearTimer(timer);
             clearTimer(timeout);
@@ -297,13 +335,20 @@
                 if (!validPath(path)) {
                     return true;
                 }
-                if (!inputReady(sessionId) || awaitingChange) {
+                if (awaitingChange) {
+                    blocked('pending');
                     return true;
                 }
-                // A user navigation supersedes a read-only poll. Its late
-                // response must neither send input nor move the file pane.
+                const intent = {path, version: inputVersion(sessionId)};
+                if (request) {
+                    clearTimer(timer);
+                    clearTimer(oscFollowTimer);
+                    timer = oscFollowTimer = pendingOscLocation = null;
+                    request.nextNavigation = intent;
+                    return true;
+                }
                 cancel();
-                poll(path);
+                poll(path, intent.version);
                 return true;
             },
             removeSession(id) {

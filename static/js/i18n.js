@@ -1,6 +1,9 @@
 
 const translations = {
     en: {
+        'workspace.directorySync.prompt': "Folder sync paused: an empty terminal prompt could not be confirmed. Finish your input, or turn off sync to browse Files independently.",
+        'workspace.directorySync.unavailable': "The terminal folder could not be checked. Leave tmux copy mode or the running application and try again.",
+        'workspace.directorySync.pending': "The previous folder change is still being checked. Please try again shortly.",
         'profiles.saveConnect': "Save & connect",
         'profiles.compact': "Compact view",
         'settings.directorySyncDefault': "Synchronize folders with terminal by default",
@@ -1407,6 +1410,9 @@ const translations = {
 
 
     vi: {
+        'workspace.directorySync.prompt': "Đồng bộ thư mục tạm dừng: chưa xác nhận được dòng lệnh trống. Hoàn tất nhập lệnh hoặc tắt đồng bộ để duyệt tệp độc lập.",
+        'workspace.directorySync.unavailable': "Không thể kiểm tra thư mục terminal. Thoát chế độ sao chép tmux hoặc ứng dụng đang chạy rồi thử lại.",
+        'workspace.directorySync.pending': "Đang kiểm tra lần chuyển thư mục trước. Vui lòng thử lại sau ít giây.",
         'profiles.saveConnect': "Lưu và kết nối",
         'profiles.compact': "Chế độ thu gọn",
         'settings.directorySyncDefault': "Mặc định đồng bộ thư mục với terminal",
@@ -2812,6 +2818,9 @@ const translations = {
     },
 
     de: {
+        'workspace.directorySync.prompt': "Ordner-Sync pausiert: Eine leere Terminal-Eingabe konnte nicht bestätigt werden. Beende deine Eingabe oder schalte den Sync aus, um Dateien unabhängig zu öffnen.",
+        'workspace.directorySync.unavailable': "Der Terminal-Ordner konnte nicht geprüft werden. Verlasse den tmux-Kopiermodus oder das laufende Programm und versuche es erneut.",
+        'workspace.directorySync.pending': "Der vorherige Ordnerwechsel wird noch geprüft. Versuche es gleich erneut.",
         'profiles.saveConnect': "Speichern & verbinden",
         'profiles.compact': "Kompakte Ansicht",
         'settings.directorySyncDefault': "Ordner standardmäßig mit Terminal synchronisieren",
@@ -4216,6 +4225,9 @@ const translations = {
     },
 
     fr: {
+        'workspace.directorySync.prompt': "Synchronisation en pause : impossible de confirmer une invite vide. Terminez votre saisie ou désactivez la synchronisation pour parcourir les fichiers indépendamment.",
+        'workspace.directorySync.unavailable': "Impossible de vérifier le dossier du terminal. Quittez le mode copie de tmux ou l’application en cours, puis réessayez.",
+        'workspace.directorySync.pending': "Le changement de dossier précédent est encore en cours de vérification. Réessayez dans un instant.",
         'profiles.saveConnect': "Enregistrer et connecter",
         'profiles.compact': "Vue compacte",
         'settings.directorySyncDefault': "Synchroniser les dossiers avec le terminal par défaut",
@@ -5620,6 +5632,9 @@ const translations = {
     },
 
     es: {
+        'workspace.directorySync.prompt': "Sincronización en pausa: no se pudo confirmar una línea de comandos vacía. Termina la entrada o desactiva la sincronización para explorar archivos de forma independiente.",
+        'workspace.directorySync.unavailable': "No se pudo comprobar la carpeta de la terminal. Sal del modo de copia de tmux o de la aplicación en ejecución y vuelve a intentarlo.",
+        'workspace.directorySync.pending': "Aún se está comprobando el cambio de carpeta anterior. Vuelve a intentarlo en un momento.",
         'profiles.saveConnect': "Guardar y conectar",
         'profiles.compact': "Vista compacta",
         'settings.directorySyncDefault': "Sincronizar carpetas con la terminal por defecto",
@@ -7024,6 +7039,9 @@ const translations = {
     },
 
     zh: {
+        'workspace.directorySync.prompt': "文件夹同步已暂停：无法确认终端提示符为空。请完成输入，或关闭同步以独立浏览文件。",
+        'workspace.directorySync.unavailable': "无法检查终端文件夹。请退出 tmux 复制模式或正在运行的程序后重试。",
+        'workspace.directorySync.pending': "仍在检查上一次文件夹切换。请稍后重试。",
         'profiles.saveConnect': "保存并连接",
         'profiles.compact': "紧凑视图",
         'settings.directorySyncDefault': "默认与终端同步文件夹",

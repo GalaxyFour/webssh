@@ -45,6 +45,16 @@
             panel: elements.filesPanel,
             sendInput: (id, value) => root.SSHInput.send(id, value),
             hasPendingInput: id => root.SSHInput?.hasPending(id),
+            onNavigationBlocked: reason => {
+                const messages = {
+                    prompt: ['workspace.directorySync.prompt', 'Folder sync paused: an empty terminal prompt could not be confirmed. Finish your input, or turn off sync to browse Files independently.'],
+                    unavailable: ['workspace.directorySync.unavailable', 'The terminal folder could not be checked. Leave tmux copy mode or the running application and try again.'],
+                    pending: ['workspace.directorySync.pending', 'The previous folder change is still being checked. Please try again shortly.'],
+                };
+                const [key, fallback] = messages[reason] || messages.unavailable;
+                const translated = root.i18n?.t(key);
+                root.showNotification?.(translated && translated !== key ? translated : fallback, 'info');
+            },
         });
         fileManager.onDirectorySyncNavigate = (id, path) => directorySync?.navigate(id, path);
 

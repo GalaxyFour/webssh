@@ -302,12 +302,19 @@ non-Linux targets, and restricted SSH exec channels report sync as unavailable.
 No shell startup files are modified and no remote agent is installed.
 
 Files-to-terminal navigation additionally requires an empty detected shell
-prompt in the normal terminal screen, bracketed paste mode, and a supported
+prompt, bracketed paste mode, and a supported
 foreground shell (bash, zsh, fish, sh, dash, or ksh). Shells without prompt-mode
 signaling can still be followed, but automatic `cd` waits for a reliably
 detected prompt. Finish any partial command or return from an application to
 the prompt, then open the folder again. Navigation that cannot be sent safely
-is **not queued for later execution**.
+is **not queued for later execution**. A blocked folder action now explains
+why it could not proceed; turn off sync to browse Files independently.
+For managed tmux sessions the outer terminal's alternate screen is expected;
+the server separately rejects copy mode and alternate-screen applications
+inside the active tmux pane. A confirmed directory change from a sync-generated
+`cd` acknowledges that command even when tmux coalesces prompt-mode signals,
+provided no user input or shell change occurred meanwhile. Unknown or replayed
+prompts and unfinished manual input remain guarded.
 These are conservative UI guards, not an atomic shell protocol: custom prompt
 behavior and concurrent input from another SSH/tmux client cannot be fully
 inferred. Paths containing control characters are intentionally rejected.

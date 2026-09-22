@@ -63,7 +63,7 @@ def probe_command(session):
         select = (
             "directory_pid=$(tmux display-message -p -t "
             + shlex.quote('=' + name + ':')
-            + " '#{?pane_in_mode,0,#{pane_pid}}') || exit 1\n"
+            + " '#{?pane_in_mode,0,#{?alternate_on,0,#{pane_pid}}}') || exit 1\n"
             + '[ "$directory_pid" != 0 ] || exit 1'
         )
     else:
@@ -130,7 +130,12 @@ def collect_directory(session_id, timeout=2.0):
                 time.sleep(0.02)
         if channel.recv_exit_status() != 0:
             return None, 'unsupported'
-        return parse_directory(output), None
+        result = parse_directory(output)
+        if session.get('use_tmux') and session.get('tmux_session_name'):
+            # tmux itself uses the outer terminal's alternate screen. The
+            # probe above separately rejects an alternate screen inside its pane.
+            result['tmux'] = True
+        return result, None
     except (ValueError, UnicodeError):
         return None, 'unsupported'
     except Exception:
