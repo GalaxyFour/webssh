@@ -38,6 +38,7 @@ async function seedLinuxSession(page, options = {}) {
         window.__workspaceDirectory = {
             path: '/srv/webssh/current', shell_ready: true, shell_id: '42', shell: 'bash',
             tmux: seedOptions.useTmux === true,
+            bracketed_paste: seedOptions.legacyTmux ? undefined : seedOptions.useTmux === true,
         };
         window.__workspaceChartSamples = { pressure: 0, network: 0 };
         const fileRows = [
@@ -377,9 +378,10 @@ test('terminal selections copy through keyboard and command palette actions', as
     await assertNoExternalRequests(page);
 });
 
-test('tmux folder double-clicks synchronize repeatedly despite coalesced prompt modes', async ({page}) => {
+for (const legacyTmux of [false, true]) {
+test(`tmux folder double-clicks synchronize repeatedly (${legacyTmux ? 'legacy' : 'pane mode'})`, async ({page}) => {
     await login(page);
-    await seedLinuxSession(page, {useTmux: true, directorySync: true});
+    await seedLinuxSession(page, {useTmux: true, directorySync: true, legacyTmux});
     await page.locator('#contextFilesTab').click();
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current');
     await page.evaluate(() => new Promise(resolve => {
@@ -404,6 +406,54 @@ test('tmux folder double-clicks synchronize repeatedly despite coalesced prompt 
     await expect(page.locator('.notification').filter({hasText: 'Folder sync paused'})).toBeVisible();
     expect(await page.evaluate(() => window.__workspaceEvents.filter(event => event.event === 'ssh_input').length)).toBe(2);
     await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current/releases/releases');
+    await assertNoExternalRequests(page);
+});
+}
+
+test('tmux folder clicks recover after manual commands and Ctrl+C without outer prompt signals', async ({page}) => {
+    await login(page);
+    await seedLinuxSession(page, {useTmux: true, directorySync: true});
+    await page.locator('#contextFilesTab').click();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/webssh/current');
+    await page.evaluate(() => new Promise(resolve => {
+        const key = TerminalManager.sessionTerminals['workspace-linux'][0];
+        TerminalManager.terminals[key].write('\x1b[?1049h\x1b[?2004hops@edge:~$ ', resolve);
+    }));
+    await page.evaluate(async () => {
+        const key = TerminalManager.sessionTerminals['workspace-linux'][0];
+        await SSHInput.send('workspace-linux', 'cd /srv/manual');
+        await SSHInput.send('workspace-linux', '\r');
+        window.__workspaceDirectory.path = '/srv/manual';
+        // Real tmux redraws short commands with CR/LF but no DEC 2004 toggle.
+        await new Promise(resolve => TerminalManager.terminals[key].write(
+            'cd /srv/manual\r\nops@edge:/srv/manual$ ', resolve));
+    });
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/manual');
+    const folder = page.locator('#fmLeftList .fm-file-item').filter({hasText: 'releases'});
+    await folder.dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/manual/releases');
+
+    await page.evaluate(() => SSHInput.send('workspace-linux', 'echo unfinished'));
+    await folder.dblclick();
+    await expect(page.locator('.notification').filter({hasText: 'Folder sync paused'})).toBeVisible();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/manual/releases');
+    await page.evaluate(async () => {
+        const key = TerminalManager.sessionTerminals['workspace-linux'][0];
+        await SSHInput.send('workspace-linux', '\x03');
+        await new Promise(resolve => TerminalManager.terminals[key].write(
+            '^C\r\nops@edge:/srv/manual/releases$ ', resolve));
+        // Bash can be the foreground process while its prompt hook still runs.
+        window.__workspaceDirectory.bracketed_paste = false;
+    });
+    await folder.dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/manual/releases');
+    expect(await page.evaluate(() => window.__workspaceEvents.filter(event =>
+        event.event === 'ssh_input' && event.payload.data.startsWith('cd -- ')).length)).toBe(1);
+    await page.evaluate(() => { window.__workspaceDirectory.bracketed_paste = true; });
+    await folder.dblclick();
+    await expect(page.locator('#fmLeftPath')).toHaveValue('/srv/manual/releases/releases');
+    expect(await page.evaluate(() => window.__workspaceEvents.filter(event =>
+        event.event === 'ssh_input' && event.payload.data.startsWith('cd -- ')).length)).toBe(2);
     await assertNoExternalRequests(page);
 });
 

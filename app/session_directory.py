@@ -49,6 +49,7 @@ fi
 directory_path=$(readlink -n "/proc/$directory_pid/cwd" && printf '.') || exit 1
 directory_path=${directory_path%.}
 printf 'webssh-directory\000%s\000%s\000%s\000%s\000' "$directory_pid" "$directory_ready" "$directory_shell" "$directory_path"
+if [ "${directory_paste+x}" = x ]; then printf '%s\000' "$directory_paste"; fi
 '''
 
 DIRECT_SHELL = r'''
@@ -61,9 +62,14 @@ def probe_command(session):
     name = session.get('tmux_session_name')
     if session.get('use_tmux') and name:
         select = (
-            "directory_pid=$(tmux display-message -p -t "
+            "directory_pane=$(tmux display-message -p -t "
             + shlex.quote('=' + name + ':')
-            + " '#{?pane_in_mode,0,#{?alternate_on,0,#{pane_pid}}}') || exit 1\n"
+            + " '#{?pane_in_mode,0,#{?alternate_on,0,#{pane_pid}}}:#{bracket_paste_flag}') || exit 1\n"
+            + 'directory_pid=${directory_pane%:*}\n'
+            + 'directory_paste=${directory_pane##*:}\n'
+            # Older tmux versions expand an unknown format to an empty value.
+            # Keep directory following available without claiming prompt readiness.
+            + 'case "$directory_paste" in 0|1) ;; "") unset directory_paste;; *) exit 1;; esac\n'
             + '[ "$directory_pid" != 0 ] || exit 1'
         )
     else:
@@ -74,8 +80,10 @@ def probe_command(session):
 
 def parse_directory(payload):
     parts = payload.decode('utf-8', errors='strict').split('\0')
-    if len(parts) != 6 or parts[0] != 'webssh-directory' or parts[5]:
+    if len(parts) not in {6, 7} or parts[0] != 'webssh-directory' or parts[-1]:
         raise ValueError('Invalid directory response')
+    if len(parts) == 7 and parts[5] not in {'0', '1'}:
+        raise ValueError('Invalid pane prompt mode')
     pid, ready, shell, path = parts[1:5]
     if (not pid.isascii() or not pid.isdigit() or int(pid) <= 0
             or ready not in {'0', '1'}
@@ -84,12 +92,15 @@ def parse_directory(payload):
             or len(path.encode('utf-8')) > 4096
             or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in path)):
         raise ValueError('Unsupported directory')
-    return {
+    result = {
         'path': path,
         'shell_ready': ready == '1',
         'shell_id': pid,
         'shell': shell,
     }
+    if len(parts) == 7:
+        result['bracketed_paste'] = parts[5] == '1'
+    return result
 
 
 def collect_directory(session_id, timeout=2.0):

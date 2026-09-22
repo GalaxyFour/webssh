@@ -338,8 +338,74 @@ test('ordinary shells wait for a live prompt after a synchronized directory chan
     }
 });
 
+for (const submit of ['\r', '\n', '\x03']) {
+test(`tmux accepts a manual submission ${JSON.stringify(submit)} only after live output and a ready pane`, () => {
+    let mode, line;
+    const terminal = {
+        parser: {registerCsiHandler(_id, handler) {mode = handler;}},
+        onData() {}, onLineFeed(handler) {line = handler;},
+        buffer: {active: {type: 'alternate'}}, modes: {bracketedPasteMode: true},
+    };
+    const pane = {tmux: true, shell_ready: true, bracketed_paste: true};
+    const tracked = sync.trackTerminal('manual', terminal);
+    try {
+        assert.equal(sync.canSend('manual', pane), false); // Unknown reconnect state.
+        mode([2004]);
+        sync.noteInput('manual', 'pwd');
+        line(); // Echo or wrapping a partial input is not a submitted command.
+        assert.equal(sync.canSend('manual', pane), false);
+        sync.noteInput('manual', submit);
+        assert.equal(sync.canSend('manual', pane), false); // No response yet.
+        line();
+        assert.equal(sync.canSend('manual', {...pane, shell_ready: false}), false);
+        assert.equal(sync.canSend('manual', {...pane, bracketed_paste: false}), false);
+        assert.equal(sync.canSend('manual', {...pane, bracketed_paste: undefined}), false);
+        assert.equal(sync.canSend('manual', {...pane, tmux: false}), false);
+        assert.equal(sync.canSend('manual', pane), true); // No new outer DEC 2004.
+        sync.noteInput('manual', 'next unfinished');
+        assert.equal(sync.canSend('manual', pane), false);
+        sync.noteInput('manual', submit);
+        sync.beginReplay('manual'); line(); sync.endReplay('manual');
+        assert.equal(sync.canSend('manual', pane), false);
+        sync.noteInput('manual', submit); line();
+        assert.equal(sync.canSend('manual', pane), true); // A live action recovers after replay.
+        sync.noteInput('manual', '\x1b[200~paste');
+        sync.noteInput('manual', '\r'); line();
+        assert.equal(sync.canSend('manual', pane), false);
+        sync.noteInput('manual', '\x1b[201~'); line();
+        assert.equal(sync.canSend('manual', pane), false);
+    } finally { tracked.dispose(); }
+});
+}
+
+test('tmux submission output invalidates navigation probes started before it', () => {
+    let mode, line;
+    const terminal = {
+        parser: {registerCsiHandler(_id, handler) {mode = handler;}},
+        onData() {}, onLineFeed(handler) {line = handler;},
+        buffer: {active: {type: 'alternate'}}, modes: {bracketedPasteMode: true},
+    };
+    const tracked = sync.trackTerminal('a', terminal);
+    const pane = {tmux: true, bracketed_paste: true};
+    const h = harness({canSend: sync.canSend, inputVersion: undefined});
+    try {
+        mode([2004]); h.reply(0, '/tmp', true, 'bash', pane);
+        sync.noteInput('a', 'pwd'); sync.noteInput('a', '\r');
+        h.controller.navigate('a', '/wanted');
+        line();
+        h.reply(1, '/tmp', true, 'bash', pane);
+        assert.deepEqual(h.sent, []);
+        assert.deepEqual(h.blocked, ['prompt']);
+        h.controller.navigate('a', '/wanted');
+        h.reply(2, '/tmp', true, 'bash', pane);
+        assert.deepEqual(h.sent, [['a', "cd -- '/wanted'\r"]]);
+    } finally { h.controller.dispose(); tracked.dispose(); }
+});
+
+for (const bracketed_paste of [undefined, true]) {
 for (const interruption of ['typing', 'replay']) {
-test(`tmux repeated cd respects ${interruption} without repeated prompt signals`, () => {
+test(`tmux (${bracketed_paste === undefined ? "legacy" : "pane mode"}) repeated cd respects ${interruption} without repeated prompt signals`, () => {
+    const pane = {tmux: true, shell_ready: true, bracketed_paste};
     let mode;
     const terminal = {
         parser: {registerCsiHandler(_id, handler) {mode = handler;}},
@@ -354,22 +420,23 @@ test(`tmux repeated cd respects ${interruption} without repeated prompt signals`
     h.reply(0);
     assert.equal(sync.canSend('a'), false);
     h.controller.navigate('a', '/first');
-    h.reply(1, '/tmp', true, 'bash', {tmux: true});
+    h.reply(1, '/tmp', true, 'bash', pane);
     assert.equal(sent.length, 1);
-    assert.equal(sync.canSend('a', {tmux: true}), false);
+    assert.equal(sync.canSend('a', pane), false);
     // tmux redraws the prompt without forwarding another DEC 2004 enable.
     Array.from(h.timers.values()).at(-1)();
-    h.reply(2, '/first', true, 'bash', {tmux: true});
-    assert.equal(sync.canSend('a', {tmux: true}), true);
+    h.reply(2, '/first', true, 'bash', pane);
+    assert.equal(sync.canSend('a', pane), true);
     h.controller.navigate('a', '/second');
-    h.reply(3, '/first', true, 'bash', {tmux: true});
+    h.reply(3, '/first', true, 'bash', pane);
     assert.deepEqual(sent.map(entry => entry[1]), ["cd -- '/first'\r", "cd -- '/second'\r"]);
     // Neither new input nor replay may be cleared by an old cd acknowledgement.
     if (interruption === 'typing') sync.noteInput('a', 'unfinished');
     else { sync.beginReplay('a'); sync.endReplay('a'); }
     Array.from(h.timers.values()).at(-1)();
-    h.reply(4, '/second', true, 'bash', {tmux: true});
-    assert.equal(sync.canSend('a', {tmux: true}), false);
+    h.reply(4, '/second', true, 'bash', pane);
+    assert.equal(sync.canSend('a', pane), false);
     h.controller.dispose(); tracked.dispose();
 });
+}
 }
