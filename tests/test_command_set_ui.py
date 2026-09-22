@@ -114,9 +114,9 @@ def test_commands_workspace_controller_owns_all_entry_points():
     app = read('static/js/app.js')
     template = read('templates/index.html')
 
-    assert "activeSection: 'sets'" in workspace
+    assert "activeSection: 'library'" in workspace
     assert "open(section = this.activeSection, options = {})" in workspace
-    assert "this.select('sets')" in workspace
+    assert 'this.select(this.activeSection)' in workspace
     assert 'select(section)' in workspace
     assert "CommandWorkspace.open('library', {primary: true})" in library
     assert "CommandWorkspace.open('sets', {primary: !this.returnToConnection})" in sets

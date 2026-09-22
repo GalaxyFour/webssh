@@ -76,6 +76,7 @@ test('saving after mode changes removes stale post-connect fields', async ({ pag
         await keyOption.getAttribute('value'),
     );
 
+    await page.locator('#profileAdvancedSettingsCard > summary').click();
     await page.locator('#profileEditorPostConnectMode').selectOption('free_text');
     await page.locator('#profileEditorStartupCommands').fill('stale free text');
     await page.locator('#profileEditorPostConnectMode').selectOption('command');
@@ -85,7 +86,7 @@ test('saving after mode changes removes stale post-connect fields', async ({ pag
     await page.locator('#profileEditorPostConnectMode').selectOption('command_set');
     await page.locator('#profileEditorCommandSetSelect').selectOption('e2e-command-set');
     await page.locator('#profileEditorPostConnectMode').selectOption('none');
-    await page.locator('#profileEditorForm button[type="submit"]').click();
+    await page.locator('#profileEditorForm').getByRole('button', {name: 'Save', exact: true}).click();
     await expect(page.locator('.profile-management-item').filter({
         hasText: 'Post stale cleanup',
     })).toHaveCount(1);

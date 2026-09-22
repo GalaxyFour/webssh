@@ -1257,7 +1257,10 @@ const ProfileManager = {
             : '';
 
         const advanced = document.getElementById('profileAdvancedSettingsCard');
-        if (advanced) advanced.open = Boolean(window.ProfileLauncherUtils?.usesAdvancedConnectionSettings(profile));
+        if (advanced) advanced.open = Boolean(
+            useTmux?.checked
+            || window.ProfileLauncherUtils?.usesAdvancedConnectionSettings(profile)
+        );
         this.updateEditorVisibility();
         document.getElementById('profileManagementView')?.classList.add('hidden');
         document.getElementById('profileEditorView')?.classList.remove('hidden');
