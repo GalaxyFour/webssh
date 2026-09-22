@@ -56,6 +56,7 @@ function fixture() {
     const focusState = {activeElement: null};
     const views = [
         'workspaces',
+        'files', 'commands', 'hosts',
         'session-files',
         'session-commands',
         'session-diagnostics',
@@ -232,7 +233,8 @@ test('session context and global workspace changes keep mobile dock selection sy
     state.windowListeners.get('primary-workspace-change')({detail: {view: 'files'}});
     const more = state.views.find(button => button.dataset.mobileView === 'more');
     assert.equal(commands.classList.contains('active'), false);
-    assert.equal(more.classList.contains('active'), true);
+    assert.equal(more.classList.contains('active'), false);
+    assert.equal(state.views.find(button => button.dataset.mobileView === 'files').classList.contains('active'), true);
 });
 
 test('session tool dock availability follows the active session context', () => {

@@ -272,7 +272,7 @@ const CommandLibrary = {
                 </div>
                 <div class="command-cell command-actions">
                     ${cmd.isSystem ? `
-                        <button class="btn-icon cmd-copy material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Copy to My Commands'))}">content_copy</button>
+                        <button class="btn btn-secondary cmd-copy" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Add to my commands'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Add to my commands'))}"><span class="material-icons" aria-hidden="true">add</span><span>${this.escapeHtml(window.SessionCommandLauncher.t('commands.copyToMine', 'Add to my commands'))}</span></button>
                     ` : `
                         <button class="btn-icon cmd-edit material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.edit', 'Edit'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.edit', 'Edit'))}">edit</button>
                         <button class="btn-icon cmd-delete material-icons" data-cmd-id="${this.escapeHtml(cmd.id)}" title="${this.escapeHtml(window.SessionCommandLauncher.t('commands.delete', 'Delete'))}" aria-label="${this.escapeHtml(window.SessionCommandLauncher.t('commands.delete', 'Delete'))}">delete</button>

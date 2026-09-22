@@ -445,9 +445,8 @@
                 contextWidthMode = 'auto';
                 contextWidth = defaultContextWidth(windowRef.innerWidth);
             }
-            if (mode === 'desktop') {
-                activeContext = fallbackContext();
-            }
+            // Keep connection selection focused until a session or user opens tools.
+            activeContext = null;
             applyContextWidth();
             render();
 

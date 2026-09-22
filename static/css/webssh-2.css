@@ -2779,9 +2779,9 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     gap: 10px;
     padding: 13px 14px;
     overflow: hidden;
-    border: 1px solid var(--auth-context-border);
-    border-radius: var(--ws2-radius-sm);
-    background: rgb(7 12 21 / 68%);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 .auth-product-pillars .material-icons {
@@ -5066,7 +5066,7 @@ body[data-theme="paper"]:has(.auth-access-dock) {
     }
 
     .context-workspace-header {
-        display: none;
+        display: flex;
     }
 
     .context-workspace-tab {
@@ -5391,3 +5391,120 @@ body[data-theme="paper"]:has(.auth-access-dock) {
         max-height: calc(100dvh - 68px);
     }
 }
+
+/* Focus connection entry; keep the existing surfaces and theme tokens. */
+body:not(.has-workspace-session) :is(#broadcastToggleBtn, #saveTranscriptBtn, #mobileBroadcastAction, #mobileTranscriptAction) {
+    display: none;
+}
+.profile-launcher {
+    justify-content: flex-start;
+    align-items: stretch;
+    padding: 22px 28px;
+    gap: 10px;
+}
+.profile-launcher > .pane-empty-icon { display: none; }
+.profile-launcher-title, .profile-launcher-hint { text-align: left; }
+.profile-launcher > .profile-launcher-new {
+    order: -1;
+    align-self: flex-end;
+    min-height: 40px;
+    margin-bottom: -46px;
+}
+.profile-launcher-title, .profile-launcher-hint { padding-right: 160px; }
+.profile-launcher-search, .profile-launcher-sections { width: 100%; }
+.profile-launcher-sections { flex: 1; max-height: none; }
+.profile-launcher-card { padding-block: 10px; }
+.profile-launcher-endpoint, .profile-launcher-action { font-size: 12px; }
+.profile-launcher-action.mode-review { color: var(--warning-color); }
+
+/* A short default form expands only for history or advanced options. */
+#connectionModal:not(.has-recent-connections) .modal-content { width: min(100%, 640px); }
+#connectionModal:not(.has-recent-connections) .quick-connect-grid { grid-template-columns: minmax(0, 1fr); }
+.quick-connect-scroll-region { padding: 16px; }
+.quick-connect-grid, .quick-connect-secondary { gap: 12px; }
+.quick-connect-actions { padding: 14px 16px; }
+.quick-connect-details-card .quick-connect-card-header { padding: 14px 16px; }
+.quick-connect-details-content { padding: 14px 16px; }
+.quick-connect-core-fields { gap: 10px; }
+.quick-connect-core-fields .field-hint:empty { display: none; }
+.quick-connect-core-fields .quick-connect-auth-method { margin-bottom: 0; }
+.quick-connect-core-fields .form-row { flex-direction: row; }
+.quick-connect-core-fields .form-row .flex-1 { flex: 0 0 96px; }
+.quick-connect-core-fields .form-row .flex-2 { min-width: 0; }
+.profile-advanced-settings > summary { cursor: pointer; list-style: none; margin-bottom: 0; }
+.profile-advanced-settings > summary::-webkit-details-marker { display: none; }
+.profile-advanced-settings .profile-advanced-chevron { font-size: 24px; }
+.profile-advanced-settings[open] .profile-advanced-chevron { transform: rotate(180deg); }
+.profile-advanced-settings > summary { grid-template-columns: auto minmax(0, 1fr) auto; }
+.profile-advanced-settings[open] > summary { margin-bottom: 18px; }
+.profile-advanced-settings:not([open]) { align-self: start; }
+.profile-editor-actions { flex-wrap: wrap; }
+#profileDensityBtn[aria-pressed='true'] { border-color: var(--accent-primary); color: var(--accent-primary); }
+#profileManagementList.is-compact .profile-management-item { padding-block: 7px; min-height: 48px; }
+#profileManagementList.is-compact .profile-management-section-title { margin-block: 0; }
+#profileManagementList.is-compact .profile-management-section-toggle { min-height: 34px; padding-block: 6px; }
+
+/* Readiness is shared with the workspace launcher, independent of protocol. */
+.fm-source-row[data-readiness='saved'] :is(.fm-source-row-icon, .fm-source-row-status strong) { color: var(--success-color); }
+.fm-source-row:is([data-readiness='password-needed'], [data-readiness='key-missing'], [data-readiness='review']) :is(.fm-source-row-icon, .fm-source-row-status strong) { color: var(--warning-color); }
+.fm-source-row[data-readiness='loading'] :is(.fm-source-row-icon, .fm-source-row-status strong) { color: var(--text-secondary); }
+.fm-source-row-main small, .fm-source-row-status small { font-size: 12px; color: var(--text-secondary); }
+.fm-source-row { min-height: 56px; }
+.fm-source-groups { scrollbar-width: thin; scrollbar-color: var(--ws2-border) transparent; }
+
+/* Give command content more space and make duplication distinct from clipboard copy. */
+.primary-workspace-surface .management-panel-toolbar { margin-top: 10px; padding-bottom: 10px; }
+.command-row, .commands-table-header { grid-template-columns: 1.5fr 1.4fr 1fr 2fr minmax(132px, 1.3fr); }
+.command-row { padding: 8px 10px; margin-bottom: 4px; }
+.command-row .cmd-copy { font-size: 12px; white-space: normal; text-align: left; min-height: 36px; padding: 6px 8px; }
+.command-row .cmd-copy .material-icons { font-size: 18px; }
+.command-row .btn-icon { min-width: 36px; min-height: 36px; opacity: 1; }
+.command-row:hover { transform: none; }
+.command-params code:empty { display: none; }
+.command-help { padding: 8px 12px; }
+.command-help p { margin: 0; }
+.auth-product-pillars li { min-height: 40px; padding: 6px 0; }
+
+@media (max-width: 767px) {
+    #mobileMenuBtn { display: none; }
+    .profile-launcher { padding: 16px 12px; }
+    .profile-launcher-title, .profile-launcher-hint { padding-right: 0; }
+    .profile-launcher > .profile-launcher-new { order: 0; align-self: stretch; margin: 0; min-height: 44px; }
+    .profile-launcher-title { font-size: 20px; }
+    .profile-launcher-card { min-height: 68px; }
+    .quick-connect-scroll-region { padding: 10px; }
+    .quick-connect-core-fields .form-row { display: flex; gap: 10px; }
+    .quick-connect-core-fields .quick-connect-auth-method { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .quick-connect-details-card .quick-connect-card-header { padding: 12px; }
+    .quick-connect-details-content { padding: 12px; }
+    .quick-connect-actions .btn, .profile-editor-actions .btn { min-height: 44px; }
+    .command-row { grid-template-columns: minmax(0, 1fr); }
+    .command-row .cmd-copy { min-height: 44px; }
+    .command-row .command-cell { border-bottom: 0; padding-bottom: 0; }
+    .command-row .command-params:has(code:empty) { display: none; }
+    .os-filter-toolbar { padding: 6px; }
+    .os-filter-buttons { gap: 4px; }
+    .os-filter-btn { flex: 1; min-height: 44px; padding-inline: 7px; font-size: 12px; }
+    .command-row .btn-icon { min-width: 44px; min-height: 44px; }
+    #profileDensityBtn { display: none; }
+    .fm-source-row .fm-source-row-status { display: flex; grid-column: 2 / 4; align-items: flex-start; }
+    .fm-source-row-status strong { white-space: normal; font-size: 12px; }
+    .fm-source-row-status .fm-source-action { display: none; }
+}
+.session-tabs-row > .context-workspace-launcher {
+    display: inline-flex;
+    position: static;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 76px;
+    height: 36px;
+    margin: 4px 8px;
+    padding: 6px 10px;
+    gap: 6px;
+}
+.session-tabs-row > .context-workspace-launcher[hidden] { display: none; }
+@media (max-width: 767px) {
+    .session-tabs-row > .context-workspace-launcher { min-height: 44px; margin: 0 4px; }
+}
+
+.session-tabs-row > .context-workspace-launcher .material-icons { width: 18px; flex: 0 0 18px; }

@@ -388,8 +388,11 @@ class SFTPFileManager {
                 endpoint: `${profile.username}@${profile.host}:${profile.port || 22}`,
                 protocol: 'SFTP',
                 status: this.t(readiness.labelKey, readiness.label),
+                readiness: readiness.state || 'review',
+                favorite: profile.favorite === true,
+                group: profile.group || '',
                 actionLabel: this.t(readiness.actionKey, readiness.action),
-                security: this.t('fm.workspace.authenticationRequired', 'Authentication required'),
+                security: '',
                 profileId: profile.id,
             };
         });
@@ -403,9 +406,20 @@ class SFTPFileManager {
                 securityLabel: this.sourceSecurityLabel(source),
             };
         }).filter(Boolean);
+        const sections = window.ProfileLauncherUtils?.buildProfileSections(this.qcProfiles || [], '', {
+            favorites: this.t('profiles.favorites', 'Favorites'),
+            ungrouped: this.t('profiles.ungrouped', 'Ungrouped'),
+        });
+        const savedById = new Map(saved.map(source => [source.profileId, source]));
+        const savedGroups = sections
+            ? sections.map((section, index) => ({
+                id: `saved-${index}`, label: section.label,
+                items: section.profiles.map(profile => savedById.get(profile.id)),
+            }))
+            : [{ id: 'saved', label: this.t('fm.workspace.savedHosts', 'Saved SSH hosts'), items: saved }];
         const groups = [
             { id: 'active', label: this.t('fm.workspace.activeSessions', 'Active SSH sessions'), items: active },
-            { id: 'saved', label: this.t('fm.workspace.savedHosts', 'Saved SSH hosts'), items: saved },
+            ...savedGroups,
             { id: 'quick', label: this.t('fm.workspace.quickConnections', 'SFTP quick connections'), items: quick },
         ];
         const savedSmb = (this.savedSmbShares || []).map(share => ({
@@ -414,6 +428,7 @@ class SFTPFileManager {
             endpoint: `${share.username}@${share.host}/${share.share}`,
             protocol: 'SMB',
             status: this.t('connection.readinessPassword', 'Password needed'),
+            readiness: 'password-needed',
             actionLabel: this.t('connection.actionConnect', 'Connect'),
             security: this.t(
                 'fm.workspace.authenticationRequired',
@@ -516,8 +531,8 @@ class SFTPFileManager {
         const actionLabel = document.getElementById('fmSourceLauncherAction');
         const paneLabel = document.getElementById('fmSourceLauncherPane');
         actionLabel.textContent = single
-            ? this.t('fm.workspace.openSource', 'Open source')
-            : this.t('fm.workspace.openSourceIn', 'Open source in');
+            ? this.t('fm.workspace.openSource', 'Choose connection')
+            : this.t('fm.workspace.openSourceIn', 'Choose connection for');
         paneLabel.hidden = single;
         paneLabel.textContent = single
             ? ''
@@ -621,12 +636,12 @@ class SFTPFileManager {
             const items = group.items.filter(source => {
                 this.sourceCatalogByKey.set(source.key, source);
                 if (!normalizedQuery) return true;
-                return [source.label, source.endpoint, source.protocol, source.status, source.securityLabel || source.security, source.accessLabel]
+                return [source.group, source.label, source.endpoint, source.protocol, source.status, source.securityLabel || source.security, source.accessLabel]
                     .some(value => String(value || '').toLocaleLowerCase().includes(normalizedQuery));
             });
             if (items.length === 0) return null;
             const rows = items.map(source => {
-                const icon = source.profileId || source.savedSmbShare
+                const icon = source.favorite ? 'star' : source.profileId || source.savedSmbShare
                     ? 'bookmark'
                     : 'terminal';
                 const disabled = source.disabled ? ' disabled aria-disabled="true"' : '';
@@ -635,7 +650,7 @@ class SFTPFileManager {
                     source.accessLabel,
                 ].filter(Boolean).join(' · ');
                 return `
-                    <button type="button" class="fm-source-row${source.disabled ? ' is-disabled' : ''}" data-source-key="${this.escapeHtml(source.key)}"${disabled}>
+                    <button type="button" class="fm-source-row${source.disabled ? ' is-disabled' : ''}" data-readiness="${this.escapeHtml(source.readiness || 'connected')}" data-source-key="${this.escapeHtml(source.key)}"${disabled}>
                         <span class="material-icons fm-source-row-icon" aria-hidden="true">${icon}</span>
                         <span class="fm-source-row-main">
                             <strong>${this.escapeHtml(source.label)}</strong>
@@ -645,7 +660,7 @@ class SFTPFileManager {
                         <span class="fm-source-row-status">
                             <strong>${this.escapeHtml(this.sourceLauncherStatus(source))}</strong>
                             ${source.actionLabel ? `<span class="fm-source-action">${this.escapeHtml(source.actionLabel)}</span>` : ''}
-                            <small><span class="material-icons" aria-hidden="true">verified_user</span>${this.escapeHtml(assurance)}</small>
+                            ${assurance ? `<small><span class="material-icons" aria-hidden="true">verified_user</span>${this.escapeHtml(assurance)}</small>` : ''}
                         </span>
                     </button>`;
             }).join('');
@@ -699,8 +714,8 @@ class SFTPFileManager {
             sourceButton?.setAttribute(
                 'aria-label',
                 single
-                    ? this.t('fm.workspace.openSource', 'Open source')
-                    : `${this.t('fm.workspace.openSource', 'Open source')}: ${sideLabel}`,
+                    ? this.t('fm.workspace.openSource', 'Choose connection')
+                    : `${this.t('fm.workspace.openSource', 'Choose connection')}: ${sideLabel}`,
             );
             const activeTab = this.workspace.getActiveTab(pane);
             const legacySelect = document.getElementById(`fm${this.capitalize(pane)}Source`);
@@ -3223,7 +3238,7 @@ class SFTPFileManager {
             const paneLabel = pane === 'left'
                 ? this.t('fm.workspace.leftPane', 'Left side')
                 : this.t('fm.workspace.rightPane', 'Right side');
-            const openSourceLabel = this.t('fm.workspace.openSource', 'Open source');
+            const openSourceLabel = this.t('fm.workspace.openSource', 'Choose connection');
             const chooseLabel = this.workspace.layout === 'split'
                 ? `${openSourceLabel}: ${paneLabel}`
                 : openSourceLabel;

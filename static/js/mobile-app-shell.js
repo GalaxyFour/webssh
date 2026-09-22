@@ -90,18 +90,18 @@
 
         function renderDockSelection() {
             const sessionView = activeContext ? `session-${activeContext}` : null;
-            const contextLivesInMore = Boolean(
-                activeContext && !SESSION_TOOL_TARGETS[sessionView],
+            const contextHasDockItem = elements.dockItems.some(
+                button => button.dataset.mobileView === sessionView,
             );
             elements.dockItems.forEach(button => {
                 const view = button.dataset.mobileView;
                 let selected = false;
                 if (view === 'more') {
-                    selected = moreOpen || primaryView !== 'workspaces' || contextLivesInMore;
+                    selected = moreOpen;
                 } else if (SESSION_TOOL_TARGETS[view]) {
                     selected = primaryView === 'workspaces' && sessionView === view;
                 } else {
-                    selected = primaryView === view && !activeContext;
+                    selected = primaryView === view && (view !== 'workspaces' || !contextHasDockItem);
                 }
                 button.classList.toggle('active', selected);
                 if (selected) button.setAttribute('aria-current', 'page');
@@ -139,6 +139,7 @@
                 || interactiveSessionId;
             const session = sessionId ? sessionManager?.getSession?.(sessionId) : null;
             const connected = Boolean(session?.connected);
+            elements.body?.classList.toggle('has-workspace-session', Boolean(session));
             const label = session
                 ? sessionManager?.getDisplayLabel?.(
                     sessionId,

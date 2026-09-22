@@ -171,8 +171,8 @@ test('source-first workspace preserves panes and exposes only functional SFTP ac
     await expect(page.locator('#fmQueueHeader')).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('#fmQueueList')).toBeHidden();
     await expect(page.locator('#fmSourceLauncher')).toHaveClass(/show/);
-    await expect(page.locator('#fmSourceLauncherTitle')).toHaveText('Open source');
-    await expect(page.locator('[data-source-target="left"]')).toHaveAttribute('aria-label', 'Open source');
+    await expect(page.locator('#fmSourceLauncherTitle')).toHaveText('Choose connection');
+    await expect(page.locator('[data-source-target="left"]')).toHaveAttribute('aria-label', 'Choose connection');
     await expect(page.locator('#fmLeftIdentity .fm-pane-label')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => {
         const panel = document.querySelector('.fm-source-launcher-panel')?.getBoundingClientRect();
@@ -186,11 +186,11 @@ test('source-first workspace preserves panes and exposes only functional SFTP ac
         return Math.abs(panelCenter - workspaceCenterX) <= 2
             && Math.abs(panelMiddle - workspaceCenterY) <= 2;
     })).toBe(true);
-    await expect(page.locator('#fmSourceGroups .fm-source-group')).toHaveCount(2);
+    await expect(page.locator('#fmSourceGroups .fm-source-group')).toHaveCount(7);
     await expect(page.locator('#fm-source-group-active')).toContainText('Active SSH sessions');
-    await expect(page.locator('#fm-source-group-saved')).toContainText('Saved SSH hosts');
+    await expect(page.locator('#fm-source-group-saved-0')).toContainText('Favorites');
     await expect(page.locator('#fm-source-group-active + .fm-source-group-items .fm-source-row')).toHaveCount(2);
-    await expect(page.locator('#fm-source-group-saved + .fm-source-group-items .fm-source-row').first()).toBeVisible();
+    await expect(page.locator('#fm-source-group-saved-0 + .fm-source-group-items .fm-source-row').first()).toBeVisible();
     await expect(page.locator('[data-source-key="smb:coming-soon"]')).toHaveCount(0);
     await expect(page.locator('[data-source-key="browser-local"]')).toHaveCount(0);
     await expect(page.locator('.fm-source-secondary-groups')).toHaveCount(0);
@@ -252,8 +252,8 @@ test('source-first workspace preserves panes and exposes only functional SFTP ac
     await page.locator('[data-source-key="sftp-session:workspace-target"]').click();
     await expect(page.locator('#fmRightTabs .fm-source-tab')).toHaveCount(1);
     await expect(page.locator('#fmRightTabs')).toContainText('release archive');
-    await expect(page.locator('[data-source-target="left"]')).toHaveAttribute('aria-label', 'Open source: Left side');
-    await expect(page.locator('[data-source-target="right"]')).toHaveAttribute('aria-label', 'Open source: Right side');
+    await expect(page.locator('[data-source-target="left"]')).toHaveAttribute('aria-label', 'Choose connection: Left side');
+    await expect(page.locator('[data-source-target="right"]')).toHaveAttribute('aria-label', 'Choose connection: Right side');
 
     await page.locator('#fmQueueHeader').click();
     await expect(page.locator('#fmQueue')).not.toHaveClass(/collapsed/);
@@ -369,7 +369,7 @@ test('empty panes guide source selection and mobile split keeps both panes reach
     await openWorkspaceWithSources(page);
 
     await page.locator('#fmSourceLauncherClose').click();
-    const leftEmptyAction = page.locator('#fmLeftList').getByRole('button', { name: 'Open source' });
+    const leftEmptyAction = page.locator('#fmLeftList').getByRole('button', { name: 'Choose connection' });
     await expect(leftEmptyAction).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(() => page.evaluate(() => {

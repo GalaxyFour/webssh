@@ -155,14 +155,14 @@ test('creates, edits, and deletes a profile through the management UI', async ({
     await page.locator('#profileEditorHost').fill('crud.local');
     await page.locator('#profileEditorPort').fill('2222');
     await page.locator('#profileEditorUsername').fill('tester');
-    await page.locator('#profileEditorForm button[type="submit"]').click();
+    await page.locator('#profileEditorForm button[type="submit"]').first().click();
 
     const created = page.locator('.profile-management-item').filter({ hasText: 'Browser CRUD' });
     await expect(created).toContainText('tester@crud.local:2222');
     await clickProfileMenuAction(created, 'edit');
     await page.locator('#profileEditorName').fill('Browser CRUD edited');
     await page.locator('#profileEditorHost').fill('edited.local');
-    await page.locator('#profileEditorForm button[type="submit"]').click();
+    await page.locator('#profileEditorForm button[type="submit"]').first().click();
 
     const edited = page.locator('.profile-management-item').filter({
         hasText: 'Browser CRUD edited',
@@ -593,6 +593,7 @@ test('SSH key replacement warns and preserves a failed draft', async ({ page }) 
 
 test('referenced commands and command sets cannot be deleted', async ({ page }) => {
     await page.locator('#commandLibraryBtn').click();
+    await page.locator('#commandSetsTab').click();
     await expect(page.locator('#commandWorkspaceModal')).toHaveClass(/show/);
 
     const guardedSet = page.locator('.command-set-management-item').filter({
@@ -721,7 +722,7 @@ test('inline key upload and rename actions stay touchable at 375px', async ({ pa
     expect(inlineLayout.actionHeights.every(height => height >= 44)).toBe(true);
     expect(inlineLayout.documentWidth).toBeLessThanOrEqual(inlineLayout.viewportWidth);
 
-    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileMoreBtn').click();
     await page.locator('#workspaceNavBtn').click();
     await openKeyManagement(page);
     let keyItem = page.locator('#keysList .key-item').filter({ hasText: 'E2E usable key' });

@@ -21,6 +21,21 @@ const ProfileManager = {
     pendingProfileMove: null,
 
     init() {
+        const densityButton = document.getElementById('profileDensityBtn');
+        const densityList = document.getElementById('profileManagementList');
+        const densityKey = `webssh.profileDensity.${document.body.dataset.connectionHistoryScope || 'local'}`;
+        let compact = false;
+        try { compact = window.localStorage.getItem(densityKey) === 'compact'; } catch { /* Optional preference. */ }
+        const renderDensity = () => {
+            densityList?.classList.toggle('is-compact', compact);
+            densityButton?.setAttribute('aria-pressed', String(compact));
+        };
+        densityButton?.addEventListener('click', () => {
+            compact = !compact;
+            renderDensity();
+            try { window.localStorage.setItem(densityKey, compact ? 'compact' : 'comfortable'); } catch { /* Optional preference. */ }
+        });
+        renderDensity();
         document.getElementById('manageProfilesBtn')?.addEventListener('click', () => {
             window.openConnectionAssetManager?.('hosts');
         });
@@ -45,7 +60,7 @@ const ProfileManager = {
         });
         document.getElementById('profileEditorForm')?.addEventListener('submit', event => {
             event.preventDefault();
-            this.saveFromEditor();
+            this.saveFromEditor({connect: event.submitter?.id === 'saveConnectProfileBtn'});
         });
         document.getElementById('profileEditorAuthType')?.addEventListener('change', () => {
             this.updateEditorVisibility();
@@ -477,7 +492,7 @@ const ProfileManager = {
 
         const newConnection = document.createElement('button');
         newConnection.type = 'button';
-        newConnection.className = 'btn btn-secondary profile-launcher-new';
+        newConnection.className = 'btn btn-primary profile-launcher-new';
         newConnection.textContent = window.i18n
             ? i18n.t('connection.newConnection')
             : 'Quick Connect';
@@ -1031,7 +1046,7 @@ const ProfileManager = {
                 info.className = 'profile-management-info';
                 const name = document.createElement('strong');
                 name.textContent = profile.name;
-                if (profile.group) {
+                if (profile.group && profile.favorite === true) {
                     const group = document.createElement('span');
                     group.className = 'profile-group-badge';
                     group.textContent = profile.group;
@@ -1066,7 +1081,13 @@ const ProfileManager = {
                     );
                     if (commandSet) modeLabel += `: ${commandSet.name}`;
                 }
-                details.textContent = `${profile.auth_type} · ${modeLabel}`;
+                const authLabels = {
+                    password: ['auth.password', 'Password'],
+                    key: ['fm.qc.sshKey', 'SSH key'],
+                    tailscale: ['connection.tailscaleSSH', 'Tailscale SSH'],
+                };
+                const authLabel = authLabels[profile.auth_type] || ['connection.authMethod', 'Authentication'];
+                details.textContent = this.t(...authLabel) + (mode === 'none' ? '' : ` · ${modeLabel}`);
                 info.append(target, details);
 
                 const actions = document.createElement('div');
@@ -1235,6 +1256,8 @@ const ProfileManager = {
             ? (profile.parameters_override || '')
             : '';
 
+        const advanced = document.getElementById('profileAdvancedSettingsCard');
+        if (advanced) advanced.open = Boolean(window.ProfileLauncherUtils?.usesAdvancedConnectionSettings(profile));
         this.updateEditorVisibility();
         document.getElementById('profileManagementView')?.classList.add('hidden');
         document.getElementById('profileEditorView')?.classList.remove('hidden');
@@ -1316,7 +1339,7 @@ const ProfileManager = {
         preview.classList.toggle('error', error);
     },
 
-    saveFromEditor() {
+    saveFromEditor({connect = false} = {}) {
         if (!window.socket) return;
         const mode = document.getElementById('profileEditorPostConnectMode').value;
         const payload = {
@@ -1367,6 +1390,7 @@ const ProfileManager = {
             ];
             this.renderProfileSelect();
             this.showManagementList();
+            if (connect) this.connect(saved.id);
         });
     },
 

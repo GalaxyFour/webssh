@@ -157,11 +157,14 @@ test('automatic context width grows with the live desktop viewport', () => {
     assert.equal(defaultContextWidth(3440), 720);
 });
 
-test('desktop starts with the last available context open and still allows dismissal', () => {
+test('desktop starts focused on connections and opens the last context on request', () => {
     const { controller, state } = createHarness(1280);
     state.storage.setItem('webssh.workspace.lastContext', 'commands');
 
     controller.init();
+    assert.equal(controller.getState().activeContext, null);
+    assert.equal(state.elements.contextWorkspace.hidden, true);
+    state.elements.contextWorkspaceLauncher.dispatch('click');
 
     assert.equal(controller.getState().activeContext, 'commands');
     assert.equal(state.elements.contextWorkspace.hidden, false);
@@ -189,7 +192,7 @@ test('desktop promotes Files when the first SFTP-capable session becomes availab
     const { controller, state } = createHarness(1280);
 
     controller.init();
-    assert.equal(controller.getState().activeContext, 'notes');
+    assert.equal(controller.getState().activeContext, null);
 
     controller.setContextAvailability('files', true);
 
@@ -249,6 +252,7 @@ test('desktop context width restores safely and keyboard resizing persists it', 
     state.storage.setItem('webssh.workspace.contextWidth', '900');
 
     controller.init();
+    controller.openContext('notes', 'user');
 
     assert.equal(controller.getContextWidth(), 720);
     assert.equal(
@@ -304,6 +308,7 @@ test('legacy default width migrates to auto while custom widths stay manual', ()
 test('automatic width follows resize and double click resets manual width to auto', () => {
     const { controller, state, syncCalls } = createHarness(1280);
     controller.init();
+    controller.openContext('notes', 'user');
     assert.equal(controller.getContextWidth(), 420);
 
     state.setWidth(1920);

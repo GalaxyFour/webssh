@@ -1,6 +1,10 @@
 /* Shared shell for the command library and reusable command sets. */
 window.CommandWorkspace = {
-    activeSection: 'sets',
+    activeSection: 'library',
+
+    storageKey() {
+        return `webssh.commandSection.${document.body.dataset.connectionHistoryScope || 'local'}`;
+    },
 
     init() {
         const libraryTab = document.getElementById('commandLibraryTab');
@@ -21,7 +25,11 @@ window.CommandWorkspace = {
             this.select(this.activeSection === 'library' ? 'sets' : 'library', true);
         }));
 
-        this.select('sets');
+        try {
+            const stored = window.localStorage.getItem(this.storageKey());
+            if (['library', 'sets'].includes(stored)) this.activeSection = stored;
+        } catch { /* Storage is optional. */ }
+        this.select(this.activeSection);
     },
 
     open(section = this.activeSection, options = {}) {
@@ -42,6 +50,7 @@ window.CommandWorkspace = {
     select(section, focusContent = false) {
         const next = section === 'sets' ? 'sets' : 'library';
         this.activeSection = next;
+        try { window.localStorage.setItem(this.storageKey(), next); } catch { /* Storage is optional. */ }
 
         const pairs = [
             ['library', 'commandLibraryTab', 'commandLibraryPanel'],

@@ -789,15 +789,15 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(page.locator('#contextCommandsTab')).toBeEnabled();
     await expect(page.locator('#contextNotesTab')).toBeEnabled();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
-    await expect(page.locator('#contextWorkspaceLauncher')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceLauncher')).toBeVisible();
     await expect(page.locator('#mobileAppDock')).toBeVisible();
     await expect(page.locator('#mobileCommandToggle')).toBeVisible();
     await expect(page.locator('.split-controls')).toBeHidden();
 
     const terminalDock = page.locator('[data-mobile-view="workspaces"]');
-    const sftpDock = page.locator('[data-mobile-view="session-files"]');
-    const commandsDock = page.locator('[data-mobile-view="session-commands"]');
-    const metricsDock = page.locator('[data-mobile-view="session-diagnostics"]');
+    const sftpDock = page.locator('#contextFilesTab');
+    const commandsDock = page.locator('#contextCommandsTab');
+    const metricsDock = page.locator('#contextDiagnosticsTab');
     await expect(terminalDock).toContainText('Terminal');
     await expect(sftpDock).toContainText('Files');
     await expect(commandsDock).toContainText('Commands');
@@ -806,9 +806,10 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(commandsDock).toBeEnabled();
     await expect(metricsDock).toBeEnabled();
 
+    await page.locator('#contextWorkspaceLauncher').click();
     await sftpDock.click();
     await expect(page.locator('#sessionFilesPanel')).toBeVisible();
-    await expect(sftpDock).toHaveClass(/active/);
+    await expect(sftpDock).toHaveAttribute('aria-selected', 'true');
 
     await page.evaluate(() => {
         const manager = window.sftpFileManager;
@@ -849,7 +850,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(mobileLauncher).toBeVisible();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#mobileCommandToggle')).toBeDisabled();
-    await expect(commandsDock).toBeDisabled();
+    await expect(page.locator('[data-mobile-view="commands"]')).toBeEnabled();
     expect(await page.evaluate(() => ({
         interactive: SessionManager.getActiveSession(),
         workspace: SessionManager.getWorkspaceSession(),
@@ -863,6 +864,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
     });
     await mobileLauncher.locator('.profile-launcher-return').click();
     await expect(page.locator('.terminal-pane.active .xterm')).toBeVisible();
+    await page.locator('#contextWorkspaceLauncher').click();
     await sftpDock.click();
     await expect(page.locator('#sessionFilesPanel #fmLeftPath')).toHaveValue(
         '/srv/webssh/current',
@@ -913,7 +915,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
 
     await metricsDock.click();
     await expect(page.locator('#sessionDiagnosticsOverlay')).toBeVisible();
-    await expect(metricsDock).toHaveClass(/active/);
+    await expect(metricsDock).toHaveAttribute('aria-selected', 'true');
     await terminalDock.click();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#sessionDiagnosticsOverlay')).toBeHidden();
@@ -993,9 +995,10 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(page.locator('#headerButtons')).not.toHaveClass(/is-open/);
     await expect(page.locator('.main-content')).not.toHaveAttribute('inert', '');
     await expect(page.locator('#mobileMoreBtn')).toBeFocused();
+    await page.locator('#contextWorkspaceLauncher').click();
     await commandsDock.click();
     await expect(page.locator('#sessionCommandsPanel')).toBeVisible();
-    await expect(commandsDock).toHaveClass(/active/);
+    await expect(commandsDock).toHaveAttribute('aria-selected', 'true');
     await page.evaluate(() => window.showNotification(
         'Connected to testuser@host.example',
         'success',
@@ -1187,14 +1190,14 @@ test('desktop-to-mobile resize is not mistaken for an open virtual keyboard', as
     await expect(page.locator('header.header')).toBeVisible();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#contextNotesPanel')).toBeHidden();
-    await expect(page.locator('#contextWorkspaceLauncher')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceLauncher')).toBeVisible();
     await expect(page.locator('#mobileAppDock')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 
     await page.locator('#mobileMoreBtn').click();
     await page.locator('#mobileToolsAction').click();
     await expect(page.locator('#contextNotesPanel')).toBeVisible();
-    await expect(page.locator('#contextWorkspaceClose')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceClose')).toBeVisible();
     await page.locator('[data-mobile-view="workspaces"]').click();
     await expect(page.locator('#contextNotesPanel')).toBeHidden();
     await expect(page.locator('header.header')).toBeVisible();
@@ -1238,6 +1241,7 @@ test('desktop context width survives a page reload without affecting mobile layo
         localStorage.setItem('webssh.workspace.contextWidth', '512');
     });
     await page.reload();
+    await page.locator('#contextWorkspaceLauncher').click();
 
     await expect(page.locator('#contextWorkspace')).toBeVisible();
     await expect.poll(() => page.locator('#contextWorkspace').evaluate(
@@ -1260,6 +1264,7 @@ test('automatic context width follows live desktop resizes without a reload', as
         localStorage.removeItem('webssh.workspace.contextWidthMode');
     });
     await page.reload();
+    await page.locator('#contextWorkspaceLauncher').click();
 
     const contextWidth = () => page.locator('#contextWorkspace').evaluate(
         element => Math.round(element.getBoundingClientRect().width),
