@@ -33,10 +33,10 @@
                     <img class="app-brand-logo" src="{{ static_asset_url(filename='images/webssh-logo.svg') }}" alt="" aria-hidden="true">
                     <span><small data-i18n="brand.tagline">Your shell. Your rules.</small></span>
                 </a>
-                <button id="mobileSessionSummary" class="mobile-session-summary" type="button" disabled>
+                <button id="mobileSessionSummary" class="mobile-session-summary" type="button">
                     <span class="mobile-session-status" aria-hidden="true"></span>
-                    <span id="mobileSessionSummaryLabel" data-i18n="workspace.noActiveSession">No active session</span>
-                    <span class="material-icons" aria-hidden="true">expand_more</span>
+                    <span id="mobileSessionSummaryLabel">Quick Connect</span>
+                    <span id="mobileSessionSummaryIcon" class="material-icons" aria-hidden="true">add</span>
                 </button>
                 <button id="mobileMenuBtn" class="btn btn-secondary mobile-menu-btn" aria-label="Toggle menu" data-i18n-aria-label="navigation.toggleMenu" aria-expanded="false" aria-controls="headerButtons"><span class="material-icons" aria-hidden="true">more_vert</span></button>
             </div>
@@ -105,6 +105,7 @@
         <div class="session-tabs-row">
             <div class="session-tabs" id="sessionTabs"></div>
             <button class="btn-new-tab material-icons" id="newTabBtn" title="Select a session or use Quick Connect" data-i18n-title="panes.selectSession" aria-label="Select a session or use Quick Connect" data-i18n-aria-label="panes.selectSession">add</button>
+            <button class="context-workspace-launcher" id="contextWorkspaceLauncher" type="button" aria-expanded="false" aria-controls="contextWorkspace" aria-label="Open session tools" title="Open session tools" data-i18n-aria-label="workspace.openTools" data-i18n-title="workspace.openTools"><span class="material-icons" aria-hidden="true">tune</span><span data-i18n="workspace.tools">Tools</span></button>
             <div class="tab-row-actions">
                 <button class="tab-row-icon-btn" id="terminalAppearanceBtn" type="button" data-open-terminal-appearance title="Terminal appearance" aria-label="Terminal appearance" data-i18n-title="terminalAppearance.title" data-i18n-aria-label="terminalAppearance.title"><span class="material-icons" aria-hidden="true">palette</span></button>
                 <div class="split-controls" aria-label="Split layout" data-i18n-aria-label="panes.layout">
@@ -178,7 +179,6 @@
                 </div>
             </div>
 
-            <button class="context-workspace-launcher" id="contextWorkspaceLauncher" type="button" aria-expanded="false" aria-controls="contextWorkspace" aria-label="Open session tools" title="Open session tools" data-i18n-aria-label="workspace.openTools" data-i18n-title="workspace.openTools"><span class="material-icons" aria-hidden="true">dock_to_right</span><span data-i18n="workspace.tools">Tools</span></button>
             <button class="context-workspace-backdrop" id="contextWorkspaceBackdrop" type="button" aria-label="Close session tools" data-i18n-aria-label="workspace.closeTools" aria-hidden="true"></button>
             <aside class="context-workspace" id="contextWorkspace" aria-label="Session tools" data-i18n-aria-label="workspace.sessionTools" aria-hidden="true" hidden>
                 <div class="context-workspace-resizer" id="contextWorkspaceResizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize session tools" title="Drag to resize session tools" data-i18n-aria-label="workspace.resizeTools" data-i18n-title="workspace.resizeToolsHint"></div>
@@ -267,9 +267,9 @@
     </button>
     <nav class="mobile-app-dock" id="mobileAppDock" aria-label="Mobile navigation" data-i18n-aria-label="navigation.mobile">
         <button class="mobile-dock-item active" type="button" data-mobile-view="workspaces" aria-current="page"><span class="material-icons" aria-hidden="true">terminal</span><span data-i18n="navigation.terminal">Terminal</span></button>
-        <button class="mobile-dock-item" type="button" data-mobile-view="session-files" aria-controls="contextFilesPanel" disabled><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="workspaceContext.files">Files</span></button>
-        <button class="mobile-dock-item" type="button" data-mobile-view="session-commands" aria-controls="contextCommandsPanel" disabled><span class="material-icons" aria-hidden="true">terminal</span><span data-i18n="workspaceContext.commands">Commands</span></button>
-        <button class="mobile-dock-item" type="button" data-mobile-view="session-diagnostics" aria-controls="contextDiagnosticsPanel" disabled><span class="material-icons" aria-hidden="true">monitor_heart</span><span data-i18n="workspaceContext.diagnostics">Diagnostics</span></button>
+        <button class="mobile-dock-item" type="button" data-mobile-view="files"><span class="material-icons" aria-hidden="true">folder_open</span><span data-i18n="workspaceContext.files">Files</span></button>
+        <button class="mobile-dock-item" type="button" data-mobile-view="commands"><span class="material-icons" aria-hidden="true">code</span><span data-i18n="commands.workspace">Commands</span></button>
+        <button class="mobile-dock-item" type="button" data-mobile-view="hosts"><span class="material-icons" aria-hidden="true">dns</span><span data-i18n="connectionAssets.hosts">Hosts</span></button>
         <button class="mobile-dock-item" id="mobileMoreBtn" type="button" data-mobile-view="more" aria-expanded="false" aria-controls="headerButtons"><span class="material-icons" aria-hidden="true">more_horiz</span><span data-i18n="navigation.more">More</span></button>
     </nav>
 
@@ -719,6 +719,7 @@
                             <input type="search" id="profileSearchInput" class="form-control profile-management-search" data-i18n-placeholder="profiles.searchPlaceholder" placeholder="Search by name, host, user, or group">
                         </label>
                         <div class="management-panel-actions">
+                            <button type="button" id="profileDensityBtn" class="btn btn-secondary" aria-pressed="false" data-i18n="profiles.compact">Compact view</button>
                             <button type="button" id="collapseAllProfilesBtn" class="btn btn-secondary" data-i18n="profiles.collapseAll">Collapse all</button>
                             <button type="button" id="newProfileBtn" class="btn btn-primary" data-i18n="profiles.create">Create saved connection</button>
                         </div>
@@ -765,7 +766,7 @@
                             <label for="profileEditorAuthType" data-i18n="connection.authMethod">Authentication Method</label>
                             <select id="profileEditorAuthType" class="form-control">
                                 <option value="password" data-i18n="auth.password">Password</option>
-                                <option value="key" data-i18n="connection.sshKey">SSH Key</option>
+                                <option value="key" data-i18n="fm.qc.sshKey">SSH Key</option>
                                 {% if tailscale_ssh_allowed %}<option value="tailscale" data-i18n="connection.tailscaleSSH">Tailscale SSH</option>{% endif %}
                             </select>
                         </div>
@@ -793,14 +794,15 @@
                         </div>
                                 </section>
 
-                                <section id="profileAdvancedSettingsCard" class="manager-card" aria-labelledby="profileAdvancedSettingsTitle">
-                                    <div class="manager-card-header">
+                                <details id="profileAdvancedSettingsCard" class="manager-card profile-advanced-settings" aria-labelledby="profileAdvancedSettingsTitle">
+                                    <summary class="manager-card-header">
                                         <span class="material-icons" aria-hidden="true">tune</span>
                                         <div>
                                             <h3 id="profileAdvancedSettingsTitle" data-i18n="connection.advancedSettings">Advanced Settings</h3>
                                             <p data-i18n="connection.advancedSettingsHint">Jump host, post-connect actions, and persistence.</p>
                                         </div>
-                                    </div>
+                                        <span class="material-icons profile-advanced-chevron" aria-hidden="true">expand_more</span>
+                                    </summary>
                         <div class="form-group">
                             <label for="profileEditorJumpHostSelect" data-i18n="connection.jumpHost">Jump Host</label>
                             <select id="profileEditorJumpHostSelect" class="form-control"></select>
@@ -849,12 +851,13 @@
                             <div class="field-hint" data-i18n="session.persistentTmuxHint">Keeps terminal alive on the remote host even when you close the browser or server restarts. Reattaches to existing tmux session automatically.</div>
                         </div>
                         {% endif %}
-                                </section>
+                                </details>
                             </div>
                         </div>
                         <div class="form-actions profile-editor-actions">
                             <button type="button" id="cancelProfileEditorBtn" class="btn btn-secondary" data-i18n="common.cancel">Cancel</button>
-                            <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                            <button type="submit" class="btn btn-secondary" data-i18n="common.save">Save</button>
+                            <button type="submit" id="saveConnectProfileBtn" class="btn btn-primary" data-i18n="profiles.saveConnect">Save &amp; connect</button>
                         </div>
                     </form>
                 </section>

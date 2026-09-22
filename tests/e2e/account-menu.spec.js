@@ -84,7 +84,7 @@ test('account menu and settings stay inside a mobile viewport', async ({ page })
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
 
-    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileMoreBtn').click();
     await page.locator('#accountBtnHeader').click();
 
     const dropdown = page.locator('#accountDropdownHeader');

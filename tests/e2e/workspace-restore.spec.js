@@ -42,11 +42,12 @@ for (const transport of ['polling', 'websocket']) {
                 packets.length = 0;
                 await page.reload();
                 await expect(page.locator('.session-tab')).toHaveCount(count);
-                await page.locator(width < 768 ? '[data-mobile-view="session-commands"]' : '#contextCommandsTab').click();
+                if (width < 768) await page.locator('#contextWorkspaceLauncher').click();
+                await page.locator('#contextCommandsTab').click();
                 await expect(page.locator('.session-command-results')).toContainText('E2E command', { timeout: 4000 });
-                await page.locator(width < 768 ? '[data-mobile-view="session-files"]' : '#contextFilesTab').click();
+                await page.locator('#contextFilesTab').click();
                 await expect(page.locator('#sessionFilesMount')).toContainText('reload-proof.txt', { timeout: 4000 });
-                await page.locator(width < 768 ? '[data-mobile-view="session-diagnostics"]' : '#contextDiagnosticsTab').click();
+                await page.locator('#contextDiagnosticsTab').click();
                 await expect(page.locator('#sessionDiagnosticsOs')).toContainText('Reload fixture Linux', { timeout: 4000 });
                 expect(errors).toEqual([]);
                 expect(Math.max(0, ...packets.map(items => items.length))).toBeLessThanOrEqual(16);

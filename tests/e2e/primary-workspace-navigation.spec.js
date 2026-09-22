@@ -111,6 +111,8 @@ test('Hosts, File Manager, and Commands share the main surface while Workspaces 
     await expect(page.locator('#commandWorkspaceModal')).toBeVisible();
     await expect(page.locator('#commandWorkspaceModal')).toHaveAttribute('role', 'region');
     await expect(page.locator('#closeCommandWorkspaceModal')).toBeHidden();
+    await expect(page.locator('#commandLibraryPanel')).toBeVisible();
+    await page.locator('#commandSetsTab').click();
     await expect(page.locator('#commandSetsPanel .management-panel-heading h3')).toHaveText('Command Sets');
     await expect(page.locator('#commandSetsPanel .management-panel-heading p')).toHaveText(
         'Build reusable command sequences and assign one to any saved connection.',
@@ -178,9 +180,9 @@ test('Hosts, File Manager, and Commands share the main surface while Workspaces 
     );
     await expect(page.locator('[data-source-target="left"]')).toHaveAttribute(
         'title',
-        'Quelle öffnen',
+        'Verbindung auswählen',
     );
-    await expect(page.locator('#fmSourceLauncher')).toContainText('Gespeicherte SSH-Hosts');
+    await expect(page.locator('#fmSourceLauncher')).toContainText('Favoriten');
     expect(languageErrors).toEqual([]);
     await page.evaluate(() => window.i18n.setLanguage('en'));
     await page.keyboard.press('Escape');

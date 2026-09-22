@@ -140,7 +140,7 @@ async function restoreSshConnect(page) {
 
 async function openResponsiveHeader(page, target) {
     if (await target.isVisible()) return;
-    await page.locator('#mobileMenuBtn').click();
+    await page.locator('#mobileMoreBtn').click();
     await expect(target).toBeVisible();
 }
 

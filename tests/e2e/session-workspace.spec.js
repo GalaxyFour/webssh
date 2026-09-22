@@ -789,15 +789,15 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(page.locator('#contextCommandsTab')).toBeEnabled();
     await expect(page.locator('#contextNotesTab')).toBeEnabled();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
-    await expect(page.locator('#contextWorkspaceLauncher')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceLauncher')).toBeVisible();
     await expect(page.locator('#mobileAppDock')).toBeVisible();
     await expect(page.locator('#mobileCommandToggle')).toBeVisible();
     await expect(page.locator('.split-controls')).toBeHidden();
 
     const terminalDock = page.locator('[data-mobile-view="workspaces"]');
-    const sftpDock = page.locator('[data-mobile-view="session-files"]');
-    const commandsDock = page.locator('[data-mobile-view="session-commands"]');
-    const metricsDock = page.locator('[data-mobile-view="session-diagnostics"]');
+    const sftpDock = page.locator('#contextFilesTab');
+    const commandsDock = page.locator('#contextCommandsTab');
+    const metricsDock = page.locator('#contextDiagnosticsTab');
     await expect(terminalDock).toContainText('Terminal');
     await expect(sftpDock).toContainText('Files');
     await expect(commandsDock).toContainText('Commands');
@@ -806,9 +806,10 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(commandsDock).toBeEnabled();
     await expect(metricsDock).toBeEnabled();
 
+    await page.locator('#contextWorkspaceLauncher').click();
     await sftpDock.click();
     await expect(page.locator('#sessionFilesPanel')).toBeVisible();
-    await expect(sftpDock).toHaveClass(/active/);
+    await expect(sftpDock).toHaveAttribute('aria-selected', 'true');
 
     await page.evaluate(() => {
         const manager = window.sftpFileManager;
@@ -849,7 +850,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(mobileLauncher).toBeVisible();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#mobileCommandToggle')).toBeDisabled();
-    await expect(commandsDock).toBeDisabled();
+    await expect(page.locator('[data-mobile-view="commands"]')).toBeEnabled();
     expect(await page.evaluate(() => ({
         interactive: SessionManager.getActiveSession(),
         workspace: SessionManager.getWorkspaceSession(),
@@ -863,6 +864,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
     });
     await mobileLauncher.locator('.profile-launcher-return').click();
     await expect(page.locator('.terminal-pane.active .xterm')).toBeVisible();
+    await page.locator('#contextWorkspaceLauncher').click();
     await sftpDock.click();
     await expect(page.locator('#sessionFilesPanel #fmLeftPath')).toHaveValue(
         '/srv/webssh/current',
@@ -913,7 +915,7 @@ test('360px mobile workspace keeps tools available and preserves context across 
 
     await metricsDock.click();
     await expect(page.locator('#sessionDiagnosticsOverlay')).toBeVisible();
-    await expect(metricsDock).toHaveClass(/active/);
+    await expect(metricsDock).toHaveAttribute('aria-selected', 'true');
     await terminalDock.click();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#sessionDiagnosticsOverlay')).toBeHidden();
@@ -993,9 +995,10 @@ test('360px mobile workspace keeps tools available and preserves context across 
     await expect(page.locator('#headerButtons')).not.toHaveClass(/is-open/);
     await expect(page.locator('.main-content')).not.toHaveAttribute('inert', '');
     await expect(page.locator('#mobileMoreBtn')).toBeFocused();
+    await page.locator('#contextWorkspaceLauncher').click();
     await commandsDock.click();
     await expect(page.locator('#sessionCommandsPanel')).toBeVisible();
-    await expect(commandsDock).toHaveClass(/active/);
+    await expect(commandsDock).toHaveAttribute('aria-selected', 'true');
     await page.evaluate(() => window.showNotification(
         'Connected to testuser@host.example',
         'success',
@@ -1187,14 +1190,14 @@ test('desktop-to-mobile resize is not mistaken for an open virtual keyboard', as
     await expect(page.locator('header.header')).toBeVisible();
     await expect(page.locator('#contextWorkspace')).toBeHidden();
     await expect(page.locator('#contextNotesPanel')).toBeHidden();
-    await expect(page.locator('#contextWorkspaceLauncher')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceLauncher')).toBeVisible();
     await expect(page.locator('#mobileAppDock')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 
     await page.locator('#mobileMoreBtn').click();
     await page.locator('#mobileToolsAction').click();
     await expect(page.locator('#contextNotesPanel')).toBeVisible();
-    await expect(page.locator('#contextWorkspaceClose')).toBeHidden();
+    await expect(page.locator('#contextWorkspaceClose')).toBeVisible();
     await page.locator('[data-mobile-view="workspaces"]').click();
     await expect(page.locator('#contextNotesPanel')).toBeHidden();
     await expect(page.locator('header.header')).toBeVisible();
@@ -2799,4 +2802,27 @@ test('Files retains stale rows through a failed refresh and retry', async ({ pag
     await expect(page.locator('#sessionFilesStatus')).toBeHidden();
     await expect(page.locator('#sessionFilesMount .fm-embedded-mode')).not.toHaveAttribute('inert', '');
     await expect(rows).toHaveCount(5);
+});
+
+
+test.describe('mobile session header touch interaction', () => {
+    test.use({hasTouch: true, viewport: {width: 390, height: 844}});
+
+    test('header opens the session chooser from Commands and preserves the terminal', async ({page}) => {
+        await login(page);
+        await seedLinuxSession(page);
+        await page.locator('[data-mobile-view="commands"]').tap();
+        await expect(page.locator('#commandWorkspaceModal')).toBeVisible();
+        const summary = page.locator('#mobileSessionSummary');
+        await expect(summary).toBeEnabled();
+        await summary.tap();
+        await expect(page.locator('#commandWorkspaceModal')).toBeHidden();
+        const launcher = page.locator('.terminal-pane.active .profile-launcher');
+        await expect(launcher).toBeVisible();
+        await expect(launcher.locator('.profile-launcher-return')).toBeVisible();
+        await expect(page.locator('#sessionTabs .session-tab')).toHaveCount(1);
+        await launcher.locator('.profile-launcher-return').tap();
+        await expect(page.locator('.terminal-pane.active .xterm')).toBeVisible();
+        await assertNoExternalRequests(page);
+    });
 });

@@ -397,3 +397,45 @@ test('duplicate profile names are localized and remain within storage limit', ()
     assert.equal(bounded.length, 128);
     assert.equal(bounded.endsWith(' (Kopie)'), true);
 });
+
+test('profile editor reveals effective persistence and respects saved preferences', () => {
+    const utils = require('../../static/js/profile-launcher-utils.js');
+    const cases = [
+        {label: 'new host with persistence default', defaultTmux: true, checked: true, open: true},
+        {label: 'new host without persistence default', defaultTmux: false, checked: false, open: false},
+        {label: 'saved opt-out overrides deployment default', defaultTmux: true,
+            profile: {id: 'saved', use_tmux: false}, checked: false, open: false},
+        {label: 'duplicate keeps saved persistence', defaultTmux: false,
+            profile: {id: 'saved', use_tmux: true}, duplicate: true, checked: true, open: true},
+        {label: 'startup commands still reveal advanced settings', defaultTmux: false,
+            profile: {id: 'saved', startup_mode: 'free_text', startup_commands: 'pwd'},
+            checked: false, open: true},
+        {label: 'deployment without tmux controls', tmuxEnabled: false, open: false},
+    ];
+    for (const scenario of cases) {
+        const elements = new Map();
+        const document = {getElementById(id) {
+            if (id === 'profileEditorUseTmux' && scenario.tmuxEnabled === false) return null;
+            if (!elements.has(id)) elements.set(id, {
+                value: '', checked: false, open: true,
+                dataset: {default: String(scenario.defaultTmux)},
+                classList: {add() {}, remove() {}}, reset() {}, focus() {},
+            });
+            return elements.get(id);
+        }};
+        const manager = loadProfileManager({document, window: {ProfileLauncherUtils: utils}});
+        manager.renderEditorSelects = () => {};
+        manager.setInlineKeyPanelExpanded = () => {};
+        manager.updateEditorVisibility = () => {};
+        manager.profiles = scenario.profile ? [scenario.profile] : [];
+
+        manager.openEditor(scenario.profile?.id, {duplicate: scenario.duplicate});
+
+        assert.equal(document.getElementById('profileAdvancedSettingsCard').open,
+            scenario.open, scenario.label);
+        if (scenario.tmuxEnabled !== false) {
+            assert.equal(document.getElementById('profileEditorUseTmux').checked,
+                scenario.checked, scenario.label);
+        }
+    }
+});

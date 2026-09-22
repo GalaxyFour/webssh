@@ -20,12 +20,13 @@ test('keeps saved-connection actions visible while its form scrolls', async ({ p
     await page.locator('#newProfileBtn').click();
     await page.locator('#profileEditorAuthType').selectOption('key');
     await page.locator('#profileEditorAddKeyBtn').click();
+    await page.locator('#profileAdvancedSettingsCard > summary').click();
     await page.locator('#profileEditorPostConnectMode').selectOption('free_text');
 
     await expect(page.locator('#profileConnectionDetailsCard')).toBeVisible();
     await expect(page.locator('#profileAdvancedSettingsCard')).toBeVisible();
     await expect(page.locator('#cancelProfileEditorBtn')).toBeVisible();
-    await expect(page.locator('#profileEditorForm button[type="submit"]')).toBeVisible();
+    await expect(page.locator('#saveConnectProfileBtn')).toBeVisible();
 
     const before = await page.locator('#profileEditorForm').evaluate(form => {
         const scroller = form.querySelector('.profile-editor-scroll-region');
