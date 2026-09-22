@@ -19,6 +19,18 @@ def test_parse_real_directory(path):
     }
 
 
+@pytest.mark.parametrize('flag,expected', [('0', False), ('1', True)])
+def test_parse_tmux_pane_prompt_mode(flag, expected):
+    result = directory.parse_directory(f'webssh-directory\0{42}\0{1}\0bash\0/tmp\0{flag}\0'.encode())
+    assert result['bracketed_paste'] is expected
+
+
+@pytest.mark.parametrize('flag', ['', '2', 'true', '1\0extra'])
+def test_reject_invalid_tmux_pane_prompt_mode(flag):
+    with pytest.raises(ValueError):
+        directory.parse_directory(f'webssh-directory\0{42}\0{1}\0bash\0/tmp\0{flag}\0'.encode())
+
+
 @pytest.mark.parametrize('payload', [
     b'garbage', b'webssh-directory\x0042\x002\x00bash\x00/tmp\x00',
     b'webssh-directory\x000\x001\x00bash\x00/tmp\x00',
@@ -40,6 +52,7 @@ def test_exec_is_explicit_and_tmux_target_is_quoted():
     assert "tmux display-message -p -t '=name'\"'\"'; touch /tmp/nope:'" in script
     assert 'pane_in_mode' in script
     assert 'alternate_on' in script
+    assert 'bracket_paste_flag' in script
 
 
 class Channel:

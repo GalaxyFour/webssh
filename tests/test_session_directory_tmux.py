@@ -42,7 +42,8 @@ def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_p
 
     def ready_at(path):
         result = probe()
-        return result and result['shell_ready'] and result['path'] == str(path)
+        return (result and result['shell_ready'] and result['bracketed_paste']
+                and result['path'] == str(path))
 
     run('new-session', '-d', '-s', 'sync', '-c', str(tmp_path), 'bash --noprofile --norc')
     try:
@@ -52,6 +53,25 @@ def test_tmux_probe_follows_folders_and_rejects_copy_and_application_modes(tmp_p
             folder.mkdir()
             send('cd -- ' + shlex.quote(str(folder)))
             until(lambda: ready_at(folder))
+
+        # A foreground shell alone is insufficient while a prompt hook runs.
+        # Keep a builtin-only hook in bash's own process group, not a child job.
+        prompt_hook = 'until [[ -e ' + shlex.quote(str(tmp_path / 'release-prompt')) + ' ]]; do :; done'
+        send('PROMPT_COMMAND=' + shlex.quote(prompt_hook))
+        until(lambda: (result := probe()) is not None
+              and result['shell_ready'] and not result['bracketed_paste'])
+        (tmp_path / 'release-prompt').touch()
+        until(lambda: ready_at(folder))
+        send('unset PROMPT_COMMAND')
+        until(lambda: ready_at(folder))
+
+        send('pwd')
+        until(lambda: ready_at(folder))
+        run('send-keys', '-t', '=sync:', '-l', 'echo unfinished')
+        # The remote mode alone cannot distinguish a partially typed line.
+        assert probe()['bracketed_paste'] is True
+        run('send-keys', '-t', '=sync:', 'C-c')
+        until(lambda: ready_at(folder))
 
         run('copy-mode', '-t', '=sync:')
         assert probe() is None

@@ -29,7 +29,7 @@
     }
 
     function trackTerminal(sessionId, terminal) {
-        const state = { dirty: true, version: 0, terminal };
+        const state = { dirty: true, version: 0, terminal, pasting: false, submitted: false, submitOutput: false };
         inputs.set(sessionId, state);
         // Readline/ZLE announce the start of an editable prompt with DEC 2004.
         // Return false so xterm still handles the mode itself. An alternate
@@ -39,6 +39,17 @@
             return false;
         });
         const inputDisposable = terminal.onData(data => noteInput(sessionId, data));
+        // tmux may combine readline's disable/enable into no outer mode change.
+        // A submitted line must produce live output before a fresh pane probe
+        // may acknowledge it. Status redraws alone do not count as a new line.
+        const lineDisposable = terminal.onLineFeed?.(() => {
+            if (state.submitted && !state.submitOutput && !state.replayDepth) {
+                state.submitOutput = true;
+                // A probe started before this output cannot attest to the
+                // prompt after it. Require a new snapshot for navigation.
+                state.version += 1;
+            }
+        });
         const oscDisposable = terminal.parser.registerOscHandler?.(7, data => {
             const location = parseOsc7(data);
             if (!location || state.replayDepth
@@ -50,6 +61,7 @@
             dispose() {
                 promptDisposable?.dispose?.();
                 inputDisposable?.dispose?.();
+                lineDisposable?.dispose?.();
                 oscDisposable?.dispose?.();
                 if (inputs.get(sessionId) === state) inputs.delete(sessionId);
             },
@@ -59,7 +71,14 @@
     function noteInput(sessionId, data) {
         if (!data || /^\x1b\[[?>]?[0-9;]*c$/.test(data)) return;
         const state = inputs.get(sessionId);
-        if (state) { state.dirty = true; state.version += 1; }
+        if (state) {
+            state.dirty = true;
+            state.version += 1;
+            if (data.includes('\x1b[200~')) state.pasting = true;
+            if (data.includes('\x1b[201~')) state.pasting = false;
+            state.submitted = !state.pasting && ['\r', '\n', '\x03'].includes(data);
+            state.submitOutput = false;
+        }
     }
 
     function beginReplay(sessionId) {
@@ -68,6 +87,7 @@
         state.replayDepth = (state.replayDepth || 0) + 1;
         state.dirty = true;
         state.version += 1;
+        state.submitted = state.submitOutput = false;
     }
 
     function endReplay(sessionId) {
@@ -81,8 +101,13 @@
 
     function canSend(sessionId, directory = null) {
         const state = inputs.get(sessionId);
+        if (!state || state.replayDepth) return false;
+        if (directory?.tmux === true) {
+            return Boolean(directory.shell_ready && directory.bracketed_paste === true
+                && (!state.dirty || (state.submitted && state.submitOutput)));
+        }
         return Boolean(state && !state.dirty
-            && (state.terminal.buffer.active.type === 'normal' || directory?.tmux === true)
+            && state.terminal.buffer.active.type === 'normal'
             && state.terminal.modes.bracketedPasteMode);
     }
 
@@ -249,7 +274,8 @@
                 }
                 if (awaitingChange) {
                     awaitingChange.polls += 1;
-                    if (next.tmux === true && next.shell_ready && next.path !== awaitingChange.previous
+                    if (next.tmux === true && next.bracketed_paste === true
+                            && next.shell_ready && next.path !== awaitingChange.previous
                             && next.shell_id === awaitingChange.shellId
                             && awaitingChange.version === inputVersion(sessionId)
                             && !options.hasPendingInput?.(sessionId)) {
