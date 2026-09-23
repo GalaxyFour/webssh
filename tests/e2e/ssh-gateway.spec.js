@@ -53,6 +53,9 @@ test('ordinary passwords stay required and gateway passwords can be empty', asyn
     await page.locator('#hostInput').fill('example.com');
     await page.locator('#usernameInput').fill('ordinary');
     await expect(page.locator('#passwordHint')).toHaveText('');
+    await page.locator('#authTypeSelect').selectOption('key');
+    await page.locator('#authTypeSelect').selectOption('password');
+    await expect(page.locator('#passwordInput')).toHaveJSProperty('required', true);
     await page.evaluate(() => {
         window.__ordinaryConnects = [];
         const original = window.socket.emit.bind(window.socket);
@@ -88,6 +91,94 @@ test('ordinary passwords stay required and gateway passwords can be empty', asyn
     await page.locator('#connectBtn').click();
     expect(await page.evaluate(() => window.__ordinaryConnects.map(data => data.username))).toEqual(['ordinary']);
     assertNoExternalRequests(page);
+});
+
+test('concurrent gateway prompts restore the pending terminal and its input routing', async ({page}) => {
+    await login(page);
+    await page.evaluate(() => {
+        window.__gatewayInputs = [];
+        const original = window.socket.emit.bind(window.socket);
+        window.socket.emit = (event, data, ack) => {
+            if (event === 'ssh_gateway_input') {
+                window.__gatewayInputs.push(data);
+                return;
+            }
+            return original(event, data, ack);
+        };
+        const dispatch = (event, data) => window.socket.listeners(event).forEach(fn => fn(data));
+        for (const id of ['first', 'second']) {
+            window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: id}, id === 'second');
+            dispatch('ssh_gateway_progress', {client_request_id: id, phase: 'setup'});
+        }
+        dispatch('quick_connect_error', {client_request_id: 'second', error: 'Cancelled'});
+    });
+    const modal = page.locator('#sshGatewayModal');
+    await expect(modal).toHaveClass(/show/);
+    await expect(modal.locator('.xterm')).toHaveCount(1);
+    await modal.locator('.xterm-helper-textarea').press('y');
+    await expect.poll(() => page.evaluate(() => window.__gatewayInputs)).toEqual([
+        {client_request_id: 'first', data: 'y'},
+    ]);
+    await page.evaluate(() => window.SSHGatewayDialog.close('first'));
+    await expect(modal).not.toHaveClass(/show/);
+    await expect(modal.locator('.xterm')).toHaveCount(0);
+});
+
+test('concurrent gateway challenges keep their answers scoped and clear on disconnect', async ({page}) => {
+    await login(page);
+    await page.evaluate(() => {
+        window.__answers = [];
+        const original = window.socket.emit.bind(window.socket);
+        window.socket.emit = (event, data, ack) => {
+            if (event === 'ssh_gateway_answer') {
+                window.__answers.push(data);
+                ack?.({success: true});
+                return;
+            }
+            return original(event, data, ack);
+        };
+        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'first'});
+        window.socket.listeners('ssh_gateway_challenge').forEach(fn => fn({
+            client_request_id: 'first', challenge_id: 'first-otp', prompts: [{label: 'First OTP'}],
+        }));
+    });
+    const modal = page.locator('#sshGatewayModal');
+    await modal.locator('input').fill('123456');
+    await page.evaluate(() => {
+        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'second'});
+        window.socket.listeners('ssh_gateway_challenge').forEach(fn => fn({
+            client_request_id: 'second', challenge_id: 'second-otp', prompts: [{label: 'Second OTP'}],
+        }));
+    });
+    await expect(modal.locator('input')).toHaveValue('');
+    await page.evaluate(() => window.SSHGatewayDialog.close('second'));
+    await expect(modal.locator('input')).toHaveValue('123456');
+    await modal.locator('button[type=submit]').click();
+    expect(await page.evaluate(() => window.__answers)).toEqual([
+        {client_request_id: 'first', challenge_id: 'first-otp', answers: ['123456']},
+    ]);
+    await page.evaluate(() => window.socket.listeners('disconnect').forEach(fn => fn('transport close')));
+    await expect(modal).not.toHaveClass(/show/);
+    await expect(modal.locator('input')).toHaveCount(0);
+    expect(await page.evaluate(() => window.SSHGatewayDialog.has('first'))).toBe(false);
+});
+
+test('gateway backdrop click preserves the prompt and its cancel action', async ({page}) => {
+    await login(page);
+    await page.evaluate(() => {
+        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'backdrop'});
+        window.socket.listeners('ssh_gateway_challenge').forEach(fn => fn({
+            client_request_id: 'backdrop', challenge_id: 'otp', prompts: [{label: 'OTP'}],
+        }));
+    });
+    const modal = page.locator('#sshGatewayModal');
+    await modal.locator('input').fill('123456');
+    await modal.click({position: {x: 2, y: 2}});
+    await expect(modal).toHaveClass(/show/);
+    await expect(modal.locator('input')).toHaveValue('123456');
+    await expect(modal.locator('.btn-secondary')).toBeVisible();
+    await page.evaluate(() => window.SSHGatewayDialog.close('backdrop'));
+    await expect(modal.locator('input')).toHaveCount(0);
 });
 
 

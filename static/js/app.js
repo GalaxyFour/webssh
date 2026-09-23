@@ -2103,7 +2103,10 @@
             hint(userInput, userHint,
                 validation.isValidUsername(userInput.value, authTypeSelect?.value !== 'tailscale'), 'validation.username');
             const gateway = validation.isGateway(userInput.value);
-            if (gateway || gatewayPasswordMode) validatePassword();
+            if (gateway || gatewayPasswordMode) {
+                if (passwordInput) passwordInput.required = authTypeSelect?.value === 'password' && !gateway;
+                validatePassword();
+            }
             gatewayPasswordMode = gateway;
         };
         hostInput.addEventListener('input', validateHost);
@@ -2946,7 +2949,7 @@
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
                 if (e.target.classList.contains('primary-workspace-view')) return;
-                if (e.target.id === 'sshAuthBannerModal') return;
+                if (e.target.id === 'sshAuthBannerModal' || e.target.id === 'sshGatewayModal') return;
                 if (e.target.id === 'connectionModal') {
                     dismissConnectionModal();
                     return;

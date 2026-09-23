@@ -17,11 +17,14 @@
         const attempt = attempts.get(id);
         if (!attempt) return;
         attempt.terminal?.dispose();
+        attempt.content?.replaceChildren();
         attempts.delete(id);
         if (active === id) {
             window.ModalManager.close(modal);
             content.replaceChildren();
             active = null;
+            const next = [...attempts].find(([, pending]) => pending.content);
+            if (next) open(next[0]);
         }
     }
     function cancel() {
@@ -41,13 +44,17 @@
             });
     }
     function open(id) {
-        if (!attempts.has(id)) return null;
+        const attempt = attempts.get(id);
+        if (!attempt) return null;
+        attempt.content ||= element('div');
         if (active !== id) {
-            content.replaceChildren();
+            content.replaceChildren(attempt.content);
             active = id;
         }
         window.ModalManager.open(modal);
-        return attempts.get(id);
+        attempt.terminal?.focus();
+        attempt.content.querySelector('input, button')?.focus();
+        return attempt;
     }
     function appendInstructions(parent, text) {
         // Server text remains text; only explicit HTTP(S) links are clickable.
@@ -71,6 +78,7 @@
     function challenge(data) {
         const attempt = open(data?.client_request_id);
         if (!attempt || !Array.isArray(data.prompts) || data.prompts.length > 8) return;
+        const content = attempt.content;
         content.replaceChildren();
         content.append(element('h3', data.title || t('gateway.authentication', 'Gateway authentication')));
         appendInstructions(content, data.instructions || '');
@@ -112,6 +120,7 @@
     function setup(data) {
         const attempt = open(data?.client_request_id);
         if (!attempt || attempt.terminal) return;
+        const content = attempt.content;
         content.replaceChildren();
         content.append(element('p', t('gateway.target', 'Waiting for target access. Review gateway prompts below.')));
         const terminalNode = element('div');
