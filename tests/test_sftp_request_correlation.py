@@ -229,10 +229,10 @@ def test_cancel_directory_listing_does_not_reveal_invalid_or_missing_state(
 
 
 def test_socket_disconnect_discards_only_its_directory_snapshots(monkeypatch):
-    from app.ssh_gateway_interaction import GatewayRegistry
+    from app.ssh_connection_attempt import SSHAttemptRegistry
     monkeypatch.setattr(
         socket_events, 'current_app',
-        SimpleNamespace(extensions={'ssh_gateway_registry': GatewayRegistry()}),
+        SimpleNamespace(extensions={'ssh_attempt_registry': SSHAttemptRegistry()}),
     )
     discarded = []
 

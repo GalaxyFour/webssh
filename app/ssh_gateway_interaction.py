@@ -1,10 +1,9 @@
 """Bounded, socket-owned gateway interactions. No credentials are persisted."""
 from collections import deque
 import secrets
-import threading
 import time
 
-from .quota_manager import QuotaKind, quota_manager
+from .ssh_connection_attempt import SSHConnectionAttempt
 
 
 class GatewayCancelled(ValueError):
@@ -12,21 +11,16 @@ class GatewayCancelled(ValueError):
         super().__init__("Gateway connection cancelled or timed out")
 
 
-class GatewayAttempt:
-    def __init__(self, user_id, sid, request_id, emit, *, reservation=None):
-        self.user_id = str(user_id)
-        self.sid = sid
-        self.request_id = request_id
+class GatewayAttempt(SSHConnectionAttempt):
+    """Gateway-specific MFA and setup I/O on the shared SSH lifecycle."""
+
+    timeout = 300
+    cancellation_error = GatewayCancelled
+
+    def __init__(self, user_id, sid, request_id, emit, *,
+                 reservation=None, kind='terminal'):
         self.emit = emit
-        self.reservation = reservation
-        self.deadline = time.monotonic() + 300
         self.auth_deadline = time.monotonic() + 180
-        self.condition = threading.Condition(threading.RLock())
-        self.cancelled = False
-        self.cancel_reason = None
-        self.committed = False
-        self.finished = False
-        self.resources = []
         self.prompt = None
         self.responses = None
         self.phase = "auth"
@@ -35,32 +29,20 @@ class GatewayAttempt:
         self.output_bytes = 0
         self.sequence = 0
         self.unacked = {}
-        self.guard = threading.Timer(300, self.cancel, kwargs={"reason": "timeout"})
-        self.guard.daemon = True
-        self.guard.start()
+        super().__init__(
+            user_id, sid, request_id, reservation=reservation, kind=kind,
+        )
 
     def check(self):
         with self.condition:
-            if (self.cancelled or self.finished or (not self.committed and (
-                    time.monotonic() >= self.deadline or
-                    (self.phase == 'auth' and time.monotonic() >= self.auth_deadline)))):
+            super().check()
+            if (not self.committed and self.phase == 'auth'
+                    and time.monotonic() >= self.auth_deadline):
                 raise GatewayCancelled()
 
-    def own(self, resource):
-        with self.condition:
-            if not self.cancelled and not self.finished and time.monotonic() < self.deadline:
-                if resource not in self.resources:
-                    self.resources.append(resource)
-                return resource
-        resource.close()
-        raise GatewayCancelled()
-
-    def handoff(self, *resources):
-        with self.condition:
-            self.check()
-            for resource in resources:
-                if resource in self.resources:
-                    self.resources.remove(resource)
+    def _clear_pending(self):
+        self.responses = None
+        self.inputs.clear()
 
     def send(self, event, **data):
         self.emit(event, {"client_request_id": self.request_id, **data})
@@ -170,81 +152,3 @@ class GatewayAttempt:
             del self.unacked[sequence]
             self.condition.notify_all()
             return True
-
-    def cancel(self, *, reason="user"):
-        with self.condition:
-            if self.committed and reason not in ("finished", "disconnected", "shutdown"):
-                return False
-            if self.cancel_reason is None:
-                self.cancel_reason = reason
-            self.cancelled = True
-            self.responses = None
-            resources, self.resources = self.resources, []
-            self.inputs.clear()
-            self.condition.notify_all()
-        # Paramiko close may take locks: never close under the registry lock.
-        for resource in reversed(resources):
-            try:
-                resource.close()
-            except Exception:
-                pass
-        return True
-
-    def finish(self):
-        self.guard.cancel()
-        self.cancel(reason="finished")
-        with self.condition:
-            if self.finished:
-                return
-            self.finished = True
-        if self.reservation is not None:
-            self.reservation.release()
-
-
-class GatewayRegistry:
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.attempts = {}
-        self.stopping = False
-
-    def create(self, user_id, sid, request_id, emit):
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
-            raise ValueError("Gateway request ID is required")
-        key = (str(user_id), sid, request_id)
-        with self.lock:
-            if self.stopping or key in self.attempts:
-                raise ValueError("Gateway request is unavailable")
-            reservation = quota_manager.reserve(QuotaKind.BACKGROUND_JOB, user_id)
-            try:
-                attempt = GatewayAttempt(user_id, sid, request_id, emit, reservation=reservation)
-                self.attempts[key] = attempt
-                return attempt
-            except Exception:
-                reservation.release()
-                raise
-
-    def get(self, user_id, sid, request_id):
-        if not isinstance(request_id, str):
-            return None
-        with self.lock:
-            return self.attempts.get((str(user_id), sid, request_id))
-
-    def finish(self, attempt):
-        attempt.finish()
-        key = (attempt.user_id, attempt.sid, attempt.request_id)
-        with self.lock:
-            if self.attempts.get(key) is attempt:
-                del self.attempts[key]
-
-    def cancel_socket(self, sid):
-        with self.lock:
-            attempts = [a for a in self.attempts.values() if a.sid == sid]
-        for attempt in attempts:
-            attempt.cancel(reason="disconnected")
-
-    def shutdown(self):
-        with self.lock:
-            self.stopping = True
-            attempts = list(self.attempts.values())
-        for attempt in attempts:
-            attempt.cancel(reason="shutdown")

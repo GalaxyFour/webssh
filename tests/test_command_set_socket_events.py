@@ -815,15 +815,11 @@ def test_ssh_connect_cancel_signals_only_the_matching_background_job(
     assert acknowledgement == {'success': True, 'cancelled': True}
     assert completed.wait(2)
     assert not any(event in {'ssh_connected', 'ssh_error'} for event, _ in emitted)
-    attempt_key = (str(_user_id), sid, 'cancel-this-request')
+    registry = app.extensions['ssh_attempt_registry']
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        with socket_events._ssh_connect_attempts_lock:
-            if attempt_key not in socket_events._ssh_connect_attempts:
-                break
+    while registry.get(_user_id, sid, 'cancel-this-request') is not None and time.monotonic() < deadline:
         time.sleep(0.01)
-    with socket_events._ssh_connect_attempts_lock:
-        assert attempt_key not in socket_events._ssh_connect_attempts
+    assert registry.get(_user_id, sid, 'cancel-this-request') is None
 
 
 def test_ssh_connect_cancel_is_scoped_to_user_socket_request_and_banner(app):
@@ -845,24 +841,15 @@ def test_ssh_connect_cancel_is_scoped_to_user_socket_request_and_banner(app):
 
     target_request = 'target-request'
     other_request = 'other-request'
+    registry = app.extensions['ssh_attempt_registry']
     attempt_cases = {
-        'matching': (
-            (str(user_id), sid, target_request),
-            {'cancel_event': threading.Event(), 'handle': RecordingHandle()},
-        ),
-        'other_request': (
-            (str(user_id), sid, other_request),
-            {'cancel_event': threading.Event(), 'handle': RecordingHandle()},
-        ),
-        'other_socket': (
-            (str(user_id), other_sid, target_request),
-            {'cancel_event': threading.Event(), 'handle': RecordingHandle()},
-        ),
-        'other_user': (
-            (str(other_user_id), sid, target_request),
-            {'cancel_event': threading.Event(), 'handle': RecordingHandle()},
-        ),
+        'matching': registry.create(user_id, sid, target_request),
+        'other_request': registry.create(user_id, sid, other_request),
+        'other_socket': registry.create(user_id, other_sid, target_request),
+        'other_user': registry.create(other_user_id, sid, target_request),
     }
+    for attempt in attempt_cases.values():
+        attempt.attach_handle(RecordingHandle())
     banner_cases = {
         'matching-banner': {
             'event': threading.Event(),
@@ -893,13 +880,8 @@ def test_ssh_connect_cancel_is_scoped_to_user_socket_request_and_banner(app):
             'client_request_id': target_request,
         },
     }
-    attempt_keys = [case[0] for case in attempt_cases.values()]
     banner_ids = list(banner_cases)
 
-    with socket_events._ssh_connect_attempts_lock:
-        socket_events._ssh_connect_attempts.update(
-            dict(attempt_cases.values())
-        )
     with socket_events._ssh_banner_prompts_lock:
         socket_events._ssh_banner_prompts.update(banner_cases)
     try:
@@ -910,13 +892,13 @@ def test_ssh_connect_cancel_is_scoped_to_user_socket_request_and_banner(app):
             })
 
         assert acknowledgement == {'success': True, 'cancelled': True}
-        matching_attempt = attempt_cases['matching'][1]
-        assert matching_attempt['cancel_event'].is_set()
-        assert matching_attempt['handle'].cancel_calls == 1
+        matching_attempt = attempt_cases['matching']
+        assert matching_attempt.cancel_event.is_set()
+        assert matching_attempt.handle.cancel_calls == 1
         for name in ('other_request', 'other_socket', 'other_user'):
-            attempt = attempt_cases[name][1]
-            assert not attempt['cancel_event'].is_set()
-            assert attempt['handle'].cancel_calls == 0
+            attempt = attempt_cases[name]
+            assert not attempt.cancel_event.is_set()
+            assert attempt.handle.cancel_calls == 0
 
         matching_banner = banner_cases['matching-banner']
         assert matching_banner['event'].is_set()
@@ -930,9 +912,8 @@ def test_ssh_connect_cancel_is_scoped_to_user_socket_request_and_banner(app):
             assert not banner['event'].is_set()
             assert banner['accepted'] is True
     finally:
-        with socket_events._ssh_connect_attempts_lock:
-            for attempt_key in attempt_keys:
-                socket_events._ssh_connect_attempts.pop(attempt_key, None)
+        for attempt in attempt_cases.values():
+            registry.finish(attempt)
         with socket_events._ssh_banner_prompts_lock:
             for prompt_id in banner_ids:
                 socket_events._ssh_banner_prompts.pop(prompt_id, None)
@@ -953,15 +934,10 @@ def test_ssh_connect_cancel_rejects_an_already_committed_attempt(app):
             self.cancel_calls += 1
 
     request_id = 'committed-request'
-    attempt_key = (str(user_id), sid, request_id)
-    attempt = {
-        'cancel_event': threading.Event(),
-        'commit_lock': threading.Lock(),
-        'handle': RecordingHandle(),
-        'state': 'committed',
-    }
-    with socket_events._ssh_connect_attempts_lock:
-        socket_events._ssh_connect_attempts[attempt_key] = attempt
+    registry = app.extensions['ssh_attempt_registry']
+    attempt = registry.create(user_id, sid, request_id)
+    attempt.attach_handle(RecordingHandle())
+    assert attempt.commit_if_active()
     try:
         with app.test_request_context('/socket.io'):
             request.sid = sid
@@ -974,11 +950,10 @@ def test_ssh_connect_cancel_rejects_an_already_committed_attempt(app):
             'cancelled': False,
             'reason': 'already_committed',
         }
-        assert not attempt['cancel_event'].is_set()
-        assert attempt['handle'].cancel_calls == 0
+        assert not attempt.cancel_event.is_set()
+        assert attempt.handle.cancel_calls == 0
     finally:
-        with socket_events._ssh_connect_attempts_lock:
-            socket_events._ssh_connect_attempts.pop(attempt_key, None)
+        registry.finish(attempt)
 
 
 def test_cancelled_tmux_reconnect_preserves_existing_remote_session(

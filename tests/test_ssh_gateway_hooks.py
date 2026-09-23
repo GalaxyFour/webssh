@@ -95,7 +95,7 @@ def test_gateway_quick_internal_cancellation_emits_terminal_error(app, monkeypat
     _, sid = create_socket_user(app, "gateway_internal_" + reason)
     done = threading.Event()
     events = []
-    registry = app.extensions["ssh_gateway_registry"]
+    registry = app.extensions["ssh_attempt_registry"]
     original_finish = registry.finish
     def finish(attempt):
         original_finish(attempt)
@@ -124,7 +124,7 @@ def test_terminal_gateway_timeout_emits_one_correlated_error(app, monkeypatch):
     _, sid = create_socket_user(app, "gateway_terminal_timeout")
     done = threading.Event()
     events = []
-    registry = app.extensions["ssh_gateway_registry"]
+    registry = app.extensions["ssh_attempt_registry"]
     original_finish = registry.finish
     def finish(attempt):
         original_finish(attempt)
@@ -143,3 +143,55 @@ def test_terminal_gateway_timeout_emits_one_correlated_error(app, monkeypatch):
     assert errors[0]["client_request_id"] == "terminal-timeout"
     assert not any(name == "ssh_connected" for name, _ in events)
     assert not registry.attempts
+
+@pytest.mark.usefixtures('direct_socket_authentication')
+@pytest.mark.parametrize('gateway', [False, True])
+def test_rejected_connect_job_releases_attempt_and_admission(app, monkeypatch, gateway):
+    from app import socket_events, ssh_manager
+    from app import ssh_connection_attempt
+    from app.quota_manager import QuotaKind, QuotaManager
+    from tests.test_command_set_socket_events import create_socket_user, call_socket_handler
+    user_id, sid = create_socket_user(app, 'job_rejected_' + str(gateway))
+    registry = app.extensions['ssh_attempt_registry']
+    quotas = QuotaManager({kind: {'global': 2, 'per_user': 1} for kind in QuotaKind})
+    monkeypatch.setattr(ssh_connection_attempt, 'quota_manager', quotas)
+
+    def reject(*args, **kwargs):
+        raise RuntimeError('runtime stopped')
+
+    monkeypatch.setattr(app.extensions['runtime_lifecycle'], 'start_job', reject)
+    monkeypatch.setattr(ssh_manager, 'create_ssh_connection',
+                        lambda **kwargs: pytest.fail('network work after rejection'))
+    _, events = call_socket_handler(app, monkeypatch, socket_events.handle_ssh_connect, sid, {
+        'host': 'host', 'username': 'u:t' if gateway else 'u', 'password': 'synthetic',
+        'client_request_id': 'rejected', 'gateway_interaction': 1,
+    })
+    assert registry.get(user_id, sid, 'rejected') is None
+    # The same user's only slot must be available again after job rejection.
+    reservation = quotas.reserve(QuotaKind.BACKGROUND_JOB, user_id)
+    reservation.release()
+    errors = [data for name, data in events if name == 'ssh_error']
+    assert len(errors) == 1
+    assert errors[0]['client_request_id'] == 'rejected'
+
+
+@pytest.mark.usefixtures('direct_socket_authentication')
+def test_gateway_events_cannot_mutate_an_ordinary_ssh_attempt(app, monkeypatch):
+    from app import socket_events
+    from tests.test_command_set_socket_events import create_socket_user, call_socket_handler
+    user_id, sid = create_socket_user(app, 'ordinary_gateway_events')
+    registry = app.extensions['ssh_attempt_registry']
+    attempt = registry.create(user_id, sid, 'ordinary')
+    try:
+        for handler in (socket_events.handle_gateway_answer, socket_events.handle_gateway_input,
+                        socket_events.handle_gateway_quick_cancel):
+            response, _ = call_socket_handler(app, monkeypatch, handler, sid, {
+                'client_request_id': 'ordinary', 'challenge_id': 'x', 'answers': ['x'], 'data': 'x',
+            })
+            assert response['success'] is False
+        call_socket_handler(app, monkeypatch, socket_events.handle_gateway_ack, sid,
+                            {'client_request_id': 'ordinary', 'sequence': 1})
+        assert not attempt.is_set()
+        assert attempt.commit_if_active()
+    finally:
+        registry.finish(attempt)

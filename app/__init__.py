@@ -725,11 +725,11 @@ def create_app(
                 transfer_runtime_binding
             ),
         )
-    from .ssh_gateway_interaction import GatewayRegistry
-    gateway_registry = GatewayRegistry()
-    app.extensions['ssh_gateway_registry'] = gateway_registry
+    from .ssh_connection_attempt import SSHAttemptRegistry
+    ssh_attempts = SSHAttemptRegistry()
+    app.extensions['ssh_attempt_registry'] = ssh_attempts
     app.extensions['runtime_lifecycle'].register_shutdown_callback(
-        'gateway_attempts', lambda _deadline: gateway_registry.shutdown(),
+        'ssh_attempts', lambda _deadline: ssh_attempts.shutdown(),
     )
     cors_origins = config.CORS_ORIGINS
     if isinstance(cors_origins, str):

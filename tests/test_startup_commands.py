@@ -349,7 +349,6 @@ def test_cancellation_stops_partial_startup_command_delivery(monkeypatch):
 
 def test_user_cancel_is_rejected_after_startup_delivery_commits(monkeypatch):
     from app import ssh_manager
-    import app.socket_events as socket_events
 
     send_started = threading.Event()
     release_send = threading.Event()
@@ -362,19 +361,12 @@ def test_user_cancel_is_rejected_after_startup_delivery_commits(monkeypatch):
 
     channel = BlockingFullSend()
     client = _StartupCommandClient(channel)
-    user_cancel = threading.Event()
     lifecycle_cancel = threading.Event()
-    attempt = {
-        'cancel_event': user_cancel,
-        'commit_lock': threading.Lock(),
-        'state': 'pending',
-    }
-    cancellation = socket_events._CombinedCancellation(
-        user_cancel,
-        lifecycle_cancel,
-        attempt['commit_lock'],
-        attempt,
-    )
+    from app.ssh_connection_attempt import SSHConnectionAttempt
+    attempt = SSHConnectionAttempt(1, 'sid', 'req')
+    user_cancel = attempt.cancel_event
+    attempt.bind_runtime(lifecycle_cancel)
+    cancellation = attempt
     result = {}
 
     monkeypatch.setattr(ssh_manager.paramiko, 'SSHClient', lambda: client)
@@ -395,8 +387,8 @@ def test_user_cancel_is_rejected_after_startup_delivery_commits(monkeypatch):
     worker.start()
     try:
         assert send_started.wait(2)
-        assert attempt['state'] == 'committed'
-        assert socket_events._try_cancel_ssh_attempt(attempt) is False
+        assert attempt.committed
+        assert attempt.cancel() is False
         assert not user_cancel.is_set()
     finally:
         release_send.set()
@@ -412,23 +404,13 @@ def test_user_cancel_is_rejected_after_startup_delivery_commits(monkeypatch):
 
 def test_user_cancel_before_startup_commit_sends_nothing(monkeypatch):
     from app import ssh_manager
-    import app.socket_events as socket_events
 
     channel = _StartupCommandChannel()
     client = _StartupCommandClient(channel)
-    user_cancel = threading.Event()
-    attempt = {
-        'cancel_event': user_cancel,
-        'commit_lock': threading.Lock(),
-        'state': 'pending',
-    }
-    cancellation = socket_events._CombinedCancellation(
-        user_cancel,
-        threading.Event(),
-        attempt['commit_lock'],
-        attempt,
-    )
-    assert socket_events._try_cancel_ssh_attempt(attempt) is True
+    from app.ssh_connection_attempt import SSHConnectionAttempt
+    attempt = SSHConnectionAttempt(1, 'sid', 'req')
+    cancellation = attempt
+    assert attempt.cancel() is True
 
     monkeypatch.setattr(ssh_manager.paramiko, 'SSHClient', lambda: client)
     monkeypatch.setattr(ssh_manager.time, 'sleep', lambda _seconds: None)
