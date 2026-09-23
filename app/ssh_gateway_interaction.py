@@ -36,6 +36,10 @@ class GatewayAttempt(SSHConnectionAttempt):
     def check(self):
         with self.condition:
             super().check()
+            if not self.committed:
+                from .app_settings import is_ssh_gateway_enabled
+                if not is_ssh_gateway_enabled():
+                    raise GatewayCancelled()
             if (not self.committed and self.phase == 'auth'
                     and time.monotonic() >= self.auth_deadline):
                 raise GatewayCancelled()

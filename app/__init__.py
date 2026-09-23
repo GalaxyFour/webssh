@@ -22,7 +22,8 @@ from .user_settings import (
     get_user_settings,
     save_user_settings,
 )
-from .app_settings import is_registration_enabled, set_registration_enabled
+from .app_settings import (is_registration_enabled, set_registration_enabled,
+                           is_ssh_gateway_enabled, set_ssh_gateway_enabled)
 from .storage_errors import StorageCorruptionError
 from .tailscale_ssh import user_can_use_tailscale_ssh
 from .runtime_lifecycle import RuntimeLifecycle
@@ -465,6 +466,7 @@ def create_app(
         return {
             'url_prefix': url_prefix,
             'registration_enabled': registration_available,
+            'ssh_gateway_enabled': is_ssh_gateway_enabled(),
             'tmux_enabled': config.TMUX_ENABLED,
             'tmux_default': config.TMUX_DEFAULT,
             'admin_panel_enabled': config.ADMIN_PANEL_ENABLED,
@@ -1491,7 +1493,8 @@ def create_app(
     @admin_required
     @login_required
     def admin_get_settings():
-        return jsonify({'registration_enabled': is_registration_enabled()})
+        return jsonify({'registration_enabled': is_registration_enabled(),
+                        'ssh_gateway_enabled': is_ssh_gateway_enabled()})
 
     @app.route('/admin/api/settings', methods=['POST'])
     @admin_required
@@ -1501,6 +1504,9 @@ def create_app(
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({'error': 'Invalid settings payload'}), 400
+        if ('ssh_gateway_enabled' in data
+                and type(data['ssh_gateway_enabled']) is not bool):
+            return jsonify({'error': 'ssh_gateway_enabled must be a boolean'}), 400
         if 'registration_enabled' in data:
             if type(data['registration_enabled']) is not bool:
                 return jsonify({
@@ -1519,7 +1525,12 @@ def create_app(
             val = set_registration_enabled(data['registration_enabled'])
             log_info("Admin changed registration setting",
                      admin=current_user.username, registration_enabled=val)
-        return jsonify({'registration_enabled': is_registration_enabled()})
+        if 'ssh_gateway_enabled' in data:
+            val = set_ssh_gateway_enabled(data['ssh_gateway_enabled'])
+            log_info("Admin changed SSH gateway setting",
+                     admin=current_user.username, ssh_gateway_enabled=val)
+        return jsonify({'registration_enabled': is_registration_enabled(),
+                        'ssh_gateway_enabled': is_ssh_gateway_enabled()})
 
     @app.route('/admin/api/security-features', methods=['GET'])
     @admin_required

@@ -25,10 +25,12 @@ from app.ssh_gateway_setup import prepare_terminal, prepare_sftp
 
 
 @pytest.fixture
-def gateway():
+def gateway(monkeypatch):
     filename = os.environ.get("WEBSSH_WARPGATE_FIXTURE")
     if not filename:
         pytest.skip("Disposable Warpgate fixture not configured")
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
     assert "PYTEST_XDIST_WORKER" not in os.environ, "Run the disposable policy tests serially"
     config = json.loads(Path(filename).read_text(encoding="utf-8"))
     assert config["disposable"] is True

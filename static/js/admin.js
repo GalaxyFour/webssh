@@ -938,6 +938,11 @@
         try {
             const data = await api('/admin/api/settings');
             document.getElementById('settingRegistration').checked = !!data.registration_enabled;
+            const gateway = document.getElementById('settingSshGateway');
+            if (gateway) {
+                gateway.checked = data.ssh_gateway_enabled === true;
+                gateway.disabled = false;
+            }
         } catch (e) {
             notify(e.message, 'error');
         }
@@ -1039,6 +1044,23 @@
                 notify(err.message, 'error');
             } finally {
                 await loadSecurityFeatures();
+            }
+        });
+        document.getElementById('settingSshGateway')?.addEventListener('change', async (e) => {
+            const target = e.target;
+            const enabled = target.checked;
+            target.disabled = true;
+            try {
+                const data = await stepUpApi('settings.update', 'global', '/admin/api/settings', {
+                    method: 'POST', body: { ssh_gateway_enabled: enabled }
+                });
+                target.checked = data.ssh_gateway_enabled === true;
+                notify(t('admin.settingsSaved', 'Settings saved'), 'success');
+            } catch (err) {
+                target.checked = !enabled;
+                notify(err.message, 'error');
+            } finally {
+                target.disabled = false;
             }
         });
         document.getElementById('settingRegistration')?.addEventListener('change', async (e) => {

@@ -61,6 +61,7 @@
     function appendInstructions(parent, text) {
         // Server text remains text; only explicit HTTP(S) links are clickable.
         const paragraph = element('p');
+        paragraph.className = 'gateway-instructions';
         const pieces = String(text).split(/(https?:\/\/[^\s<>"']+)/g);
         for (const piece of pieces) {
             let url;
@@ -82,13 +83,17 @@
         if (!attempt || !Array.isArray(data.prompts) || data.prompts.length > 8) return;
         const content = attempt.content;
         content.replaceChildren();
-        content.append(element('h3', data.title || t('gateway.authentication', 'Gateway authentication')));
+        const title = element('h3', data.title || t('gateway.authentication', 'Gateway authentication'));
+        title.className = 'gateway-challenge-title';
+        content.append(title);
         appendInstructions(content, data.instructions || '');
         const form = element('form');
+        form.className = 'gateway-challenge-form';
         const inputs = [];
         for (const prompt of data.prompts) {
             const label = element('label', prompt.label || t('gateway.response', 'Response'));
             const input = element('input');
+            input.className = 'form-control';
             input.type = 'password';
             input.autocomplete = 'off';
             input.spellcheck = false;
@@ -154,12 +159,24 @@
             modal.setAttribute('aria-hidden', 'true');
             const box = element('div');
             box.className = 'modal-content';
+            const header = element('div');
+            header.className = 'modal-header';
+            const heading = element('h2', t('gateway.title', 'Gateway connection'));
+            heading.id = 'sshGatewayTitle';
+            heading.dataset.i18n = 'gateway.title';
+            header.append(heading);
+            modal.setAttribute('aria-labelledby', heading.id);
             content = element('div');
+            content.className = 'modal-body';
+            const footer = element('div');
+            footer.className = 'gateway-footer';
             const button = element('button', t('gateway.cancel', 'Cancel connection'));
             button.type = 'button';
             button.className = 'btn btn-secondary';
+            button.dataset.i18n = 'gateway.cancel';
             button.addEventListener('click', cancel);
-            box.append(content, button);
+            footer.append(button);
+            box.append(header, content, footer);
             modal.append(box);
             document.body.append(modal);
             modal.addEventListener('keydown', event => {

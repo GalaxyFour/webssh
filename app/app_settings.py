@@ -17,6 +17,10 @@ def _valid_settings(value):
         isinstance(value, dict)
         and value.get('schema_version') == CURRENT_STORAGE_VERSIONS['app_settings']
         and (
+            'ssh_gateway_enabled' not in value
+            or type(value['ssh_gateway_enabled']) is bool
+        )
+        and (
             'registration_enabled' not in value
             or type(value['registration_enabled']) is bool
         )
@@ -80,6 +84,23 @@ def get_audit_backup_count():
         'audit_backup_count',
         config.AUDIT_LOG_BACKUP_COUNT,
     ))
+
+
+def is_ssh_gateway_enabled():
+    """Gateway authentication requires an explicit, persisted admin opt-in."""
+    return _load().get('ssh_gateway_enabled') is True
+
+
+def set_ssh_gateway_enabled(value):
+    if type(value) is not bool:
+        return False
+    with storage_lock(f'app-settings:{_SETTINGS_FILE}'):
+        data = _load_with_lock_held()
+        data['ssh_gateway_enabled'] = value
+        if not _valid_settings(data):
+            return False
+        _save(data)
+    return value
 
 
 def set_audit_backup_count(value):

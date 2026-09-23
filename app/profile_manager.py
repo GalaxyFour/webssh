@@ -356,6 +356,9 @@ def _validate_profile_payload(user_id, payload, dependent_lock_held=False):
 
     from .ssh_gateway import parse_selector
     if isinstance(username, str) and ':' in username:
+        from .app_settings import is_ssh_gateway_enabled
+        if not is_ssh_gateway_enabled():
+            return None, 'SSH gateway integration is disabled by the administrator'
         if auth_type == 'tailscale':
             return None, 'Gateway selectors cannot use Tailscale SSH'
         try:

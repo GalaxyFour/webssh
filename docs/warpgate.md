@@ -1,6 +1,17 @@
 # Warpgate SSH connections
 
-Connect to an existing Warpgate SSH endpoint using an ordinary WebSSH profile:
+The integration is **disabled by default**. An administrator must enable
+**Settings → Administration → Integrations → Warpgate / SSH gateway** first.
+This global setting applies to all WebSSH users and is saved in the existing
+application settings store. Changing it requires the normal admin step-up
+verification. Reload open workspaces after changing the setting.
+
+Disabling blocks new gateway terminal and Quick SFTP connections, gateway
+profile changes, and unfinished gateway authentication. Existing profiles are
+retained and established sessions are not disconnected. The server enforces
+the setting even when an older browser tab still shows the enabled UI.
+
+Once enabled, connect to an existing Warpgate SSH endpoint using an ordinary WebSSH profile:
 
 1. Enter the gateway hostname and SSH port.
 2. Enter the exact Warpgate selector, for example `alice@example.com:production`, as the username.
@@ -10,7 +21,7 @@ Connect to an existing Warpgate SSH endpoint using an ordinary WebSSH profile:
 
 No additional service, Compose setting, database migration, or dependency is required. Ordinary SSH, existing jump hosts and Tailscale connections keep their existing paths. A normal SSH jump host may precede a gateway terminal connection; Quick SFTP does not add jump-host or Tailscale support.
 
-The integration is selected only by a validated `user:target` username.
+When globally enabled, the integration is selected by a validated `user:target` username.
 Ordinary SSH keeps its existing authentication, cancellation and banner-wait
 implementation; ordinary Quick SFTP remains synchronous. Gateway terminal and
 Quick SFTP attempts share their own bounded interaction lifecycle.

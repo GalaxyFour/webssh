@@ -26,6 +26,8 @@
         ));
     }
     function isGateway(value) {
+        if (typeof document === 'undefined'
+                || document.querySelector('meta[name="ssh-gateway-enabled"]')?.content !== 'true') return false;
         if (typeof value !== 'string' || !value.includes(':') || value.includes('#')
                 || value.startsWith('ticket-') || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value)
                 || new TextEncoder().encode(value).length > 128) return false;

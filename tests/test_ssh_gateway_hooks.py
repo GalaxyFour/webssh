@@ -1,6 +1,12 @@
 import pytest
 from app.socket_events import _validate_ssh_params
 
+
+@pytest.fixture(autouse=True)
+def gateway_enabled(monkeypatch):
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
+
 def test_gateway_validation_is_explicitly_opt_in():
     assert _validate_ssh_params("host",22,"u:t")[3]
     assert _validate_ssh_params("host",22,"u:t",allow_gateway=True) == ("host",22,"u:t",None)

@@ -1,5 +1,58 @@
 const {test, expect} = require('playwright/test');
-const {login, assertNoExternalRequests} = require('./helpers');
+const {login: loginDefault, assertNoExternalRequests} = require('./helpers');
+
+async function login(page) {
+    await loginDefault(page);
+    // Dialog tests simulate an enabled workspace and synthetic gateway events.
+    await page.evaluate(() => {
+        document.querySelector('meta[name="ssh-gateway-enabled"]').content = 'true';
+    });
+}
+
+test('gateway integration is disabled by default in the workspace', async ({page}) => {
+    await loginDefault(page);
+    await page.evaluate(() => window.openDefaultConnectionModal());
+    const requiredBefore = await page.locator('#passwordInput').evaluate(input => input.required);
+    await page.locator('#usernameInput').fill('user:target');
+    await expect(page.locator('#passwordHint')).toHaveText('');
+    await expect(page.locator('#passwordInput')).toHaveJSProperty('required', requiredBefore);
+    expect(await page.evaluate(() => window.ConnectionValidation.isValidUsername('user:target', true))).toBe(false);
+    expect(await page.evaluate(() => {
+        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'disabled'});
+        return window.SSHGatewayDialog.has('disabled');
+    })).toBe(false);
+});
+
+test('admin enables and disables the gateway using the protected settings control', async ({page}) => {
+    await loginDefault(page);
+    await page.goto('/settings#integrations');
+    const toggle = page.locator('#settingSshGateway');
+    await expect(toggle).toBeEnabled();
+    await expect(toggle).not.toBeChecked();
+    try {
+        await toggle.check();
+        await expect(page.locator('#stepUpModal')).toHaveClass(/show/);
+        await page.locator('#stepUpPassword').fill('browser-password');
+        await page.locator('#stepUpSubmit').click();
+        await expect(toggle).toBeEnabled();
+        await expect(toggle).toBeChecked();
+        await page.goto('/');
+        await expect(page.locator('meta[name="ssh-gateway-enabled"]')).toHaveAttribute('content', 'true');
+    } finally {
+        await page.goto('/settings#integrations');
+        await expect(toggle).toBeEnabled();
+        if (await toggle.isChecked()) {
+            await toggle.uncheck();
+            await expect(page.locator('#stepUpModal')).toHaveClass(/show/);
+            await page.locator('#stepUpPassword').fill('browser-password');
+            await page.locator('#stepUpSubmit').click();
+            await expect(toggle).toBeEnabled();
+            await expect(toggle).not.toBeChecked();
+        }
+    }
+    await page.goto('/');
+    await expect(page.locator('meta[name="ssh-gateway-enabled"]')).toHaveAttribute('content', 'false');
+});
 
 test('gateway challenges are correlated, masked, text-only and transient', async ({page}) => {
     await login(page);

@@ -4,6 +4,12 @@ import threading
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def gateway_enabled(monkeypatch):
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
+
+
 def make_attempt(gateway=False, **kwargs):
     if gateway:
         from app.ssh_gateway_interaction import GatewayAttempt

@@ -4,6 +4,28 @@ import pytest
 from app.ssh_gateway_interaction import GatewayAttempt, GatewayCancelled
 
 
+@pytest.fixture(autouse=True)
+def gateway_enabled(monkeypatch):
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
+
+
+def test_disabling_gateway_blocks_pending_but_preserves_committed_attempt(monkeypatch):
+    from app import app_settings
+    pending = GatewayAttempt(1, 'sid', 'pending', lambda *args: None)
+    committed = GatewayAttempt(1, 'sid', 'connected', lambda *args: None)
+    try:
+        assert committed.commit_if_active()
+        monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: False)
+        with pytest.raises(GatewayCancelled):
+            pending.check()
+        assert not pending.commit_if_active()
+        committed.check()
+    finally:
+        pending.finish()
+        committed.finish()
+
+
 def test_challenge_is_owned_one_shot_and_never_replays():
     sent = []
     attempt = GatewayAttempt("1", "sid", "req", lambda event, data: sent.append((event, data)))

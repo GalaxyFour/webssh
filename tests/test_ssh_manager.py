@@ -952,6 +952,8 @@ def test_changed_target_host_key_returns_stable_fail_closed_error(monkeypatch):
     assert clients.opened_sockets[0].closed is True
 
 def test_gateway_readiness_failure_prevents_shell_and_startup(monkeypatch):
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
     from app.ssh_gateway_interaction import GatewayAttempt
     from app import ssh_gateway_setup
     clients = install_ssh_clients(monkeypatch)
@@ -970,6 +972,8 @@ def test_gateway_readiness_failure_prevents_shell_and_startup(monkeypatch):
 
 
 def test_gateway_handoff_preserves_established_session(monkeypatch):
+    from app import app_settings
+    monkeypatch.setattr(app_settings, 'is_ssh_gateway_enabled', lambda: True)
     from app.ssh_gateway_interaction import GatewayAttempt
     from app import ssh_gateway_setup
     clients = install_ssh_clients(monkeypatch)

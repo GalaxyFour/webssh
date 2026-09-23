@@ -867,6 +867,9 @@ def _validate_ssh_params(host, port, username, allow_internal=False, *, allow_ga
         return None, None, None, 'Invalid port number'
 
     if allow_gateway and isinstance(username, str) and ':' in username:
+        from .app_settings import is_ssh_gateway_enabled
+        if not is_ssh_gateway_enabled():
+            return None, None, None, 'SSH gateway integration is disabled by the administrator'
         from .ssh_gateway import parse_selector
         try:
             parse_selector(username)
