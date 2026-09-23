@@ -22,15 +22,6 @@ def parse_selector(value):
     return user, target
 
 
-def is_gateway(value):
-    """Recognize only fully validated selectors."""
-    try:
-        parse_selector(value)
-        return True
-    except ValueError:
-        return False
-
-
 def tmux_name(prefix, host, port, selector, user_id):
     parse_selector(selector)
     safe_prefix = re.sub(r"[^A-Za-z0-9_]", "_", prefix)[:80]

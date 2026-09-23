@@ -1,6 +1,5 @@
 """Prove target readiness before any terminal startup action is allowed."""
 import secrets
-import socket
 import threading
 import time
 
