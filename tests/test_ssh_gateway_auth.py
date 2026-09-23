@@ -7,6 +7,8 @@ class Transport:
     def __init__(self):
         self.authenticated = False
         self.calls = []
+    def close(self):
+        self.authenticated = False
     def is_authenticated(self):
         return self.authenticated
     def auth_password(self, username, password, fallback=True):
@@ -75,3 +77,49 @@ def test_key_with_password_and_otp_supplies_password_before_interactive():
         interact=lambda title, instructions, prompts: ["initial-secret" if prompts[0][0] == "Password" else "123456"])
     strategy.authenticate(transport)
     assert transport.calls == [("password", "initial-secret", False), ("interactive",)]
+
+
+def test_authentication_methods_share_remaining_deadline(monkeypatch):
+    import app.ssh_gateway_auth as auth
+    now = [100.0]
+    monkeypatch.setattr(auth.time, "monotonic", lambda: now[0])
+    transport = Transport()
+    transport.close = lambda: None
+    def key(*args):
+        now[0] += 110
+        return ["password"]
+    def answer(*args):
+        now[0] += 20
+        return ["secret"]
+    def password(*args, **kwargs):
+        assert 0 < transport.auth_timeout <= 50
+        transport.authenticated = True
+        return []
+    transport.auth_publickey = key
+    transport.auth_password = password
+    GatewayAuthStrategy("u:t", pkey=object(), interact=answer).authenticate(transport)
+
+
+def test_shared_deadline_closes_a_blocked_authentication(monkeypatch):
+    import app.ssh_gateway_auth as auth
+    timers = []
+    class Timer:
+        def __init__(self, seconds, callback):
+            assert seconds == 180
+            self.callback = callback
+            self.cancelled = False
+            timers.append(self)
+        def start(self): pass
+        def cancel(self): self.cancelled = True
+    monkeypatch.setattr(auth.threading, "Timer", Timer)
+    transport = Transport()
+    closed = []
+    transport.close = lambda: closed.append(True)
+    def blocked(*args):
+        timers[0].callback()
+        assert closed == [True]
+        raise paramiko.AuthenticationException("closed")
+    transport.auth_interactive = blocked
+    with pytest.raises(paramiko.AuthenticationException):
+        GatewayAuthStrategy("u:t", interact=lambda *args: []).authenticate(transport)
+    assert timers[0].cancelled

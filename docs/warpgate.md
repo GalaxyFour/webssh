@@ -17,7 +17,7 @@ No additional service, Compose setting, database migration, or dependency is req
 - Passwords, additional factors and approval responses are transient. They are never stored in profiles. Additional factors are explicitly answered; the original password is never reused as an OTP.
 - Each interaction belongs to one WebSSH user, socket and request. Challenges are one-shot, deadlines and byte limits are enforced, and pending gateway jobs share the existing background-job quota.
 - Warpgate target host-key checks and approval policies remain enabled. There is no automatic target host-key acceptance.
-- Terminal setup requires a target supporting a PTY and a bounded `echo` exec probe. Only after the nonce response and successful exit does WebSSH run normal terminal/tmux setup or configured startup commands.
+- Terminal setup requires a target supporting a PTY and a bounded `printf` exec probe. Only after the nonce response and successful exit does WebSSH run normal terminal/tmux setup or configured startup commands.
 - Quick SFTP uses a temporary PTY for gateway prompts and a separate SFTP channel. Targets must permit those two channels during setup; PTY-disabled or single-channel targets are not supported by this path.
 - Existing profile auth types remain unchanged. Older WebSSH versions can read the profile document, but cannot connect using the new selector syntax.
 - Ticket secrets, `#` selectors, automatic target discovery, gateway administration and non-SSH protocols are not supported.

@@ -1875,6 +1875,10 @@ class SFTPFileManager {
             this.handleQuickConnectSuccess(data);
         });
 
+        this.socket.on('disconnect', () => {
+            this.gatewayQuickRequestId = null;
+        });
+
         this.socket.on('quick_connect_error', (data) => {
             if (data.client_request_id) {
                 if (data.client_request_id !== this.gatewayQuickRequestId) return;

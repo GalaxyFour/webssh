@@ -1876,6 +1876,7 @@
             || (
                 requestId !== currentConnectRequestId
                 && !pendingRequestPaneMap.has(requestId)
+                && !window.SSHGatewayDialog?.has(requestId)
             )
         ) {
             return false;
@@ -1892,6 +1893,7 @@
             const requestStillPending = (
                 requestId === currentConnectRequestId
                 || pendingRequestPaneMap.has(requestId)
+                || window.SSHGatewayDialog?.has(requestId)
             );
             const completedWhileCancelling = (
                 completedWhileCancellingRequestIds.delete(requestId)

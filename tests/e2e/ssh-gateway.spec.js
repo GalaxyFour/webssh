@@ -58,3 +58,50 @@ test('ordinary passwords stay required and gateway passwords can be empty', asyn
     await expect(page.locator('#passwordInput')).toHaveJSProperty('required', true);
     assertNoExternalRequests(page);
 });
+
+
+for (const action of ['button', 'escape']) {
+    test(`gateway direct reconnect can be cancelled using ${action}`, async ({page}) => {
+        await login(page);
+        await page.evaluate(() => {
+            window.__gatewayCancels = [];
+            const original = window.socket.emit.bind(window.socket);
+            window.socket.emit = (event, data, ack) => {
+                if (event === 'ssh_connect_cancel') {
+                    window.__gatewayCancels.push(data.client_request_id);
+                    ack?.({success: true, cancelled: true});
+                    return;
+                }
+                return original(event, data, ack);
+            };
+            window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'reconnect_test'});
+            window.socket.listeners('ssh_gateway_challenge').forEach(fn => fn({
+                client_request_id: 'reconnect_test', challenge_id: 'otp', prompts: [{label: 'OTP'}],
+            }));
+        });
+        const modal = page.locator('#sshGatewayModal');
+        await expect(modal).toHaveClass(/show/);
+        if (action === 'escape') await modal.locator('input').press('Escape');
+        else await modal.locator('.btn-secondary').click();
+        await expect(modal).not.toHaveClass(/show/);
+        expect(await page.evaluate(() => window.__gatewayCancels)).toEqual(['reconnect_test']);
+    });
+}
+
+
+test('quick gateway errors and disconnect release only the matching request', async ({page}) => {
+    await login(page);
+    const result = await page.evaluate(() => {
+        const manager = window.getSFTPFileManager();
+        const dispatch = (event, data) => window.socket.listeners(event).forEach(fn => fn(data));
+        manager.gatewayQuickRequestId = 'new-request';
+        dispatch('quick_connect_error', {client_request_id: 'old-request', error: 'Invalid host'});
+        const afterOld = manager.gatewayQuickRequestId;
+        dispatch('quick_connect_error', {client_request_id: 'new-request', error: 'Invalid host'});
+        const afterCurrent = manager.gatewayQuickRequestId;
+        manager.gatewayQuickRequestId = 'retry';
+        dispatch('disconnect', 'transport close');
+        return {afterOld, afterCurrent, afterDisconnect: manager.gatewayQuickRequestId};
+    });
+    expect(result).toEqual({afterOld: 'new-request', afterCurrent: null, afterDisconnect: null});
+});

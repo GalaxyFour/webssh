@@ -23,6 +23,8 @@ class GatewayAttempt:
         self.auth_deadline = time.monotonic() + 180
         self.condition = threading.Condition(threading.RLock())
         self.cancelled = False
+        self.cancel_reason = None
+        self.committed = False
         self.finished = False
         self.resources = []
         self.prompt = None
@@ -33,14 +35,15 @@ class GatewayAttempt:
         self.output_bytes = 0
         self.sequence = 0
         self.unacked = {}
-        self.guard = threading.Timer(300, self.cancel)
+        self.guard = threading.Timer(300, self.cancel, kwargs={"reason": "timeout"})
         self.guard.daemon = True
         self.guard.start()
 
     def check(self):
         with self.condition:
-            if (self.cancelled or self.finished or time.monotonic() >= self.deadline
-                    or (self.phase == 'auth' and time.monotonic() >= self.auth_deadline)):
+            if (self.cancelled or self.finished or (not self.committed and (
+                    time.monotonic() >= self.deadline or
+                    (self.phase == 'auth' and time.monotonic() >= self.auth_deadline)))):
                 raise GatewayCancelled()
 
     def own(self, resource):
@@ -168,8 +171,12 @@ class GatewayAttempt:
             self.condition.notify_all()
             return True
 
-    def cancel(self):
+    def cancel(self, *, reason="user"):
         with self.condition:
+            if self.committed and reason not in ("finished", "disconnected", "shutdown"):
+                return False
+            if self.cancel_reason is None:
+                self.cancel_reason = reason
             self.cancelled = True
             self.responses = None
             resources, self.resources = self.resources, []
@@ -181,10 +188,11 @@ class GatewayAttempt:
                 resource.close()
             except Exception:
                 pass
+        return True
 
     def finish(self):
         self.guard.cancel()
-        self.cancel()
+        self.cancel(reason="finished")
         with self.condition:
             if self.finished:
                 return
@@ -232,11 +240,11 @@ class GatewayRegistry:
         with self.lock:
             attempts = [a for a in self.attempts.values() if a.sid == sid]
         for attempt in attempts:
-            attempt.cancel()
+            attempt.cancel(reason="disconnected")
 
     def shutdown(self):
         with self.lock:
             self.stopping = True
             attempts = list(self.attempts.values())
         for attempt in attempts:
-            attempt.cancel()
+            attempt.cancel(reason="shutdown")

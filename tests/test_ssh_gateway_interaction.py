@@ -110,3 +110,50 @@ def test_resource_registered_after_cancel_is_closed_immediately():
         attempt.own(Resource())
     assert closed == [True]
     attempt.finish()
+
+
+@pytest.mark.parametrize("winner", ["timeout", "commit"])
+def test_gateway_timeout_is_atomic_with_terminal_commit(winner):
+    from app.socket_events import _CombinedCancellation
+    gateway = GatewayAttempt(1, "sid", "req", lambda *args: None)
+    state = {"state": "pending"}
+    cancellation = _CombinedCancellation(threading.Event(), threading.Event(),
+        threading.Lock(), state, gateway=gateway)
+    try:
+        if winner == "timeout":
+            gateway.cancel(reason="timeout")
+            assert not cancellation.commit_if_active()
+            assert cancellation.is_set()
+            assert state["state"] == "pending"
+        else:
+            assert cancellation.commit_if_active()
+            assert not gateway.cancel(reason="timeout")
+            assert not cancellation.is_set()
+            assert state["state"] == "committed"
+    finally:
+        gateway.finish()
+
+
+def test_timeout_wins_while_commit_is_waiting_on_gateway_condition():
+    from app.socket_events import _CombinedCancellation
+    gateway = GatewayAttempt(1, "sid", "race", lambda *args: None)
+    result = []
+    entered = threading.Event()
+    state = {"state": "pending"}
+    cancellation = _CombinedCancellation(threading.Event(), threading.Event(),
+        threading.Lock(), state, gateway=gateway)
+    def commit():
+        entered.set()
+        result.append(cancellation.commit_if_active())
+    worker = threading.Thread(target=commit)
+    try:
+        with gateway.condition:
+            worker.start()
+            assert entered.wait(1)
+            gateway.cancel(reason="timeout")
+        worker.join(1)
+        assert not worker.is_alive()
+        assert result == [False]
+        assert state["state"] == "pending"
+    finally:
+        gateway.finish()

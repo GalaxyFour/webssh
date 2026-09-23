@@ -68,7 +68,7 @@ def prepare_terminal(transport, attempt):
     guard = paramiko_channels._request_guard(channel, max(.01, deadline-time.monotonic()))
     try:
         # Fixed command and generated hex nonce only; never interpolate user input.
-        channel.exec_command("echo "+marker.decode("ascii"))  # nosec B601
+        channel.exec_command("printf '\\n%s\\n' "+marker.decode("ascii"))  # nosec B601
         while True:
             received = _pump(channel, attempt, deadline, parser)
             if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
@@ -98,7 +98,7 @@ def prepare_sftp(transport, attempt, *, operation_timeout):
                     stop.wait(.02)
         except Exception as error:
             errors.append(error)
-            attempt.cancel()
+            attempt.cancel(reason="failed")
     # At most one pump per admitted BACKGROUND_JOB, joined before returning.
     worker = threading.Thread(target=pump, name="gateway-setup", daemon=True)
     worker.start()
@@ -122,5 +122,5 @@ def prepare_sftp(transport, attempt, *, operation_timeout):
         channel.close()
         worker.join(1)
         if worker.is_alive():
-            attempt.cancel()
+            attempt.cancel(reason="failed")
             raise GatewayCancelled()

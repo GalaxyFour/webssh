@@ -1,5 +1,6 @@
 """Explicit multi-factor authentication using Paramiko's public transport API."""
 import time
+import threading
 
 from paramiko import AuthenticationException, BadAuthenticationType, ServiceRequestingTransport
 from paramiko.auth_strategy import AuthStrategy
@@ -19,7 +20,17 @@ class GatewayAuthStrategy(AuthStrategy):
 
     def authenticate(self, transport):
         deadline = time.monotonic() + 180
-        transport.auth_timeout = 180
+        guard = threading.Timer(180, transport.close)
+        guard.daemon = True
+        guard.start()
+
+        def remaining_timeout():
+            self.check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AuthenticationException("Gateway authentication timed out")
+            transport.auth_timeout = remaining
+
         method = "publickey" if self.pkey is not None else (
             "password" if self.password else "keyboard-interactive"
         )
@@ -34,6 +45,7 @@ class GatewayAuthStrategy(AuthStrategy):
                 attempted.add(method)
                 try:
                     if method == "publickey":
+                        remaining_timeout()
                         methods = transport.auth_publickey(self.username, self.pkey)
                     elif method == "password":
                         password = self.password
@@ -43,6 +55,7 @@ class GatewayAuthStrategy(AuthStrategy):
                                 raise AuthenticationException("Invalid authentication response")
                             password = answers[0]
                         try:
+                            remaining_timeout()
                             methods = transport.auth_password(self.username, password, fallback=False)
                         finally:
                             password = None
@@ -55,10 +68,12 @@ class GatewayAuthStrategy(AuthStrategy):
                             if rounds > 8 or time.monotonic() >= deadline:
                                 raise AuthenticationException("Gateway authentication limit exceeded")
                             return self.interact(title, instructions, prompts)
+                        remaining_timeout()
                         methods = transport.auth_interactive(self.username, handler)
                 except BadAuthenticationType as error:
                     methods = error.allowed_types
                 self.check()
+                remaining_timeout()
                 if transport.is_authenticated():
                     return
                 if not isinstance(methods, (list, tuple)):
@@ -70,6 +85,7 @@ class GatewayAuthStrategy(AuthStrategy):
                     raise AuthenticationException("Gateway authentication failed")
             raise AuthenticationException("Gateway authentication limit exceeded")
         finally:
+            guard.cancel()
             self.password = None
             self.pkey = None
 

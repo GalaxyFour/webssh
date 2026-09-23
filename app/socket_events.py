@@ -766,13 +766,22 @@ class _CombinedCancellation:
         lifecycle_cancel_event,
         commit_lock=None,
         attempt=None,
+        gateway=None,
     ):
+        self._gateway = gateway
         self._user_cancel_event = user_cancel_event
         self._lifecycle_cancel_event = lifecycle_cancel_event
         self._commit_lock = commit_lock or threading.Lock()
         self._attempt = attempt
 
     def is_set(self):
+        if self._gateway is not None:
+            with self._gateway.condition:
+                if not self._gateway.committed:
+                    try:
+                        self._gateway.check()
+                    except ValueError:
+                        return True
         return (
             self._user_cancel_event.is_set()
             or self._lifecycle_cancel_event.is_set()
@@ -783,7 +792,7 @@ class _CombinedCancellation:
             return True
         if timeout is None:
             while not self._user_cancel_event.wait(0.1):
-                if self._lifecycle_cancel_event.is_set():
+                if self.is_set():
                     return True
             return True
         deadline = time.monotonic() + timeout
@@ -796,15 +805,22 @@ class _CombinedCancellation:
 
     def commit_if_active(self):
         """Linearize an irreversible setup step against user cancellation."""
+        from contextlib import nullcontext
         with self._commit_lock:
-            if self.is_set():
-                return False
-            if self._attempt is not None:
-                state = self._attempt.get('state', 'pending')
-                if state == 'cancelled' or state == 'finished':
+            # The gateway timer uses the same condition, so timeout and commit
+            # have one winner even after SSH resources have been handed off.
+            with self._gateway.condition if self._gateway is not None else nullcontext():
+                if self.is_set():
                     return False
-                self._attempt['state'] = 'committed'
-            return True
+                if self._attempt is not None:
+                    state = self._attempt.get('state', 'pending')
+                    if state == 'cancelled' or state == 'finished':
+                        return False
+                    self._attempt['state'] = 'committed'
+                if self._gateway is not None:
+                    self._gateway.committed = True
+                    self._gateway.guard.cancel()
+                return True
 
 
 def _storage_error_payload(error, *, user_id, include_success=True, **extra):
@@ -1539,7 +1555,11 @@ def handle_ssh_connect(data, current_user=None):
         key_id = data.get('key_id')
         auth_type = data.get('auth_type') or ('key' if key_id else 'password')
 
+        error_sent = False
+
         def emit_error(message):
+            nonlocal error_sent
+            error_sent = True
             emit('ssh_error', connection_error_payload(
                 message,
                 client_request_id=client_request_id,
@@ -1811,6 +1831,7 @@ def handle_ssh_connect(data, current_user=None):
                 lifecycle_cancel_event,
                 attempt['commit_lock'],
                 attempt,
+                gateway=gateway_attempt,
             )
             local_password = credentials.pop('password', None)
             local_key_content = credentials.pop('key_content', None)
@@ -2004,6 +2025,14 @@ def handle_ssh_connect(data, current_user=None):
                     emit_error('Connection failed')
             finally:
                 if gateway_attempt is not None:
+                    if (not error_sent and not gateway_attempt.committed
+                            and cancellation.is_set()
+                            and not client_cancel_event.is_set()
+                            and gateway_attempt.cancel_reason not in ('user', 'disconnected')
+                            and SocketSession.query.filter_by(
+                                socket_sid=socket_sid, user_id=current_user.id,
+                            ).first() is not None):
+                        emit_error('Gateway connection failed or timed out')
                     gateway_registry.finish(gateway_attempt)
                 credentials.clear()
                 local_password = None
@@ -4332,19 +4361,25 @@ def handle_smb_quick_connect_cancel(data, current_user=None):
 @socket_login_required
 def handle_quick_connect(data, current_user=None):
     """Create temporary SSH connection for file transfers without active session."""
+    request_id = _ssh_request_id(data) if isinstance(data, dict) and isinstance(
+        data.get('username'), str
+    ) and ':' in data['username'] else None
+
+    def send_error(payload):
+        if request_id:
+            payload = {**payload, 'client_request_id': request_id}
+        emit('quick_connect_error', payload)
+
     try:
         if not current_app.extensions[
             'runtime_lifecycle'
         ].accepting_work():
-            emit(
-                'quick_connect_error',
-                {'error': 'Server is shutting down'},
-            )
+            send_error({'error': 'Server is shutting down'})
             return
 
         if check_socket_rate_limit(current_user.id, 'ssh_connect', config.RATELIMIT_SSH_CONNECT):
             log_warning("Quick connect rate limit hit", user=current_user.username)
-            emit('quick_connect_error', {'error': 'Too many connection attempts. Please wait a moment.'})
+            send_error({'error': 'Too many connection attempts. Please wait a moment.'})
             return
 
         password = data.get('password')
@@ -4355,18 +4390,18 @@ def handle_quick_connect(data, current_user=None):
             allow_gateway=True,
         )
         if error:
-            emit('quick_connect_error', connection_error_payload(error))
+            send_error(connection_error_payload(error))
             return
 
         if not password and not key_id and ':' not in username:
-            emit('quick_connect_error', {'error': 'Password or SSH key required'})
+            send_error({'error': 'Password or SSH key required'})
             return
 
         key_content = None
         if key_id:
             key_content, key_error = key_manager.read_key_content(current_user.id, key_id)
             if key_error:
-                emit('quick_connect_error', {'error': f'SSH key error: {key_error}'})
+                send_error({'error': f'SSH key error: {key_error}'})
                 return
 
         if ':' in username:
@@ -4390,7 +4425,7 @@ def handle_quick_connect(data, current_user=None):
             key_content = None
 
         if error:
-            emit('quick_connect_error', connection_error_payload(error))
+            send_error(connection_error_payload(error))
         else:
             emit('quick_connect_success', {
                 'connection_id': connection_id,
@@ -4406,7 +4441,7 @@ def handle_quick_connect(data, current_user=None):
 
     except Exception as e:
         log_error("Quick connect failed", error=str(e))
-        emit('quick_connect_error', {'error': 'Connection failed'})
+        send_error({'error': 'Connection failed'})
     finally:
         password = None
         key_content = None
@@ -5643,11 +5678,14 @@ def _start_gateway_quick_connect(data, user, host, port, username, password, key
                     ),
                 }
                 attempt.quick_committed = True
+                attempt.committed = True
+                attempt.guard.cancel()
                 attempt.send('quick_connect_success', **payload)
                 committed = True
         except Exception:
-            if not attempt.cancelled:
-                attempt.send('quick_connect_error', error='Gateway connection failed')
+            if (attempt.cancel_reason not in ('user', 'disconnected')
+                    and SocketSession.query.filter_by(socket_sid=sid, user_id=user_id).first() is not None):
+                attempt.send('quick_connect_error', error='Gateway connection failed or timed out')
         finally:
             credentials.clear()
             if connection_id and not committed:
@@ -5709,10 +5747,12 @@ def handle_gateway_quick_cancel(data, current_user=None):
         current_user.id, request.sid, data.get('client_request_id'),
     )
     if not attempt or not getattr(attempt, 'quick', False):
-        return {'success': False}
+        return {'success': False, 'reason': 'not_found'}
     with attempt.condition:
         if attempt.quick_committed:
             return {'success': False, 'reason': 'already_committed'}
         attempt.cancelled = True
+        if attempt.cancel_reason is None:
+            attempt.cancel_reason = 'user'
     attempt.cancel()
     return {'success': True}

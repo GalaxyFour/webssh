@@ -4,7 +4,8 @@ Run `tests/integration/test_warpgate.py` serially against a dedicated local
 Warpgate 0.29.0 instance and an OpenSSH target. The fixture must listen only on
 loopback and contain synthetic accounts. Never point these tests at an existing
 gateway: they change the fixture user's SSH credential policy and the target's
-approval requirement, restoring both afterwards.
+approval requirement, restoring both afterwards. The host-key test temporarily
+removes and restores only the disposable target's trusted keys.
 
 No application Compose changes are needed. Test prerequisites:
 
@@ -25,6 +26,7 @@ Create an ignored JSON fixture description (for example under `.test-tmp/`):
   "disposable": true,
   "host": "127.0.0.1",
   "port": 12222,
+  "sftp_only_port": 12224,
   "selector": "probe:probe",
   "password": "<synthetic password>",
   "api_url": "https://127.0.0.1:18443/@warpgate/admin/api",
@@ -38,6 +40,10 @@ Create an ignored JSON fixture description (for example under `.test-tmp/`):
 }
 ```
 
+For the optional SFTP-only case, run a second loopback OpenSSH daemon on
+`sftp_only_port` with the same generated host key and `ForceCommand internal-sftp`.
+PTY requests and two channels must remain allowed. Omit that field to skip it.
+
 Set `WEBSSH_WARPGATE_FIXTURE` to that file and run:
 
 ```sh
@@ -46,6 +52,7 @@ python -m pytest tests/integration/test_warpgate.py -q
 
 Without this variable, these integration tests skip. They cover password, OTP,
 key and combined factor policies; terminal and SFTP readiness; pending admin and
-browser approval cancellation; and changed gateway host-key rejection. Browser
+browser approval cancellation; successful administrator approval; explicit target
+host-key confirmation; SFTP-only targets; and changed gateway host-key rejection. Browser
 approval completion through a real identity provider requires a separate
 deployment-specific acceptance test.

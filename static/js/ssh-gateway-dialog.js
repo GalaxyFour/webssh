@@ -34,7 +34,7 @@
         }
         socket.emit(attempt.quick ? 'ssh_gateway_quick_cancel' : 'ssh_connect_cancel',
             {client_request_id: id}, result => {
-                if (result?.success) {
+                if (result?.success || result?.reason === 'not_found') {
                     close(id);
                     attempt.onCancel?.();
                 }
@@ -187,6 +187,7 @@
                 attempts.set(payload.client_request_id, {quick, terminal: null, onCancel});
             }
         },
+        has: id => attempts.has(id),
         close,
     };
 }());
