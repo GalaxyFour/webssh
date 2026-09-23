@@ -1,5 +1,10 @@
 /* exported SessionManager */
 const SessionManager = {
+    endpointKey(host, port, username) {
+        return String(username).includes(':')
+            ? 'gateway:v1:' + JSON.stringify([host, String(port), username])
+            : `${host}:${port}:${username}`;
+    },
     legacyDisplayNameStorageKey: 'sessionDisplayNames',
     displayNameStoragePrefix: 'sessionDisplayNames:',
     activeDisplayNameScopeKey: 'sessionDisplayNames:activeScope',
@@ -178,7 +183,7 @@ const SessionManager = {
         // Save display name to localStorage by host:port:user key
         if (display_name) {
             const stored = this.readDisplayNames();
-            const hostKey = `${host}:${port}:${username}`;
+            const hostKey = this.endpointKey(host, port, username);
             stored[hostKey] = display_name;
             this.writeDisplayNames(stored);
         }
@@ -231,7 +236,7 @@ const SessionManager = {
             sessionBar.classList.remove('hidden');
         }
 
-        const fallbackKey = `${host}:${port}:${username}`;
+        const fallbackKey = this.endpointKey(host, port, username);
         const fallbackName = this.pendingDisplayNames ? this.pendingDisplayNames[fallbackKey] : null;
         const storedName = display_name || this.pendingDisplayName || fallbackName || this.getStoredDisplayName(session_id, host, port, username);
         this.pendingDisplayName = null;
@@ -507,7 +512,7 @@ const SessionManager = {
             this.pendingDisplayName = displayName;
             this.pendingDisplayNames = this.pendingDisplayNames || {};
             if (displayName) {
-                this.pendingDisplayNames[`${host}:${port}:${username}`] = displayName;
+                this.pendingDisplayNames[this.endpointKey(host, port, username)] = displayName;
             }
 
             // Disconnect the current session (sends ssh_disconnect to server)
@@ -532,6 +537,7 @@ const SessionManager = {
                             connectionData.key_id = keyId;
                         }
                         if (route.proxyJump) connectionData.proxy_jump = route.proxyJump;
+                        window.SSHGatewayDialog?.prepare(connectionData);
                         window.socket.emit('ssh_connect', connectionData);
                         const message = window.i18n
                             ? i18n.t('session.reconnecting').replace('{label}', label)
@@ -785,7 +791,7 @@ const SessionManager = {
         }
         // Also save by host:port:user key so it survives session ID changes.
         if (session) {
-            const hostKey = `${session.host}:${session.port}:${session.username}`;
+            const hostKey = this.endpointKey(session.host, session.port, session.username);
             if (displayName) {
                 stored[hostKey] = displayName;
             } else {
@@ -808,7 +814,7 @@ const SessionManager = {
         if (stored[sessionId]) return stored[sessionId];
         // Check by host:port:user key (persists across session ID changes).
         if (host && port && username) {
-            const hostKey = `${host}:${port}:${username}`;
+            const hostKey = this.endpointKey(host, port, username);
             if (stored[hostKey]) return stored[hostKey];
         }
         return null;
@@ -1499,7 +1505,7 @@ const SessionManager = {
             this.pendingDisplayName = session.displayName;
             this.pendingDisplayNames = this.pendingDisplayNames || {};
             if (session.displayName) {
-                this.pendingDisplayNames[`${session.host}:${session.port}:${session.username}`] = session.displayName;
+                this.pendingDisplayNames[this.endpointKey(session.host, session.port, session.username)] = session.displayName;
             }
             this.pendingReconnectTmux = session.useTmux ? session.tmuxSessionName : null;
             this.removeSessionUI(sessionId);
@@ -1589,7 +1595,7 @@ const SessionManager = {
         // Also store by host:port:user as a fallback key
         if (displayName) {
             this.pendingDisplayNames = this.pendingDisplayNames || {};
-            this.pendingDisplayNames[`${host}:${port}:${username}`] = displayName;
+            this.pendingDisplayNames[this.endpointKey(host, port, username)] = displayName;
         }
 
         // Remove the persistent candidate UI without notifying server
@@ -1611,6 +1617,7 @@ const SessionManager = {
                 connectionData.key_id = keyId;
             }
             if (route.proxyJump) connectionData.proxy_jump = route.proxyJump;
+            window.SSHGatewayDialog?.prepare(connectionData);
             window.socket.emit('ssh_connect', connectionData);
             const label = `${username}@${host}`;
             const message = window.i18n

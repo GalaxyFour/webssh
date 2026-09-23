@@ -1670,6 +1670,7 @@
     const CONNECT_CANCEL_ACK_TIMEOUT_MS = 5000;
     const TRANSIENT_ID_TTL_MS = 120000;
     const MAX_TRANSIENT_IDS = 128;
+    window.SSHGatewayDialog?.init(socket, (id, done) => cancelConnectionAttempt(id, done));
 
     function rememberTransientId(collection, value) {
         if (!value) return;
@@ -1738,6 +1739,7 @@
             }
         });
 
+        window.SSHGatewayDialog?.prepare(payload);
         socket.emit('ssh_connect', payload);
         return true;
     }
@@ -1843,6 +1845,7 @@
     }
 
     function finishConnectionCancellation(requestId) {
+        window.SSHGatewayDialog?.close(requestId);
         pendingReconnectSessionMap.delete(requestId);
         rememberTransientId(cancelledConnectRequestIds, requestId);
         closeAuthBannerPrompt(requestId);
@@ -1873,6 +1876,7 @@
             || (
                 requestId !== currentConnectRequestId
                 && !pendingRequestPaneMap.has(requestId)
+                && !window.SSHGatewayDialog?.has(requestId)
             )
         ) {
             return false;
@@ -1889,6 +1893,7 @@
             const requestStillPending = (
                 requestId === currentConnectRequestId
                 || pendingRequestPaneMap.has(requestId)
+                || window.SSHGatewayDialog?.has(requestId)
             );
             const completedWhileCancelling = (
                 completedWhileCancellingRequestIds.delete(requestId)
@@ -2082,8 +2087,28 @@
             validation.isValidHost(hostInput.value), 'validation.host');
         const validatePort = () => hint(portInput, portHint,
             validation.isValidPort(portInput.value), 'validation.port');
-        const validateUser = () => hint(userInput, userHint,
-            validation.isValidUsername(userInput.value), 'validation.username');
+        const validatePassword = () => {
+            if (!passwordInput) return;
+            const passwordAuth = authTypeSelect?.value === 'password';
+            const gateway = passwordAuth && validation.isGateway(userInput.value);
+            const valid = !passwordAuth || gateway || passwordInput.value.length > 0;
+            setFieldState(passwordInput, passHint,
+                valid ? '' : i18n.t('connection.passwordRequired'), passwordAuth ? valid : null);
+            if (passHint && gateway && !passwordInput.value) {
+                passHint.textContent = i18n.t('gateway.passwordHint', 'Leave the password empty for interactive gateway authentication.');
+            }
+        };
+        let gatewayPasswordMode = false;
+        const validateUser = () => {
+            hint(userInput, userHint,
+                validation.isValidUsername(userInput.value, authTypeSelect?.value !== 'tailscale'), 'validation.username');
+            const gateway = validation.isGateway(userInput.value);
+            if (gateway || gatewayPasswordMode) {
+                if (passwordInput) passwordInput.required = authTypeSelect?.value === 'password' && !gateway;
+                validatePassword();
+            }
+            gatewayPasswordMode = gateway;
+        };
         hostInput.addEventListener('input', validateHost);
         portInput.addEventListener('input', validatePort);
         userInput.addEventListener('input', validateUser);
@@ -2091,14 +2116,11 @@
             if (hostHint.textContent) validateHost();
             if (portHint.textContent) validatePort();
             if (userHint.textContent) validateUser();
+            if (passHint?.textContent) validatePassword();
         });
 
         if (passwordInput) {
-            passwordInput.addEventListener('input', () => {
-                const value = passwordInput.value;
-                const isValid = value.length > 0;
-                setFieldState(passwordInput, passHint, isValid ? '' : i18n.t('connection.passwordRequired'), isValid);
-            });
+            passwordInput.addEventListener('input', validatePassword);
         }
 
         if (keySelect) {
@@ -2117,9 +2139,8 @@
 
         if (authTypeSelect) {
             authTypeSelect.addEventListener('change', () => {
-                if (authTypeSelect.value === 'password' && passwordInput) {
-                    setFieldState(passwordInput, passHint, passwordInput.value ? '' : i18n.t('connection.passwordRequired'), Boolean(passwordInput.value));
-                }
+                if (validation.isGateway(userInput.value)) validateUser();
+                if (authTypeSelect.value === 'password' && passwordInput) validatePassword();
                 if (authTypeSelect.value === 'key' && keySelect) {
                     setFieldState(keySelect, keyHint, keySelect.value ? '' : i18n.t('connection.selectSSHKey'), Boolean(keySelect.value));
                 }
@@ -2627,7 +2648,7 @@
                 return;
             }
 
-            if (authType === 'password' && !password) {
+            if (authType === 'password' && !password && !window.ConnectionValidation.isGateway(username)) {
                 showNotification('Password is required', 'error');
                 document.getElementById('passwordInput').focus();
                 return;
@@ -2928,7 +2949,7 @@
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
                 if (e.target.classList.contains('primary-workspace-view')) return;
-                if (e.target.id === 'sshAuthBannerModal') return;
+                if (e.target.id === 'sshAuthBannerModal' || e.target.id === 'sshGatewayModal') return;
                 if (e.target.id === 'connectionModal') {
                     dismissConnectionModal();
                     return;
@@ -3006,6 +3027,7 @@
                         if (
                             modal.id === 'sftpFileManager'
                             || modal.id === 'sshAuthBannerModal'
+                            || modal.id === 'sshGatewayModal'
                             || modal.classList.contains('primary-workspace-view')
                         ) return;
                         if (modal.id === 'connectionModal') {

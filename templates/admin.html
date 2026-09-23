@@ -43,6 +43,7 @@
             <button class="admin-tab active" data-tab="users"><span class="material-icons" aria-hidden="true">group</span><span data-i18n="admin.users">Users</span></button>
             <button class="admin-tab" data-tab="settings" data-settings-section="authentication"><span class="material-icons" aria-hidden="true">key</span><span data-i18n="admin.authentication">Authentication</span></button>
             <button class="admin-tab" data-tab="settings" data-settings-section="registration"><span class="material-icons" aria-hidden="true">person_add</span><span data-i18n="admin.registration">Registration</span></button>
+            <button class="admin-tab" type="button" data-tab="settings" data-settings-section="integrations"><span class="material-icons" aria-hidden="true">extension</span><span data-i18n="admin.integrations">Integrations</span></button>
             {% if host_key_management_enabled %}
             <button class="admin-tab" data-tab="settings" data-settings-section="host-trust"><span class="material-icons" aria-hidden="true">verified_user</span><span data-i18n="admin.globalSshTrust">Global SSH trust</span></button>
             {% endif %}
@@ -215,6 +216,16 @@
                         <button class="btn btn-primary" id="githubAuthSave" type="button" data-i18n="admin.githubSave">Save GitHub configuration</button>
                         <button class="btn btn-danger" id="githubAuthClearSecret" type="button" data-i18n="admin.githubDisableRemoveSecret">Disable and remove secret</button>
                         <span class="admin-muted" id="githubAuthStatus" role="status" aria-live="polite" data-i18n="admin.featureStatusNotLoaded">Not loaded</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="admin-settings-subpanel hidden" data-settings-panel="integrations">
+                <div class="admin-page-header"><div><h2 data-i18n="admin.integrations">Integrations</h2></div></div>
+                <div class="admin-settings-surface">
+                    <div class="admin-settings-row">
+                        <div><label for="settingSshGateway"><strong data-i18n="admin.sshGateway">Warpgate / SSH gateway</strong></label><p id="sshGatewaySettingHint" class="admin-muted" data-i18n="admin.sshGatewayHint">Allow interactive gateway connections using user:target for all users. Disabled by default. Disabling blocks new connections and unfinished gateway authentication; established sessions remain connected. Reload open workspaces after changing this setting.</p></div>
+                        <label class="admin-switch"><input type="checkbox" id="settingSshGateway" aria-describedby="sshGatewaySettingHint" disabled><span data-i18n="common.enabled">Enabled</span></label>
                     </div>
                 </div>
             </section>

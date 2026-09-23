@@ -6311,3 +6311,19 @@ body.keyboard-open.notepad-focused .notepad-panel {
     opacity: 1;
     color: var(--error-color, #f87171);
 }
+
+/* Transient SSH gateway interaction */
+/* Above connection forms (9000), below authentication banners (9200). */
+.gateway-modal { z-index: 9100; }
+.gateway-modal .modal-content { width: min(95vw, 850px); max-height: 90vh; overflow: auto; }
+.gateway-modal p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.gateway-challenge-title { margin: 0 0 12px; overflow-wrap: anywhere; }
+.gateway-instructions { color: var(--text-secondary); line-height: 1.6; }
+.gateway-modal a { color: var(--accent-color, #58a6ff); text-decoration: underline; }
+.gateway-modal a:focus-visible { outline: 2px solid var(--accent-color, #58a6ff); outline-offset: 3px; }
+.gateway-challenge-form { margin-top: 20px; }
+.gateway-modal label { display: block; margin: 0 0 20px; overflow-wrap: anywhere; font-weight: 600; }
+.gateway-modal input { display: block; width: 100%; margin-top: 8px; padding: 12px 14px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; font: inherit; }
+.gateway-modal input:focus { outline: 2px solid var(--accent-color, #58a6ff); outline-offset: 2px; }
+.gateway-footer { display: flex; justify-content: flex-end; padding: 20px 24px; border-top: 1px solid var(--border-color); background: var(--bg-secondary); }
+.gateway-terminal { margin: 12px 0; overflow: auto; }

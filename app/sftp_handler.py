@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import os
 import socket
@@ -227,6 +228,43 @@ _PUBLIC_SFTP_ERROR_MAX_BYTES = 512
 
 def public_sftp_error(error, fallback=_PUBLIC_SFTP_ERROR):
     """Return only small, application-authored SFTP errors to clients."""
+    code = getattr(error, 'errno', None)
+    if isinstance(error, PermissionError) or code in (errno.EACCES, errno.EPERM):
+        return 'Permission denied'
+    if isinstance(error, FileNotFoundError) or code == errno.ENOENT:
+        return 'File or directory not found'
+    if isinstance(error, NotADirectoryError) or code == errno.ENOTDIR:
+        return 'Not a directory'
+    if isinstance(error, FileExistsError) or code == errno.EEXIST:
+        return 'File or directory already exists'
+    if code == errno.EROFS:
+        return 'Remote file system is read-only'
+    if code == errno.ENOSPC:
+        return 'Remote file system is full'
+    if isinstance(error, (socket.timeout, TimeoutError)) or code == errno.ETIMEDOUT:
+        return 'Remote file operation timed out'
+
+    if isinstance(error, (OSError, SFTPError, SFTPOperationError)):
+        message = str(error).strip().lower()
+        if len(message) <= _PUBLIC_SFTP_ERROR_MAX_BYTES:
+            if message in {'permission denied', 'access denied',
+                           'operation not permitted'} or any(
+                message.startswith(reason + ': ')
+                for reason in ('permission denied', 'access denied',
+                               'operation not permitted')
+            ):
+                return 'Permission denied'
+            if message in {'no such file', 'no such file or directory'}:
+                return 'File or directory not found'
+            if message == 'not a directory':
+                return 'Not a directory'
+            if message == 'file exists':
+                return 'File or directory already exists'
+            if message == 'read-only file system':
+                return 'Remote file system is read-only'
+            if message == 'no space left on device':
+                return 'Remote file system is full'
+
     if isinstance(error, SFTPOperationError):
         message = str(error)
         if len(message) > _PUBLIC_SFTP_ERROR_MAX_BYTES:

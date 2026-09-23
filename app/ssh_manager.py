@@ -149,7 +149,7 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                           auth_banner_decision=None,
                           tailscale_authorization=None,
                           cancel_event=None, client_request_id=None,
-                          jump_host_id=None):
+                          jump_host_id=None, gateway_attempt=None):
     """
     Create a new SSH connection and return session ID.
 
@@ -170,6 +170,11 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         cancel_event: Event-like cancellation signal for an in-progress setup
     """
     def connection_cancelled():
+        if gateway_attempt is not None:
+            try:
+                gateway_attempt.check()
+            except ValueError:
+                return True
         return cancel_event is not None and cancel_event.is_set()
 
     if connection_cancelled():
@@ -265,6 +270,9 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                     bastion_target, config.SSH_CONNECT_TIMEOUT
                 )
                 bastion_client = paramiko.SSHClient()
+                if gateway_attempt is not None:
+                    gateway_attempt.own(validated_socket)
+                    gateway_attempt.own(bastion_client)
                 _configure_host_key_trust(bastion_client, host_key_store)
 
                 bastion_auth = {
@@ -356,6 +364,12 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
             return None, "Connection cancelled"
 
         client = paramiko.SSHClient()
+        if gateway_attempt is not None:
+            gateway_attempt.own(client)
+            if validated_socket is not None:
+                gateway_attempt.own(validated_socket)
+            if bastion_client is not None:
+                gateway_attempt.own(bastion_client)
         _configure_host_key_trust(client, host_key_store)
 
         auth_kwargs = {
@@ -366,7 +380,17 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
             'sock': sock,
         }
 
-        if auth_type == 'tailscale':
+        if gateway_attempt is not None:
+            from .ssh_gateway_auth import GatewayAuthStrategy, GatewayTransport
+            if auth_type == 'tailscale' or key_path:
+                return None, 'Unsupported gateway authentication method'
+            auth_kwargs['transport_factory'] = GatewayTransport
+            auth_kwargs['auth_strategy'] = GatewayAuthStrategy(
+                username, password=password,
+                pkey=_load_private_key(key_content) if key_content else None,
+                interact=gateway_attempt.challenge, check=gateway_attempt.check,
+            )
+        elif auth_type == 'tailscale':
             auth_kwargs['auth_strategy'] = TailscaleSSHAuthStrategy(username)
         else:
             auth_kwargs['look_for_keys'] = False
@@ -399,6 +423,10 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         if connection_cancelled():
             return None, "Connection cancelled"
 
+        if gateway_attempt is not None:
+            from .ssh_gateway_setup import prepare_terminal
+            prepare_terminal(transport, gateway_attempt)
+
         tmux_session_name = None
         if use_tmux:
             # Tailscale SSH does not populate locale variables. Force UTF-8 on
@@ -424,7 +452,13 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
                 )
             else:
                 unique_suffix = uuid.uuid4().hex[:8]
-                tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{safe_user}_{safe_host}_{port}_{unique_suffix}"
+                if gateway_attempt is not None:
+                    from .ssh_gateway import tmux_name
+                    tmux_session_name = tmux_name(
+                        config.TMUX_SESSION_PREFIX, host, port, username, user_id,
+                    )
+                else:
+                    tmux_session_name = f"{config.TMUX_SESSION_PREFIX}_{safe_user}_{safe_host}_{port}_{unique_suffix}"
                 tmux_cmd = (
                     f'{tmux_command} new-session -s '
                     f'{shlex.quote(tmux_session_name)}'
@@ -497,6 +531,8 @@ def create_ssh_connection(host, port, username, password=None, key_path=None, ke
         time.sleep(0.1)
 
         with sessions_lock:
+            if gateway_attempt is not None:
+                gateway_attempt.handoff(client, validated_socket, bastion_client)
             sessions[session_id] = {
                 'client': client,
                 'channel': channel,

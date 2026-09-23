@@ -25,11 +25,22 @@
             /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)
         ));
     }
-    function isValidUsername(value) {
+    function isGateway(value) {
+        if (typeof document === 'undefined'
+                || document.querySelector('meta[name="ssh-gateway-enabled"]')?.content !== 'true') return false;
+        if (typeof value !== 'string' || !value.includes(':') || value.includes('#')
+                || value.startsWith('ticket-') || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value)
+                || new TextEncoder().encode(value).length > 128) return false;
+        const split = value.indexOf(':');
+        return [value.slice(0, split), value.slice(split + 1)]
+            .every(part => part.length > 0 && part === part.trim());
+    }
+    function isValidUsername(value, allowGateway = false) {
+        if (allowGateway && typeof value === 'string' && value.includes(':')) return isGateway(value);
         return /^[a-zA-Z0-9_.-]{1,32}$/.test(String(value || '').trim());
     }
     function isValidPort(value) {
         return /^\d+$/.test(String(value)) && Number(value) >= 1 && Number(value) <= 65535;
     }
-    return {isValidHost, isValidUsername, isValidPort};
+    return {isValidHost, isValidUsername, isValidPort, isGateway};
 }));
