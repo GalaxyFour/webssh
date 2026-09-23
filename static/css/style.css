@@ -6313,7 +6313,8 @@ body.keyboard-open.notepad-focused .notepad-panel {
 }
 
 /* Transient SSH gateway interaction */
-.gateway-modal { z-index: 1100; }
+/* Above connection forms (9000), below authentication banners (9200). */
+.gateway-modal { z-index: 9100; }
 .gateway-modal .modal-content { width: min(95vw, 850px); max-height: 90vh; overflow: auto; }
 .gateway-modal p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .gateway-modal label { display: block; margin: 12px 0; }

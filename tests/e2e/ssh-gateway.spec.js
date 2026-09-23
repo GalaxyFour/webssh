@@ -4,6 +4,7 @@ const {login, assertNoExternalRequests} = require('./helpers');
 test('gateway challenges are correlated, masked, text-only and transient', async ({page}) => {
     await login(page);
     await page.evaluate(() => {
+        window.openDefaultConnectionModal();
         window.__gatewaySent = [];
         const original = window.socket.emit.bind(window.socket);
         window.socket.emit = (event, data, ack) => {
@@ -16,7 +17,7 @@ test('gateway challenges are correlated, masked, text-only and transient', async
         };
         const dispatch = data => window.socket.listeners('ssh_gateway_challenge').forEach(fn => fn(data));
         dispatch({client_request_id: 'unsolicited', prompts: []});
-        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'gateway-test'});
+        window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: 'gateway-test'}, true);
         dispatch({
             client_request_id: 'gateway-test', challenge_id: 'one-shot',
             title: '<img src=x onerror=alert(1)>',
@@ -37,11 +38,12 @@ test('gateway challenges are correlated, masked, text-only and transient', async
         event: 'ssh_gateway_answer',
         data: {client_request_id: 'gateway-test', challenge_id: 'one-shot', answers: ['123456']},
     });
-    await page.evaluate(() => {
-        window.socket.listeners('ssh_error').forEach(fn => fn({
-            client_request_id: 'gateway-test', error: 'cancelled',
-        }));
+    await modal.locator('button[type=button]').click();
+    expect(await page.evaluate(() => window.__gatewaySent[1])).toEqual({
+        event: 'ssh_gateway_quick_cancel',
+        data: {client_request_id: 'gateway-test'},
     });
+    await expect(page.locator('#connectionModal')).toHaveClass(/show/);
     await expect(modal).not.toHaveClass(/show/);
     await expect(modal.locator('input')).toHaveCount(0);
     assertNoExternalRequests(page);
