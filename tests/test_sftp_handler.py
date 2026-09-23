@@ -1,4 +1,7 @@
-"""Tests for SFTP path sanitization."""
+"""Tests for SFTP path sanitization and safe error reporting."""
+
+import errno
+from contextlib import contextmanager
 
 import pytest
 
@@ -47,6 +50,53 @@ def test_remote_exception_text_is_not_reflected_to_file_control_clients(
     assert sftp_handler.public_sftp_error(
         sftp_handler.SFTPOperationError('application-authored error')
     ) == 'application-authored error'
+
+
+@pytest.mark.parametrize('failure, expected', [
+    (PermissionError(errno.EACCES, 'Permission denied', '/private/key'),
+     'Permission denied'),
+    (OSError(errno.EPERM, 'Operation not permitted', '/private/key'),
+     'Permission denied'),
+    (FileNotFoundError(errno.ENOENT, 'No such file', '/private/key'),
+     'File or directory not found'),
+    (NotADirectoryError(errno.ENOTDIR, 'Not a directory', '/private/key'),
+     'Not a directory'),
+    (FileExistsError(errno.EEXIST, 'File exists', '/private/key'),
+     'File or directory already exists'),
+    (OSError(errno.EROFS, 'Read-only file system', '/private/key'),
+     'Remote file system is read-only'),
+    (OSError(errno.ENOSPC, 'No space left on device', '/private/key'),
+     'Remote file system is full'),
+    (TimeoutError(errno.ETIMEDOUT, 'Timed out', '/private/key'),
+     'Remote file operation timed out'),
+    (OSError('Permission denied: /private/key'), 'Permission denied'),
+])
+def test_known_remote_file_failures_have_safe_reasons(failure, expected):
+    import app.sftp_handler as sftp_handler
+
+    reason = sftp_handler.public_sftp_error(failure)
+
+    assert reason == expected
+    assert '/private/key' not in reason
+
+
+def test_directory_and_editor_save_report_permission_failure(monkeypatch):
+    import app.sftp_handler as sftp_handler
+
+    @contextmanager
+    def denied_session(_identifier):
+        raise PermissionError(errno.EACCES, 'Permission denied', '/private/key')
+        yield
+
+    monkeypatch.setattr(sftp_handler, 'sftp_session', denied_session)
+
+    files, listing_error = sftp_handler.list_directory('session', '/private')
+    save = sftp_handler.write_file_text('session', '/private/key', 'updated')
+
+    assert files is None
+    assert listing_error == 'Permission denied'
+    assert save.success is False
+    assert save.error == 'Permission denied'
 
 
 def test_paramiko_directory_parser_rejects_huge_extended_attribute_count():
