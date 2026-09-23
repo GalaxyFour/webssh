@@ -913,7 +913,7 @@ def close_session(session_id, kill_tmux=False):
     """Close SSH session and clean up resources.
 
     kill_tmux: If True and the session uses tmux, kill the remote tmux session.
-               Default False â€” idle timeout and server restart detach only,
+               Default False — idle timeout and server restart detach only,
                leaving tmux running so the session shows up as a reconnect
                candidate. Pass True only from explicit user disconnect.
     """

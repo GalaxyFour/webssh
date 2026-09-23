@@ -54,8 +54,21 @@ test('ordinary passwords stay required and gateway passwords can be empty', asyn
     await expect(page.locator('#passwordInput')).toHaveJSProperty('required', true);
     await page.locator('#usernameInput').fill('user:target');
     await expect(page.locator('#passwordInput')).toHaveJSProperty('required', false);
+    const gatewayHint = await page.evaluate(() => window.i18n.t('gateway.passwordHint'));
+    const requiredHint = await page.evaluate(() => window.i18n.t('connection.passwordRequired'));
+    await expect(page.locator('#passwordHint')).toHaveText(gatewayHint);
     await page.locator('#usernameInput').fill('ordinary');
     await expect(page.locator('#passwordInput')).toHaveJSProperty('required', true);
+    await expect(page.locator('#passwordHint')).toHaveText(requiredHint);
+    await page.locator('#passwordInput').fill('test-password');
+    await expect(page.locator('#passwordHint')).toHaveText('');
+    await page.locator('#usernameInput').fill('user:target');
+    await page.locator('#passwordInput').fill('');
+    await expect(page.locator('#passwordHint')).toHaveText(gatewayHint);
+    await page.locator('#authTypeSelect').selectOption('key');
+    await page.locator('#authTypeSelect').selectOption('password');
+    await expect(page.locator('#passwordInput')).toHaveJSProperty('required', false);
+    await expect(page.locator('#passwordHint')).toHaveText(gatewayHint);
     assertNoExternalRequests(page);
 });
 

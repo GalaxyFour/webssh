@@ -490,7 +490,7 @@ const SessionManager = {
             return;
         }
 
-        // Active session â€” disconnect first, then reconnect
+        // Active session — disconnect first, then reconnect
         if (session.connected) {
             const message = window.i18n
                 ? i18n.t('session.reconnectConfirm').replace('{label}', label)
@@ -546,7 +546,7 @@ const SessionManager = {
                     }
                 }, 500);
             } else {
-                // No key_id â€” open pre-filled connection modal
+                // No key_id — open pre-filled connection modal
                 setTimeout(() => {
                     window.clearConnectionProfileState();
                     const hostInput = document.getElementById('hostInput');
@@ -840,7 +840,7 @@ const SessionManager = {
         notesEl.textContent = `${session.username}@${session.host}:${session.port}`;
         if (session.viaJump) {
             const via = window.i18n ? i18n.t('connection.via') : 'via';
-            notesEl.appendChild(document.createTextNode('  Â·  '));
+            notesEl.appendChild(document.createTextNode('  ·  '));
             const viaSpan = document.createElement('span');
             viaSpan.className = 'session-via';
             viaSpan.textContent = `${via} ${session.viaJump}`;
@@ -1618,7 +1618,7 @@ const SessionManager = {
             }
             if (route.proxyJump) connectionData.proxy_jump = route.proxyJump;
             window.SSHGatewayDialog?.prepare(connectionData);
-                        window.socket.emit('ssh_connect', connectionData);
+            window.socket.emit('ssh_connect', connectionData);
             const label = `${username}@${host}`;
             const message = window.i18n
                 ? i18n.t('session.reconnecting').replace('{label}', label)
