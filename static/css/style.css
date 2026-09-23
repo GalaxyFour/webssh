@@ -6311,3 +6311,11 @@ body.keyboard-open.notepad-focused .notepad-panel {
     opacity: 1;
     color: var(--error-color, #f87171);
 }
+
+/* Transient SSH gateway interaction */
+.gateway-modal { z-index: 1100; }
+.gateway-modal .modal-content { width: min(95vw, 850px); max-height: 90vh; overflow: auto; }
+.gateway-modal p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.gateway-modal label { display: block; margin: 12px 0; }
+.gateway-modal input { display: block; width: 100%; }
+.gateway-terminal { margin: 12px 0; overflow: auto; }

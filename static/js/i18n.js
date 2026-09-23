@@ -1,6 +1,13 @@
 
 const translations = {
     en: {
+        'gateway.title': "Gateway connection",
+        'gateway.authentication': "Gateway authentication",
+        'gateway.response': "Response",
+        'gateway.continue': "Continue",
+        'gateway.target': "Waiting for target access. Review gateway prompts below.",
+        'gateway.cancel': "Cancel connection",
+        'gateway.passwordHint': "Leave the password empty for interactive gateway authentication.",
         'workspace.directorySync.prompt': "Folder sync paused: an empty terminal prompt could not be confirmed. Finish your input, or turn off sync to browse Files independently.",
         'workspace.directorySync.unavailable': "The terminal folder could not be checked. Leave tmux copy mode or the running application and try again.",
         'workspace.directorySync.pending': "The previous folder change is still being checked. Please try again shortly.",
@@ -1410,6 +1417,13 @@ const translations = {
 
 
     vi: {
+        'gateway.title': "Kết nối cổng SSH",
+        'gateway.authentication': "Xác thực cổng SSH",
+        'gateway.response': "Phản hồi",
+        'gateway.continue': "Tiếp tục",
+        'gateway.target': "Đang chờ quyền truy cập đích. Kiểm tra yêu cầu bên dưới.",
+        'gateway.cancel': "Hủy kết nối",
+        'gateway.passwordHint': "Để trống mật khẩu để xác thực tương tác.",
         'workspace.directorySync.prompt': "Đồng bộ thư mục tạm dừng: chưa xác nhận được dòng lệnh trống. Hoàn tất nhập lệnh hoặc tắt đồng bộ để duyệt tệp độc lập.",
         'workspace.directorySync.unavailable': "Không thể kiểm tra thư mục terminal. Thoát chế độ sao chép tmux hoặc ứng dụng đang chạy rồi thử lại.",
         'workspace.directorySync.pending': "Đang kiểm tra lần chuyển thư mục trước. Vui lòng thử lại sau ít giây.",
@@ -2818,6 +2832,13 @@ const translations = {
     },
 
     de: {
+        'gateway.title': "Gateway-Verbindung",
+        'gateway.authentication': "Gateway-Anmeldung",
+        'gateway.response': "Antwort",
+        'gateway.continue': "Weiter",
+        'gateway.target': "Warten auf den Zielzugriff. Bitte die Gateway-Abfragen unten prüfen.",
+        'gateway.cancel': "Verbindung abbrechen",
+        'gateway.passwordHint': "Passwort für die interaktive Gateway-Anmeldung leer lassen.",
         'workspace.directorySync.prompt': "Ordner-Sync pausiert: Eine leere Terminal-Eingabe konnte nicht bestätigt werden. Beende deine Eingabe oder schalte den Sync aus, um Dateien unabhängig zu öffnen.",
         'workspace.directorySync.unavailable': "Der Terminal-Ordner konnte nicht geprüft werden. Verlasse den tmux-Kopiermodus oder das laufende Programm und versuche es erneut.",
         'workspace.directorySync.pending': "Der vorherige Ordnerwechsel wird noch geprüft. Versuche es gleich erneut.",
@@ -4225,6 +4246,13 @@ const translations = {
     },
 
     fr: {
+        'gateway.title': "Connexion à la passerelle",
+        'gateway.authentication': "Authentification de la passerelle",
+        'gateway.response': "Réponse",
+        'gateway.continue': "Continuer",
+        'gateway.target': "En attente de l'accès à la cible. Vérifiez les demandes ci-dessous.",
+        'gateway.cancel': "Annuler la connexion",
+        'gateway.passwordHint': "Laissez le mot de passe vide pour l'authentification interactive.",
         'workspace.directorySync.prompt': "Synchronisation en pause : impossible de confirmer une invite vide. Terminez votre saisie ou désactivez la synchronisation pour parcourir les fichiers indépendamment.",
         'workspace.directorySync.unavailable': "Impossible de vérifier le dossier du terminal. Quittez le mode copie de tmux ou l’application en cours, puis réessayez.",
         'workspace.directorySync.pending': "Le changement de dossier précédent est encore en cours de vérification. Réessayez dans un instant.",
@@ -5632,6 +5660,13 @@ const translations = {
     },
 
     es: {
+        'gateway.title': "Conexión a la puerta de enlace",
+        'gateway.authentication': "Autenticación de la puerta de enlace",
+        'gateway.response': "Respuesta",
+        'gateway.continue': "Continuar",
+        'gateway.target': "Esperando acceso al destino. Revise las solicitudes siguientes.",
+        'gateway.cancel': "Cancelar conexión",
+        'gateway.passwordHint': "Deje la contraseña vacía para la autenticación interactiva.",
         'workspace.directorySync.prompt': "Sincronización en pausa: no se pudo confirmar una línea de comandos vacía. Termina la entrada o desactiva la sincronización para explorar archivos de forma independiente.",
         'workspace.directorySync.unavailable': "No se pudo comprobar la carpeta de la terminal. Sal del modo de copia de tmux o de la aplicación en ejecución y vuelve a intentarlo.",
         'workspace.directorySync.pending': "Aún se está comprobando el cambio de carpeta anterior. Vuelve a intentarlo en un momento.",
@@ -7039,6 +7074,13 @@ const translations = {
     },
 
     zh: {
+        'gateway.title': "网关连接",
+        'gateway.authentication': "网关身份验证",
+        'gateway.response': "响应",
+        'gateway.continue': "继续",
+        'gateway.target': "正在等待目标访问。请检查下方的网关提示。",
+        'gateway.cancel': "取消连接",
+        'gateway.passwordHint': "将密码留空以使用交互式网关身份验证。",
         'workspace.directorySync.prompt': "文件夹同步已暂停：无法确认终端提示符为空。请完成输入，或关闭同步以独立浏览文件。",
         'workspace.directorySync.unavailable': "无法检查终端文件夹。请退出 tmux 复制模式或正在运行的程序后重试。",
         'workspace.directorySync.pending': "仍在检查上一次文件夹切换。请稍后重试。",

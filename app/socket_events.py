@@ -38,7 +38,7 @@ from .network_policy import canonicalize_hostname
 from .ssh_errors import connection_error_payload
 from . import binary_transfer, connection_pool
 from .transfer_routes import prepare_transfer, transfer_manager, _terminalize
-from .quota_manager import QuotaKind, quota_manager
+from .quota_manager import QuotaExceeded, QuotaKind, quota_manager
 from .socket_capacity import socket_capacity
 from .ssh_input_budget import budget_from_config
 from .ssh_output_flow import ssh_output_flow
@@ -846,7 +846,7 @@ def _is_valid_host(host_str):
     except ValueError:
         return False
 
-def _validate_ssh_params(host, port, username, allow_internal=False):
+def _validate_ssh_params(host, port, username, allow_internal=False, *, allow_gateway=False):
     """Validate SSH connection parameters. Returns (clean_host, clean_port, clean_username, error).
 
     ``allow_internal`` remains for compatibility with callers. DNS and address
@@ -866,6 +866,13 @@ def _validate_ssh_params(host, port, username, allow_internal=False):
     except (ValueError, TypeError):
         return None, None, None, 'Invalid port number'
 
+    if allow_gateway and isinstance(username, str) and ':' in username:
+        from .ssh_gateway import parse_selector
+        try:
+            parse_selector(username)
+        except ValueError as error:
+            return None, None, None, str(error)
+        return canonicalize_hostname(host), port, username, None
     username = (username or '').strip()
     if not username:
         return None, None, None, 'Username is required'
@@ -1315,6 +1322,7 @@ def handle_disconnect():
     ssh_output_flow.release_socket(socket_sid)
     _cancel_ssh_banner_prompts_for_socket(socket_sid)
     _cancel_ssh_connect_attempts_for_socket(socket_sid)
+    current_app.extensions['ssh_gateway_registry'].cancel_socket(socket_sid)
     owner_id = socket_capacity.release(socket_sid)
     try:
         user = get_user_from_socket(socket_sid)
@@ -1561,7 +1569,19 @@ def handle_ssh_connect(data, current_user=None):
                 'port': bastion_port if context == 'jump_host' else port,
                 'client_request_id': client_request_id,
             })
-            answered = decision_event.wait(SSH_AUTH_BANNER_DECISION_TIMEOUT)
+            if gateway_attempt is None:
+                answered = decision_event.wait(SSH_AUTH_BANNER_DECISION_TIMEOUT)
+            else:
+                answered = False
+                banner_deadline = time.monotonic() + SSH_AUTH_BANNER_DECISION_TIMEOUT
+                while time.monotonic() < banner_deadline:
+                    if gateway_attempt.cancelled:
+                        break
+                    if client_cancel_event.is_set():
+                        break
+                    if decision_event.wait(.1):
+                        answered = True
+                        break
             with _ssh_banner_prompts_lock:
                 _ssh_banner_prompts.pop(prompt_id, None)
             accepted = answered and prompt['accepted'] is True
@@ -1667,7 +1687,7 @@ def handle_ssh_connect(data, current_user=None):
         # The target may be internal when reached via a bastion (legitimate).
         host, port, username, error = _validate_ssh_params(
             data.get('host'), data.get('port', 22), data.get('username'),
-            allow_internal=bool(proxy_jump)
+            allow_internal=bool(proxy_jump), allow_gateway=auth_type != 'tailscale'
         )
         if error:
             emit_error(error)
@@ -1695,7 +1715,7 @@ def handle_ssh_connect(data, current_user=None):
                 emit_error(access_error)
                 return
 
-        if auth_type == 'password' and not password:
+        if auth_type == 'password' and not password and ':' not in username:
             emit_error('Password required')
             return
 
@@ -1743,6 +1763,20 @@ def handle_ssh_connect(data, current_user=None):
 
         app = current_app._get_current_object()
         lifecycle = app.extensions['runtime_lifecycle']
+        gateway_attempt = None
+        gateway_registry = app.extensions['ssh_gateway_registry']
+        if ':' in username:
+            if data.get('gateway_interaction') != 1 or not client_request_id:
+                emit_error('Gateway connections require an updated interactive client')
+                return
+            try:
+                gateway_attempt = gateway_registry.create(
+                    current_user.id, socket_sid, client_request_id,
+                    lambda event, payload: socketio.emit(event, payload, to=socket_sid),
+                )
+            except (ValueError, QuotaExceeded):
+                emit_error('Gateway connection limit reached or request unavailable')
+                return
         credential_box = {
             'password': password,
             'key_content': key_content,
@@ -1763,6 +1797,8 @@ def handle_ssh_connect(data, current_user=None):
             with _ssh_connect_attempts_lock:
                 if attempt_key in _ssh_connect_attempts:
                     credential_box.clear()
+                    if gateway_attempt is not None:
+                        gateway_registry.finish(gateway_attempt)
                     emit_error('Connection request already in progress')
                     return
                 _ssh_connect_attempts[attempt_key] = attempt
@@ -1812,6 +1848,7 @@ def handle_ssh_connect(data, current_user=None):
                     tailscale_authorization=tailscale_authorization,
                     cancel_event=cancellation,
                     client_request_id=client_request_id,
+                    **({'gateway_attempt': gateway_attempt} if gateway_attempt is not None else {}),
                 )
 
                 if cancellation.is_set():
@@ -1966,6 +2003,8 @@ def handle_ssh_connect(data, current_user=None):
                 if not cancellation.is_set():
                     emit_error('Connection failed')
             finally:
+                if gateway_attempt is not None:
+                    gateway_registry.finish(gateway_attempt)
                 credentials.clear()
                 local_password = None
                 local_key_content = None
@@ -1988,6 +2027,8 @@ def handle_ssh_connect(data, current_user=None):
             if client_cancel_event.is_set():
                 handle.cancel()
         except Exception as error:
+            if gateway_attempt is not None:
+                gateway_registry.finish(gateway_attempt)
             credential_box.clear()
             if attempt_key is not None:
                 with _ssh_connect_attempts_lock:
@@ -2044,6 +2085,11 @@ def handle_ssh_connect_cancel(data, current_user=None):
                 'reason': 'already_committed',
             }
         handle = attempt.get('handle')
+    gateway = current_app.extensions['ssh_gateway_registry'].get(
+        current_user.id, request.sid, request_id,
+    )
+    if gateway is not None:
+        gateway.cancel()
     _cancel_ssh_banner_prompt_for_request(
         current_user.id,
         request.sid,
@@ -4305,13 +4351,14 @@ def handle_quick_connect(data, current_user=None):
         key_id = data.get('key_id')
 
         host, port, username, error = _validate_ssh_params(
-            data.get('host'), data.get('port', 22), data.get('username')
+            data.get('host'), data.get('port', 22), data.get('username'),
+            allow_gateway=True,
         )
         if error:
             emit('quick_connect_error', connection_error_payload(error))
             return
 
-        if not password and not key_id:
+        if not password and not key_id and ':' not in username:
             emit('quick_connect_error', {'error': 'Password or SSH key required'})
             return
 
@@ -4321,6 +4368,12 @@ def handle_quick_connect(data, current_user=None):
             if key_error:
                 emit('quick_connect_error', {'error': f'SSH key error: {key_error}'})
                 return
+
+        if ':' in username:
+            _start_gateway_quick_connect(
+                data, current_user, host, port, username, password, key_content,
+            )
+            return
 
         connection_id, error = connection_pool.temp_connection_pool.create_connection(
             host=host,
@@ -5532,3 +5585,134 @@ def handle_transfer_server_to_server(data, current_user=None):
                 else _file_request_identity(payload)
             ),
         }
+
+
+
+def _start_gateway_quick_connect(data, user, host, port, username, password, key_content):
+    """Run only selector-based Quick SFTP asynchronously with bounded admission."""
+    request_id = _ssh_request_id(data)
+    if (data.get('gateway_interaction') != 1 or not request_id
+            or data.get('proxy_jump') or data.get('auth_type') == 'tailscale'):
+        emit('quick_connect_error', {'error': 'Unsupported gateway client or route',
+                                   'client_request_id': request_id})
+        return
+    app = current_app._get_current_object()
+    sid, user_id = request.sid, user.id
+    registry = app.extensions['ssh_gateway_registry']
+    try:
+        attempt = registry.create(
+            user_id, sid, request_id,
+            lambda event, payload: socketio.emit(event, payload, to=sid),
+        )
+    except (ValueError, QuotaExceeded):
+        emit('quick_connect_error', {'error': 'Gateway connection limit reached',
+                                   'client_request_id': request_id})
+        return
+    attempt.quick = True
+    attempt.quick_committed = False
+    credentials = {'password': password, 'key_content': key_content}
+
+    @copy_current_request_context
+    def connect(cancel_event):
+        connection_id = None
+        committed = False
+        try:
+            attempt.check()
+            if cancel_event.is_set():
+                return
+            connection_id, error = connection_pool.temp_connection_pool.create_connection(
+                host, port, username, user_id=user_id, gateway_attempt=attempt,
+                **credentials,
+            )
+            credentials.clear()
+            attempt.check()
+            if cancel_event.is_set():
+                return
+            if error:
+                attempt.send('quick_connect_error', **connection_error_payload(error))
+                return
+            with attempt.condition:
+                attempt.check()
+                if SocketSession.query.filter_by(socket_sid=sid, user_id=user_id).first() is None:
+                    return
+                payload = {
+                    'connection_id': connection_id, 'host': host, 'port': port,
+                    'username': username,
+                    'file_source': _public_file_source(
+                        make_source_id(FileSourceKind.SFTP_QUICK, connection_id), user_id,
+                    ),
+                }
+                attempt.quick_committed = True
+                attempt.send('quick_connect_success', **payload)
+                committed = True
+        except Exception:
+            if not attempt.cancelled:
+                attempt.send('quick_connect_error', error='Gateway connection failed')
+        finally:
+            credentials.clear()
+            if connection_id and not committed:
+                connection_pool.temp_connection_pool.request_close(connection_id, user_id)
+            registry.finish(attempt)
+    try:
+        app.extensions['runtime_lifecycle'].start_job(
+            'gateway_quick_connect', connect, owner_id=user_id,
+        )
+    except Exception:
+        credentials.clear()
+        registry.finish(attempt)
+        emit('quick_connect_error', {'error': 'Server is shutting down',
+                                   'client_request_id': request_id})
+
+
+@socketio.on('ssh_gateway_answer')
+@socket_login_required
+def handle_gateway_answer(data, current_user=None):
+    if not isinstance(data, dict):
+        return {'success': False}
+    attempt = current_app.extensions['ssh_gateway_registry'].get(
+        current_user.id, request.sid, data.get('client_request_id'),
+    )
+    return {'success': bool(attempt and attempt.answer(
+        current_user.id, request.sid, data.get('challenge_id'), data.get('answers'),
+    ))}
+
+
+@socketio.on('ssh_gateway_input')
+@socket_login_required
+def handle_gateway_input(data, current_user=None):
+    if not isinstance(data, dict):
+        return {'success': False}
+    attempt = current_app.extensions['ssh_gateway_registry'].get(
+        current_user.id, request.sid, data.get('client_request_id'),
+    )
+    return {'success': bool(attempt and attempt.input(data.get('data')))}
+
+
+@socketio.on('ssh_gateway_ack')
+@socket_login_required
+def handle_gateway_ack(data, current_user=None):
+    if not isinstance(data, dict):
+        return
+    attempt = current_app.extensions['ssh_gateway_registry'].get(
+        current_user.id, request.sid, data.get('client_request_id'),
+    )
+    if attempt:
+        attempt.ack(data.get('sequence'))
+
+
+@socketio.on('ssh_gateway_quick_cancel')
+@socket_login_required
+def handle_gateway_quick_cancel(data, current_user=None):
+    if not isinstance(data, dict):
+        return {'success': False}
+    attempt = current_app.extensions['ssh_gateway_registry'].get(
+        current_user.id, request.sid, data.get('client_request_id'),
+    )
+    if not attempt or not getattr(attempt, 'quick', False):
+        return {'success': False}
+    with attempt.condition:
+        if attempt.quick_committed:
+            return {'success': False, 'reason': 'already_committed'}
+        attempt.cancelled = True
+    attempt.cancel()
+    return {'success': True}

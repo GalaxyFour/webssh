@@ -68,7 +68,7 @@ class TemporaryConnectionPool:
             )
             return self.cleanup_handle
 
-    def create_connection(self, host, port, username, password=None, key_path=None, key_content=None, user_id=None):
+    def create_connection(self, host, port, username, password=None, key_path=None, key_content=None, user_id=None, gateway_attempt=None):
         """
         Create a temporary SSH+SFTP connection.
 
@@ -132,7 +132,21 @@ class TemporaryConnectionPool:
                 'allow_agent': False
             }
 
-            if key_content:
+            if gateway_attempt is not None:
+                from .ssh_gateway_auth import GatewayAuthStrategy, GatewayTransport
+                gateway_attempt.own(client)
+                gateway_attempt.own(validated_socket)
+                if key_path:
+                    return None, "Gateway authentication requires a stored key"
+                connect_kwargs.pop('look_for_keys', None)
+                connect_kwargs.pop('allow_agent', None)
+                connect_kwargs['transport_factory'] = GatewayTransport
+                connect_kwargs['auth_strategy'] = GatewayAuthStrategy(
+                    username, password=password,
+                    pkey=_load_private_key(key_content) if key_content else None,
+                    interact=gateway_attempt.challenge, check=gateway_attempt.check,
+                )
+            elif key_content:
                 connect_kwargs['pkey'] = _load_private_key(key_content)
             elif key_path:
                 connect_kwargs['key_filename'] = key_path
@@ -149,11 +163,18 @@ class TemporaryConnectionPool:
             if transport:
                 transport.set_keepalive(30)
 
-            sftp = open_sftp_client(
-                transport,
-                timeout=config.SSH_CONNECT_TIMEOUT,
-                operation_timeout=config.SFTP_OPERATION_TIMEOUT,
-            )
+            if gateway_attempt is not None:
+                from .ssh_gateway_setup import prepare_sftp
+                sftp = prepare_sftp(
+                    transport, gateway_attempt,
+                    operation_timeout=config.SFTP_OPERATION_TIMEOUT,
+                )
+            else:
+                sftp = open_sftp_client(
+                    transport,
+                    timeout=config.SSH_CONNECT_TIMEOUT,
+                    operation_timeout=config.SFTP_OPERATION_TIMEOUT,
+                )
 
             conn_id = uuid.uuid4().hex
 
@@ -164,6 +185,8 @@ class TemporaryConnectionPool:
                     and not lifecycle.accepting_work()
                 ):
                     return None, "Runtime is shutting down"
+                if gateway_attempt is not None:
+                    gateway_attempt.handoff(client, validated_socket, sftp)
                 self.connections[conn_id] = {
                     'client': client,
                     'sftp': sftp,

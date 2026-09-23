@@ -354,8 +354,17 @@ def _validate_profile_payload(user_id, payload, dependent_lock_held=False):
     except (ValueError, TypeError):
         return None, 'Invalid port number'
 
-    username = str(username).strip()
-    if not re.match(r'^[a-zA-Z0-9_\-\.]{1,32}$', username):
+    from .ssh_gateway import parse_selector
+    if isinstance(username, str) and ':' in username:
+        if auth_type == 'tailscale':
+            return None, 'Gateway selectors cannot use Tailscale SSH'
+        try:
+            parse_selector(username)
+        except ValueError as error:
+            return None, str(error)
+    else:
+        username = str(username).strip()
+    if ':' not in username and not re.match(r'^[a-zA-Z0-9_\-\.]{1,32}$', username):
         return None, 'Invalid username format'
     if auth_type not in {'password', 'key', 'tailscale'}:
         return None, 'Invalid auth_type'

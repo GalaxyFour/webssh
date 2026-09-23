@@ -1876,6 +1876,10 @@ class SFTPFileManager {
         });
 
         this.socket.on('quick_connect_error', (data) => {
+            if (data.client_request_id) {
+                if (data.client_request_id !== this.gatewayQuickRequestId) return;
+                this.gatewayQuickRequestId = null;
+            }
             const presentation = window.SSHErrorUI?.describeSSHError?.(
                 data,
                 key => this.t(key, key),
@@ -2980,6 +2984,13 @@ class SFTPFileManager {
     }
 
     closeQuickConnect() {
+        if (this.gatewayQuickRequestId) {
+            const id = this.gatewayQuickRequestId;
+            this.socket.emit('ssh_gateway_quick_cancel', {client_request_id: id}, result => {
+                if (result?.success) window.SSHGatewayDialog?.close(id);
+            });
+            this.gatewayQuickRequestId = null;
+        }
         if (window.ModalManager) {
             window.ModalManager.close(this.qcModal);
             if (this.modal.classList.contains('show')) {
@@ -3000,7 +3011,8 @@ class SFTPFileManager {
     submitQuickConnect() {
         const host = document.getElementById('fmQcHost').value.trim();
         const port = parseInt(document.getElementById('fmQcPort').value) || 22;
-        const username = document.getElementById('fmQcUsername').value.trim();
+        const rawUsername = document.getElementById('fmQcUsername').value;
+        const username = rawUsername.includes(':') ? rawUsername : rawUsername.trim();
         const authType = document.querySelector('input[name="fmQcAuth"]:checked').value;
         const password = document.getElementById('fmQcPassword').value;
         const keyId = document.getElementById('fmQcKeySelect').value;
@@ -3010,7 +3022,7 @@ class SFTPFileManager {
             return;
         }
 
-        if (authType === 'password' && !password) {
+        if (authType === 'password' && !password && !window.ConnectionValidation.isGateway(username)) {
             this.showNotification(this.t('fm.qc.passwordRequired', 'Password is required'), 'warning');
             return;
         }
@@ -3027,11 +3039,26 @@ class SFTPFileManager {
             data.key_id = keyId;
         }
 
+        if (this.gatewayQuickRequestId) return;
+        window.SSHGatewayDialog?.prepare(data, true, () => {
+            if (this.gatewayQuickRequestId === data.client_request_id) {
+                this.gatewayQuickRequestId = null;
+                this.closeQuickConnect();
+            }
+        });
+        this.gatewayQuickRequestId = data.gateway_interaction ? data.client_request_id : null;
         this.socket.emit('quick_connect', data);
         this.showNotification(this.t('fm.connecting', 'Connecting...'), 'info');
     }
 
     handleQuickConnectSuccess(data) {
+        if (data.client_request_id) {
+            if (data.client_request_id !== this.gatewayQuickRequestId) {
+                this.socket.emit('quick_disconnect', {connection_id: data.connection_id});
+                return;
+            }
+            this.gatewayQuickRequestId = null;
+        }
         this.showNotification(`${this.t('fm.connected', 'Connected')}: ${data.host}`, 'success');
 
         const qc = {

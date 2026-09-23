@@ -791,7 +791,7 @@ const ProfileManager = {
         if (authType === 'password') {
             passwordGroup.classList.remove('hidden');
             keyGroup.classList.add('hidden');
-            document.getElementById('passwordInput').required = true;
+            document.getElementById('passwordInput').required = !window.ConnectionValidation?.isGateway(document.getElementById('usernameInput').value);
             document.getElementById('keySelect').required = false;
         } else if (authType === 'key') {
             passwordGroup.classList.add('hidden');
@@ -1350,7 +1350,9 @@ const ProfileManager = {
             group: document.getElementById('profileEditorGroup').value.trim(),
             host: document.getElementById('profileEditorHost').value.trim(),
             port: Number(document.getElementById('profileEditorPort').value) || 22,
-            username: document.getElementById('profileEditorUsername').value.trim(),
+            username: document.getElementById('profileEditorUsername').value.includes(':')
+                ? document.getElementById('profileEditorUsername').value
+                : document.getElementById('profileEditorUsername').value.trim(),
             auth_type: document.getElementById('profileEditorAuthType').value,
             key_id: document.getElementById('profileEditorKeySelect').value || null,
             jump_host_id: document.getElementById('profileEditorJumpHostSelect').value || null,

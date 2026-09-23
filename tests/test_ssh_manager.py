@@ -950,3 +950,33 @@ def test_changed_target_host_key_returns_stable_fail_closed_error(monkeypatch):
     assert error.context == 'target'
     assert clients[0].closed is True
     assert clients.opened_sockets[0].closed is True
+
+def test_gateway_readiness_failure_prevents_shell_and_startup(monkeypatch):
+    from app.ssh_gateway_interaction import GatewayAttempt
+    from app import ssh_gateway_setup
+    clients = install_ssh_clients(monkeypatch)
+    attempt = GatewayAttempt(7, "socket", "req", lambda *args: None)
+    def reject(*args):
+        raise ValueError("Target not ready")
+    monkeypatch.setattr(ssh_gateway_setup, "prepare_terminal", reject)
+    try:
+        session_id, error = connect_target(username="u:t", gateway_attempt=attempt, startup_commands="touch forbidden")
+        assert session_id is None and error
+        assert clients[0].transport.session_channels == []
+        assert clients[0].closed
+        assert ssh_manager.sessions == {}
+    finally:
+        attempt.finish()
+
+
+def test_gateway_handoff_preserves_established_session(monkeypatch):
+    from app.ssh_gateway_interaction import GatewayAttempt
+    from app import ssh_gateway_setup
+    clients = install_ssh_clients(monkeypatch)
+    attempt = GatewayAttempt(7, "socket", "req", lambda *args: None)
+    monkeypatch.setattr(ssh_gateway_setup, "prepare_terminal", lambda *args: None)
+    session_id, error = connect_target(username="u:t", gateway_attempt=attempt)
+    assert error is None
+    attempt.finish()
+    assert not clients[0].closed
+    assert ssh_manager.get_session(session_id)["connected"]
