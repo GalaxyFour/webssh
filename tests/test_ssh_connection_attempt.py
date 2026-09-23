@@ -1,4 +1,4 @@
-"""Behavioral contracts shared by terminal and interactive SSH setup."""
+"""Cancellation contracts for interactive SSH setup and its base primitive."""
 import threading
 
 import pytest
@@ -127,7 +127,7 @@ def test_cancel_retains_quota_and_handoff_preserves_session(gateway):
     assert released == [True]
     assert closed == [pending]
 
-def test_ordinary_connect_keeps_its_operation_timeouts(monkeypatch):
+def test_base_attempt_has_no_implicit_timeout(monkeypatch):
     from app import ssh_connection_attempt
     attempt = make_attempt()
     started = ssh_connection_attempt.time.monotonic()
@@ -139,7 +139,7 @@ def test_ordinary_connect_keeps_its_operation_timeouts(monkeypatch):
         attempt.finish()
 
 
-def test_interactive_admission_does_not_reduce_ordinary_connect_capacity(monkeypatch):
+def test_interactive_admission_reserves_only_when_requested(monkeypatch):
     from app import ssh_connection_attempt
     from app.quota_manager import QuotaExceeded, QuotaKind, QuotaManager
     from app.ssh_gateway_interaction import GatewayAttempt

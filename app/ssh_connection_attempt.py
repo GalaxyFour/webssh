@@ -1,4 +1,4 @@
-"""Socket-owned SSH setup, with one atomic cancellation/commit boundary."""
+"""Socket-owned interactive SSH setup with an atomic cancellation boundary."""
 import secrets
 import threading
 import time
@@ -7,10 +7,10 @@ from .quota_manager import QuotaKind, quota_manager
 
 
 class SSHConnectionAttempt:
-    """Event-like cancellation shared by terminal and interactive SSH setup.
+    """Cancellation and resource ownership for interactive SSH setup.
 
     A user cancellation loses after commit; disconnect and shutdown still stop
-    runtime work. Ordinary SSH keeps its existing operation-specific timeouts.
+    runtime work. Ordinary SSH retains its existing cancellation implementation.
     """
 
     timeout = None
@@ -153,7 +153,7 @@ class SSHConnectionAttempt:
 
 
 class SSHAttemptRegistry:
-    """App-local admission and ownership for every asynchronous SSH connect."""
+    """App-local admission and ownership for interactive SSH attempts."""
 
     def __init__(self):
         self.lock = threading.Lock()

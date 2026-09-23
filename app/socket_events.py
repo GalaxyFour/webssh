@@ -133,6 +133,8 @@ _ENGINEIO_REJECTION_DRAIN_SECONDS = 1.0
 _ENGINEIO_REJECTION_POLL_SECONDS = 0.01
 _smb_attempts_lock = threading.RLock()
 _smb_attempts = {}
+_ssh_connect_attempts_lock = threading.RLock()
+_ssh_connect_attempts = {}
 _ssh_banner_prompts_lock = threading.RLock()
 _ssh_banner_prompts = {}
 SSH_AUTH_BANNER_DECISION_TIMEOUT = 60
@@ -177,6 +179,49 @@ def _cancel_ssh_banner_prompt_for_request(user_id, socket_sid, request_id):
     for prompt in prompts:
         prompt['accepted'] = False
         prompt['event'].set()
+
+
+def _try_cancel_ssh_attempt(attempt):
+    """Cancel an attempt unless an irreversible connection step won first."""
+    commit_lock = attempt.get('commit_lock')
+    if commit_lock is None:
+        if attempt.get('state') == 'committed':
+            return False
+        attempt['state'] = 'cancelled'
+        attempt['cancel_event'].set()
+        return True
+    with commit_lock:
+        state = attempt.get('state', 'pending')
+        if state == 'committed' or state == 'finished':
+            return False
+        attempt['state'] = 'cancelled'
+        attempt['cancel_event'].set()
+        return True
+
+
+def _force_cancel_ssh_attempt(attempt):
+    """Cancel runtime work even after the user-visible commit boundary."""
+    commit_lock = attempt.get('commit_lock')
+    if commit_lock is None:
+        attempt['cancel_event'].set()
+        return
+    with commit_lock:
+        attempt['cancel_event'].set()
+
+
+def _cancel_ssh_connect_attempts_for_socket(socket_sid):
+    handles = []
+    with _ssh_connect_attempts_lock:
+        for (_owner_id, owner_sid, _request_id), attempt in tuple(
+            _ssh_connect_attempts.items()
+        ):
+            if owner_sid != socket_sid:
+                continue
+            _force_cancel_ssh_attempt(attempt)
+            if attempt.get('handle') is not None:
+                handles.append(attempt['handle'])
+    for handle in handles:
+        handle.cancel()
 
 
 def _smb_request_id(payload):
@@ -715,9 +760,17 @@ def _audit_file_source_operation(
 class _CombinedCancellation:
     """Expose user and runtime cancellation through one Event-like interface."""
 
-    def __init__(self, user_cancel_event, lifecycle_cancel_event):
+    def __init__(
+        self,
+        user_cancel_event,
+        lifecycle_cancel_event,
+        commit_lock=None,
+        attempt=None,
+    ):
         self._user_cancel_event = user_cancel_event
         self._lifecycle_cancel_event = lifecycle_cancel_event
+        self._commit_lock = commit_lock or threading.Lock()
+        self._attempt = attempt
 
     def is_set(self):
         return (
@@ -730,7 +783,7 @@ class _CombinedCancellation:
             return True
         if timeout is None:
             while not self._user_cancel_event.wait(0.1):
-                if self.is_set():
+                if self._lifecycle_cancel_event.is_set():
                     return True
             return True
         deadline = time.monotonic() + timeout
@@ -740,6 +793,18 @@ class _CombinedCancellation:
                 return False
             self._user_cancel_event.wait(min(remaining, 0.1))
         return True
+
+    def commit_if_active(self):
+        """Linearize an irreversible setup step against user cancellation."""
+        with self._commit_lock:
+            if self.is_set():
+                return False
+            if self._attempt is not None:
+                state = self._attempt.get('state', 'pending')
+                if state == 'cancelled' or state == 'finished':
+                    return False
+                self._attempt['state'] = 'committed'
+            return True
 
 
 def _storage_error_payload(error, *, user_id, include_success=True, **extra):
@@ -1256,6 +1321,7 @@ def handle_disconnect():
     socket_sid = request.sid
     ssh_output_flow.release_socket(socket_sid)
     _cancel_ssh_banner_prompts_for_socket(socket_sid)
+    _cancel_ssh_connect_attempts_for_socket(socket_sid)
     current_app.extensions['ssh_attempt_registry'].cancel_socket(socket_sid)
     owner_id = socket_capacity.release(socket_sid)
     try:
@@ -1456,6 +1522,7 @@ def handle_ssh_connect(data, current_user=None):
     bastion_key_content = None
     client_request_id = None
     socket_sid = request.sid
+    client_cancel_event = threading.Event()
     try:
         data = data if isinstance(data, dict) else {}
         client_request_id = _ssh_request_id(data) or None
@@ -1483,7 +1550,8 @@ def handle_ssh_connect(data, current_user=None):
             ))
 
         def request_auth_banner_decision(banner, context):
-            if attempt.is_set():
+            if (client_cancel_event.is_set()
+                    or (gateway_attempt is not None and gateway_attempt.is_set())):
                 return False
             prompt_id = secrets.token_urlsafe(24)
             decision_event = threading.Event()
@@ -1496,7 +1564,8 @@ def handle_ssh_connect(data, current_user=None):
             }
             with _ssh_banner_prompts_lock:
                 _ssh_banner_prompts[prompt_id] = prompt
-                if attempt.is_set():
+                if (client_cancel_event.is_set()
+                        or (gateway_attempt is not None and gateway_attempt.is_set())):
                     decision_event.set()
             emit('ssh_auth_banner', {
                 'prompt_id': prompt_id,
@@ -1506,12 +1575,15 @@ def handle_ssh_connect(data, current_user=None):
                 'port': bastion_port if context == 'jump_host' else port,
                 'client_request_id': client_request_id,
             })
-            answered = False
-            banner_deadline = time.monotonic() + SSH_AUTH_BANNER_DECISION_TIMEOUT
-            while time.monotonic() < banner_deadline and not attempt.is_set():
-                if decision_event.wait(.1):
-                    answered = True
-                    break
+            if gateway_attempt is None:
+                answered = decision_event.wait(SSH_AUTH_BANNER_DECISION_TIMEOUT)
+            else:
+                answered = False
+                banner_deadline = time.monotonic() + SSH_AUTH_BANNER_DECISION_TIMEOUT
+                while time.monotonic() < banner_deadline and not gateway_attempt.is_set():
+                    if decision_event.wait(.1):
+                        answered = True
+                        break
             with _ssh_banner_prompts_lock:
                 _ssh_banner_prompts.pop(prompt_id, None)
             accepted = answered and prompt['accepted'] is True
@@ -1693,38 +1765,62 @@ def handle_ssh_connect(data, current_user=None):
 
         app = current_app._get_current_object()
         lifecycle = app.extensions['runtime_lifecycle']
-        from .ssh_connection_attempt import SSHConnectionAttempt
-        from .ssh_gateway_interaction import GatewayAttempt
         registry = app.extensions['ssh_attempt_registry']
-        gateway = ':' in username
-        if gateway and (data.get('gateway_interaction') != 1 or not client_request_id):
-            emit_error('Gateway connections require an updated interactive client')
-            return
-        try:
-            attempt = registry.create(
-                current_user.id, socket_sid, client_request_id,
-                factory=GatewayAttempt if gateway else SSHConnectionAttempt,
-                reserve=gateway,
-                **({'emit': lambda event, payload: socketio.emit(event, payload, to=socket_sid)}
-                   if gateway else {}),
-            )
-        except (ValueError, QuotaExceeded):
-            emit_error('Gateway connection limit reached or request unavailable' if gateway
-                       else 'Connection request already in progress')
-            return
-        gateway_attempt = attempt if gateway else None
+        gateway_attempt = None
+        attempt_key = (
+            (str(current_user.id), socket_sid, client_request_id)
+            if client_request_id else None
+        )
+        if ':' in username:
+            if data.get('gateway_interaction') != 1 or not client_request_id:
+                emit_error('Gateway connections require an updated interactive client')
+                return
+            from .ssh_gateway_interaction import GatewayAttempt
+            try:
+                with _ssh_connect_attempts_lock:
+                    if attempt_key in _ssh_connect_attempts:
+                        raise ValueError('Connection request already in progress')
+                    gateway_attempt = registry.create(
+                        current_user.id, socket_sid, client_request_id,
+                        factory=GatewayAttempt, reserve=True,
+                        emit=lambda event, payload: socketio.emit(event, payload, to=socket_sid),
+                    )
+            except (ValueError, QuotaExceeded):
+                emit_error('Gateway connection limit reached or request unavailable')
+                return
         credential_box = {
             'password': password,
             'key_content': key_content,
             'bastion_password': bastion_password,
             'bastion_key_content': bastion_key_content,
         }
+        if gateway_attempt is None:
+            attempt = {
+                'cancel_event': client_cancel_event,
+                'commit_lock': threading.Lock(),
+                'handle': None,
+                'state': 'pending',
+            }
+            if attempt_key is not None:
+                with _ssh_connect_attempts_lock:
+                    if (attempt_key in _ssh_connect_attempts
+                            or registry.get(current_user.id, socket_sid, client_request_id) is not None):
+                        credential_box.clear()
+                        emit_error('Connection request already in progress')
+                        return
+                    _ssh_connect_attempts[attempt_key] = attempt
 
         @copy_current_request_context
         def connect_ssh(lifecycle_cancel_event, credentials=credential_box):
             """Run blocking SSH setup outside the synchronous socket reader."""
-            attempt.bind_runtime(lifecycle_cancel_event)
-            cancellation = attempt
+            if gateway_attempt is None:
+                cancellation = _CombinedCancellation(
+                    client_cancel_event, lifecycle_cancel_event,
+                    attempt['commit_lock'], attempt,
+                )
+            else:
+                gateway_attempt.bind_runtime(lifecycle_cancel_event)
+                cancellation = gateway_attempt
             local_password = credentials.pop('password', None)
             local_key_content = credentials.pop('key_content', None)
             local_bastion_password = credentials.pop(
@@ -1929,7 +2025,15 @@ def handle_ssh_connect(data, current_user=None):
                 local_key_content = None
                 local_bastion_password = None
                 local_bastion_key_content = None
-                registry.finish(attempt)
+                if gateway_attempt is not None:
+                    registry.finish(gateway_attempt)
+                else:
+                    with attempt['commit_lock']:
+                        attempt['state'] = 'finished'
+                    if attempt_key is not None:
+                        with _ssh_connect_attempts_lock:
+                            if _ssh_connect_attempts.get(attempt_key) is attempt:
+                                _ssh_connect_attempts.pop(attempt_key, None)
 
         try:
             handle = lifecycle.start_job(
@@ -1937,9 +2041,19 @@ def handle_ssh_connect(data, current_user=None):
                 connect_ssh,
                 owner_id=current_user.id,
             )
-            attempt.attach_handle(handle)
+            if gateway_attempt is not None:
+                gateway_attempt.attach_handle(handle)
+            else:
+                attempt['handle'] = handle
+                if client_cancel_event.is_set():
+                    handle.cancel()
         except Exception as error:
-            registry.finish(attempt)
+            if gateway_attempt is not None:
+                registry.finish(gateway_attempt)
+            elif attempt_key is not None:
+                with _ssh_connect_attempts_lock:
+                    if _ssh_connect_attempts.get(attempt_key) is attempt:
+                        _ssh_connect_attempts.pop(attempt_key, None)
             credential_box.clear()
             log_warning(
                 'SSH connection job rejected',
@@ -1975,18 +2089,29 @@ def handle_ssh_connect_cancel(data, current_user=None):
     request_id = _ssh_request_id(data)
     if not request_id:
         return {'success': False}
-    attempt = current_app.extensions['ssh_attempt_registry'].get(
-        current_user.id, request.sid, request_id,
-    )
-    if attempt is None or attempt.kind != 'terminal':
-        return {'success': False, 'cancelled': False, 'reason': 'not_found'}
-    if not attempt.cancel():
-        return {'success': False, 'cancelled': False, 'reason': 'already_committed'}
+    gateway = _gateway_attempt(data, current_user.id)
+    if gateway is not None:
+        if gateway.kind != 'terminal':
+            return {'success': False, 'cancelled': False, 'reason': 'not_found'}
+        if not gateway.cancel():
+            return {'success': False, 'cancelled': False, 'reason': 'already_committed'}
+        _cancel_ssh_banner_prompt_for_request(current_user.id, request.sid, request_id)
+        return {'success': True, 'cancelled': True}
+    attempt_key = (str(current_user.id), request.sid, request_id)
+    with _ssh_connect_attempts_lock:
+        attempt = _ssh_connect_attempts.get(attempt_key)
+        if attempt is None:
+            return {'success': False, 'cancelled': False, 'reason': 'not_found'}
+        if not _try_cancel_ssh_attempt(attempt):
+            return {'success': False, 'cancelled': False, 'reason': 'already_committed'}
+        handle = attempt.get('handle')
     _cancel_ssh_banner_prompt_for_request(
         current_user.id,
         request.sid,
         request_id,
     )
+    if handle is not None:
+        handle.cancel()
     return {'success': True, 'cancelled': True}
 
 
@@ -5497,10 +5622,13 @@ def _start_gateway_quick_connect(data, user, host, port, username, password, key
     registry = app.extensions['ssh_attempt_registry']
     from .ssh_gateway_interaction import GatewayAttempt
     try:
-        attempt = registry.create(
-            user_id, sid, request_id, factory=GatewayAttempt, reserve=True, kind='quick',
-            emit=lambda event, payload: socketio.emit(event, payload, to=sid),
-        )
+        with _ssh_connect_attempts_lock:
+            if (str(user_id), sid, request_id) in _ssh_connect_attempts:
+                raise ValueError('Connection request already in progress')
+            attempt = registry.create(
+                user_id, sid, request_id, factory=GatewayAttempt, reserve=True, kind='quick',
+                emit=lambda event, payload: socketio.emit(event, payload, to=sid),
+            )
     except (ValueError, QuotaExceeded):
         emit('quick_connect_error', {'error': 'Gateway connection limit reached',
                                    'client_request_id': request_id})

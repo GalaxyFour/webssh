@@ -1548,3 +1548,20 @@ def test_normal_profile_save_keeps_pretty_json(app):
             'schema_version': CURRENT_STORAGE_VERSIONS['profiles'],
             'profiles': profiles,
         }, indent=2).encode('utf-8')
+
+
+@pytest.mark.parametrize('username', [{'x': 'y'}, ['alice:target'], {'x': 'y' * 200}])
+def test_malformed_username_update_preserves_existing_profile(app, username):
+    from app import profile_manager
+    user_id = create_user(app, 'profile-validation-regression')
+    with app.app_context():
+        payload = dict(name='Working', host='example.com', port=22,
+                       username='deploy', auth_type='password')
+        profile, error = profile_manager.upsert_profile(user_id, payload)
+        assert error is None
+        updated, error = profile_manager.upsert_profile(user_id, {
+            **payload, 'id': profile['id'], 'username': username,
+        })
+        assert updated is None
+        assert error == 'Invalid username format'
+        assert profile_manager.get_profile(user_id, profile['id']) == profile

@@ -364,8 +364,8 @@ def _validate_profile_payload(user_id, payload, dependent_lock_held=False):
             return None, str(error)
     else:
         username = str(username).strip()
-    if ':' not in username and not re.match(r'^[a-zA-Z0-9_\-\.]{1,32}$', username):
-        return None, 'Invalid username format'
+        if not re.match(r'^[a-zA-Z0-9_\-\.]{1,32}$', username):
+            return None, 'Invalid username format'
     if auth_type not in {'password', 'key', 'tailscale'}:
         return None, 'Invalid auth_type'
     if auth_type == 'tailscale' and payload.get('jump_host_id'):

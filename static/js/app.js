@@ -2092,17 +2092,19 @@
             const passwordAuth = authTypeSelect?.value === 'password';
             const gateway = passwordAuth && validation.isGateway(userInput.value);
             const valid = !passwordAuth || gateway || passwordInput.value.length > 0;
-            passwordInput.required = passwordAuth && !gateway;
             setFieldState(passwordInput, passHint,
                 valid ? '' : i18n.t('connection.passwordRequired'), passwordAuth ? valid : null);
             if (passHint && gateway && !passwordInput.value) {
                 passHint.textContent = i18n.t('gateway.passwordHint', 'Leave the password empty for interactive gateway authentication.');
             }
         };
+        let gatewayPasswordMode = false;
         const validateUser = () => {
             hint(userInput, userHint,
                 validation.isValidUsername(userInput.value, authTypeSelect?.value !== 'tailscale'), 'validation.username');
-            validatePassword();
+            const gateway = validation.isGateway(userInput.value);
+            if (gateway || gatewayPasswordMode) validatePassword();
+            gatewayPasswordMode = gateway;
         };
         hostInput.addEventListener('input', validateHost);
         portInput.addEventListener('input', validatePort);
@@ -2134,7 +2136,8 @@
 
         if (authTypeSelect) {
             authTypeSelect.addEventListener('change', () => {
-                validateUser();
+                if (validation.isGateway(userInput.value)) validateUser();
+                if (authTypeSelect.value === 'password' && passwordInput) validatePassword();
                 if (authTypeSelect.value === 'key' && keySelect) {
                     setFieldState(keySelect, keyHint, keySelect.value ? '' : i18n.t('connection.selectSSHKey'), Boolean(keySelect.value));
                 }

@@ -10,6 +10,11 @@ Connect to an existing Warpgate SSH endpoint using an ordinary WebSSH profile:
 
 No additional service, Compose setting, database migration, or dependency is required. Ordinary SSH, existing jump hosts and Tailscale connections keep their existing paths. A normal SSH jump host may precede a gateway terminal connection; Quick SFTP does not add jump-host or Tailscale support.
 
+The integration is selected only by a validated `user:target` username.
+Ordinary SSH keeps its existing authentication, cancellation and banner-wait
+implementation; ordinary Quick SFTP remains synchronous. Gateway terminal and
+Quick SFTP attempts share their own bounded interaction lifecycle.
+
 ## Security and compatibility boundaries
 
 - Selectors opt in to a separate authentication path. They do not identify a server as trustworthy; existing per-user gateway host-key checks and network restrictions still apply.

@@ -12,7 +12,7 @@ class GatewayCancelled(ValueError):
 
 
 class GatewayAttempt(SSHConnectionAttempt):
-    """Gateway-specific MFA and setup I/O on the shared SSH lifecycle."""
+    """MFA and setup I/O shared by gateway terminals and Quick SFTP."""
 
     timeout = 300
     cancellation_error = GatewayCancelled

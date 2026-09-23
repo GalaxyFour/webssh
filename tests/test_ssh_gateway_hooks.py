@@ -195,3 +195,69 @@ def test_gateway_events_cannot_mutate_an_ordinary_ssh_attempt(app, monkeypatch):
         assert attempt.commit_if_active()
     finally:
         registry.finish(attempt)
+
+
+@pytest.mark.usefixtures('direct_socket_authentication')
+def test_ordinary_connect_does_not_depend_on_gateway_admission(app, monkeypatch):
+    import threading
+    from app import socket_events, ssh_manager
+    from tests.test_command_set_socket_events import create_socket_user, call_socket_handler
+    _, sid = create_socket_user(app, 'ordinary_independent')
+    connected = threading.Event()
+    app.extensions['ssh_attempt_registry'].shutdown()
+    def connect(**kwargs):
+        assert 'gateway_attempt' not in kwargs
+        assert kwargs['password'] == 'secret'
+        connected.set()
+        return None, 'Expected test stop'
+    monkeypatch.setattr(ssh_manager, 'create_ssh_connection', connect)
+    call_socket_handler(app, monkeypatch, socket_events.handle_ssh_connect, sid, {
+        'host': 'host', 'username': 'deploy', 'password': 'secret',
+        'client_request_id': 'ordinary-request',
+    })
+    assert connected.wait(2)
+
+
+@pytest.mark.usefixtures('direct_socket_authentication')
+@pytest.mark.parametrize('first,second', [
+    ('ordinary', 'gateway'), ('gateway', 'ordinary'),
+    ('ordinary', 'quick'), ('quick', 'ordinary'),
+])
+def test_request_id_cannot_cross_ordinary_and_gateway_attempts(app, monkeypatch, first, second):
+    import threading
+    from app import socket_events, ssh_manager
+    from tests.test_command_set_socket_events import create_socket_user, call_socket_handler
+    _, sid = create_socket_user(app, 'request_collision')
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def connect(*args, **kwargs):
+        calls.append(kwargs)
+        entered.set()
+        try:
+            assert release.wait(3)
+            return None, 'Expected test stop'
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(ssh_manager, 'create_ssh_connection', connect)
+    monkeypatch.setattr(socket_events.connection_pool.temp_connection_pool, 'create_connection', connect)
+
+    def start(kind):
+        handler = (socket_events.handle_quick_connect if kind == 'quick'
+                   else socket_events.handle_ssh_connect)
+        return call_socket_handler(app, monkeypatch, handler, sid, {
+            'host': 'host', 'username': 'deploy' if kind == 'ordinary' else 'u:t',
+            'password': 'secret', 'client_request_id': 'same-request',
+            'gateway_interaction': 1,
+        })
+
+    try:
+        start(first)
+        assert entered.wait(2)
+        _, events = start(second)
+        assert len(calls) == 1
+        assert any(name in ('ssh_error', 'quick_connect_error') for name, _ in events)
+    finally:
+        release.set()
+        assert finished.wait(2)
