@@ -23,6 +23,8 @@
             window.ModalManager.close(modal);
             content.replaceChildren();
             active = null;
+        }
+        if (active === null && !document.getElementById('sshAuthBannerModal')?.classList.contains('show')) {
             const next = [...attempts].find(([, pending]) => pending.content);
             if (next) open(next[0]);
         }

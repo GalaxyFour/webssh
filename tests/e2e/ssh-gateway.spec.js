@@ -163,6 +163,62 @@ test('concurrent gateway challenges keep their answers scoped and clear on disco
     expect(await page.evaluate(() => window.SSHGatewayDialog.has('first'))).toBe(false);
 });
 
+for (const outcome of ['declined', 'timed out']) {
+    test(`pending gateway terminal returns after another SSH banner is ${outcome}`, async ({page}) => {
+        await login(page);
+        await page.evaluate(() => {
+            const dispatch = (event, data) => window.socket.listeners(event).forEach(fn => fn(data));
+            window.__gatewayInputs = [];
+            const original = window.socket.emit.bind(window.socket);
+            window.socket.emit = (event, data, ...args) => {
+                if (event === 'ssh_gateway_input') {
+                    window.__gatewayInputs.push(data);
+                    return;
+                }
+                if (event === 'ssh_auth_banner_decision') {
+                    dispatch('ssh_error', {client_request_id: 'reconnect_second', error: 'Banner declined'});
+                    return;
+                }
+                return original(event, data, ...args);
+            };
+            for (const id of ['reconnect_first', 'reconnect_second', 'reconnect_third']) {
+                window.SSHGatewayDialog.prepare({username: 'user:target', client_request_id: id});
+            }
+            dispatch('ssh_gateway_progress', {client_request_id: 'reconnect_first', phase: 'setup'});
+            dispatch('ssh_gateway_challenge', {
+                client_request_id: 'reconnect_second', challenge_id: 'otp', prompts: [{label: 'OTP'}],
+            });
+            dispatch('ssh_auth_banner', {
+                client_request_id: 'reconnect_second', prompt_id: 'banner',
+                banner: 'Access policy', host: 'gateway.local', port: 22,
+            });
+            // An unrelated failure must not bring a gateway prompt above this banner.
+            dispatch('ssh_error', {client_request_id: 'reconnect_third', error: 'Connection failed'});
+        });
+        const gateway = page.locator('#sshGatewayModal');
+        const banner = page.locator('#sshAuthBannerModal');
+        await expect(banner).toHaveClass(/show/);
+        await expect(gateway).not.toHaveClass(/show/);
+        if (outcome === 'declined') {
+            await page.locator('#sshAuthBannerCancel').click();
+        } else {
+            await page.evaluate(() => window.socket.listeners('ssh_error').forEach(fn => fn({
+                client_request_id: 'reconnect_second', error: 'Banner timed out',
+            })));
+        }
+        await expect(banner).not.toHaveClass(/show/);
+        await expect(gateway).toHaveClass(/show/);
+        await expect(gateway.locator('.xterm')).toHaveCount(1);
+        await gateway.locator('.xterm-helper-textarea').press('y');
+        await expect.poll(() => page.evaluate(() => window.__gatewayInputs)).toEqual([
+            {client_request_id: 'reconnect_first', data: 'y'},
+        ]);
+        await page.evaluate(() => window.socket.listeners('disconnect').forEach(fn => fn('transport close')));
+        await expect(gateway).not.toHaveClass(/show/);
+        await expect(gateway.locator('.xterm')).toHaveCount(0);
+    });
+}
+
 test('gateway backdrop click preserves the prompt and its cancel action', async ({page}) => {
     await login(page);
     await page.evaluate(() => {
