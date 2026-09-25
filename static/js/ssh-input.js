@@ -28,6 +28,8 @@
         return chunks;
     }
 
+    function normalizeNewlines(value) { return String(value).replace(/\r\n|\n/g, '\r'); }
+
     function notifyFailure(message) {
         root.showNotification?.(message || 'SSH input could not be sent', 'error');
     }
@@ -128,6 +130,7 @@
     function send(sessionId, value) {
         const socket = observeSocket();
         if (!sessionId || typeof value !== 'string' || !value) return Promise.resolve(false);
+        value = normalizeNewlines(value);
         root.SessionDirectorySync?.noteInput(sessionId, value);
         if (socket?.connected !== true) {
             notifyFailure('SSH input could not be sent because the connection is offline');
