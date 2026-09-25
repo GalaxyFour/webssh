@@ -130,7 +130,6 @@
     function send(sessionId, value) {
         const socket = observeSocket();
         if (!sessionId || typeof value !== 'string' || !value) return Promise.resolve(false);
-        value = normalizeNewlines(value);
         root.SessionDirectorySync?.noteInput(sessionId, value);
         if (socket?.connected !== true) {
             notifyFailure('SSH input could not be sent because the connection is offline');
@@ -171,9 +170,14 @@
         return queued;
     }
 
+    function sendText(sessionId, value) {
+        return send(sessionId, typeof value === 'string' ? normalizeNewlines(value) : value);
+    }
+
     root.SSHInput = Object.freeze({
         byteChunks,
         send,
+        sendText,
         cancelSession,
         hasPending: sessionId => sessionQueues.has(sessionId),
         CHUNK_BYTES,
